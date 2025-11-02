@@ -8,13 +8,18 @@
     "build": "vite build",
     "preview": "vite preview"
   },
-  "keywords": ["chess", "p2p", "webrtc", "peerpigeon", "vue"],
+  "keywords": [
+    "chess",
+    "p2p",
+    "webrtc",
+    "peerpigeon",
+    "vue"
+  ],
   "author": "PeerPigeon Contributors",
   "license": "MIT",
   "dependencies": {
     "chess.js": "^1.4.0",
     "peerpigeon": "^1.0.6",
-    "pigeonnest": "^0.0.2",
     "vue": "^3.5.22"
   },
   "devDependencies": {

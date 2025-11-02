@@ -181,7 +181,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { usePeerPigeon } from 'pigeonnest'
+import { usePeerPigeon } from './composables/usePeerPigeon'
 import ChessBoard from './components/ChessBoard.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import GameHistory from './components/GameHistory.vue'
@@ -211,11 +211,15 @@ const {
   error,
   init,
   connect,
-  sendMessage
+  disconnect,
+  sendMessage,
+  onMessage
 } = usePeerPigeon({
   peerId: myPeerId.value,
   networkName: settings.value.networkName,
-  maxPeers: 10
+  maxPeers: 10,
+  minPeers: 1,
+  enableCrypto: true
 })
 
 // Chess game
@@ -349,14 +353,32 @@ const getResultText = (): string => {
 }
 
 // Message handling
+let unsubscribeMessage: (() => void) | null = null
+
 const handleMessage = (event: any) => {
   try {
-    const message: ChessMessage = JSON.parse(event.data)
+    console.log('Message received:', event)
+    
+    // Extract content properly - PeerPigeon wraps it in an object
+    let content = event.content
+    if (typeof content === 'object') {
+      // Check for encrypted message
+      if (content.encrypted && content.data) {
+        content = content.data
+      } else if (content.message) {
+        content = content.message
+      } else if (content.broadcast && content.data) {
+        content = content.data
+      }
+    }
+    
+    // Try to parse as ChessMessage
+    const message: ChessMessage = typeof content === 'string' ? JSON.parse(content) : content
     
     switch (message.type) {
       case 'gameStart':
         incomingChallenge.value = {
-          from: event.peerId,
+          from: event.from,
           gameId: message.gameId
         }
         break
@@ -381,15 +403,29 @@ const handleMessage = (event: any) => {
 }
 
 onMounted(() => {
-  // Listen for messages
+  // Set up message listener using onMessage composable
+  unsubscribeMessage = onMessage(handleMessage)
+  
+  // Set up mesh event listeners
   if (mesh.value) {
-    mesh.value.addEventListener('message', handleMessage)
+    mesh.value.addEventListener('peerConnected', (e: any) => {
+      console.log('Peer connected:', e.peerId)
+    })
+    
+    mesh.value.addEventListener('peerDisconnected', (e: any) => {
+      console.log('Peer disconnected:', e.peerId)
+    })
+    
+    mesh.value.addEventListener('cryptoReady', () => {
+      console.log('Crypto system ready')
+    })
   }
 })
 
 onUnmounted(() => {
-  if (mesh.value) {
-    mesh.value.removeEventListener('message', handleMessage)
+  if (unsubscribeMessage) {
+    unsubscribeMessage()
+    unsubscribeMessage = null
   }
 })
 </script>
