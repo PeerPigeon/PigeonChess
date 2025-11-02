@@ -45,16 +45,6 @@
         />
       </div>
       
-      <div class="settings-section">
-        <h3>Peer ID (Optional)</h3>
-        <p class="description">Custom identifier for your peer. Leave empty for auto-generation.</p>
-        <input 
-          type="text" 
-          v-model="settings.peerId"
-          placeholder="Auto-generated"
-        />
-      </div>
-      
       <div class="actions">
         <button class="secondary" @click="reset">Reset to Defaults</button>
         <button class="primary" @click="$emit('close')">Close</button>

@@ -47,5 +47,4 @@ export interface GameHistoryEntry {
 export interface Settings {
   signalingUrls: string[]
   networkName: string
-  peerId?: string
 }

@@ -195,13 +195,7 @@ const { settings, addSignalingUrl, removeSignalingUrl, resetToDefaults } = useSe
 const showSettings = ref(false)
 const showHistory = ref(false)
 
-// Generate or load peer ID
-const myPeerId = ref(settings.value.peerId || generatePeerId())
-if (!settings.value.peerId) {
-  settings.value.peerId = myPeerId.value
-}
-
-// PeerPigeon setup
+// PeerPigeon setup - let PeerPigeon generate its own peer ID
 const {
   mesh,
   status,
@@ -215,11 +209,16 @@ const {
   sendMessage,
   onMessage
 } = usePeerPigeon({
-  peerId: myPeerId.value,
+  peerId: settings.value.peerId, // Optional - PeerPigeon will generate if not provided
   networkName: settings.value.networkName,
   maxPeers: 10,
   minPeers: 1,
   enableCrypto: true
+})
+
+// Get the actual peer ID from the mesh after initialization
+const myPeerId = computed(() => {
+  return mesh.value?.peerId || 'Not connected'
 })
 
 // Chess game
