@@ -1,9 +1,9 @@
 export function generateGameId(): string {
-  return `game-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  return `game-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
 }
 
 export function generatePeerId(): string {
-  return `peer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  return `peer-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
 }
 
 export function saveToLocalStorage(key: string, value: any): void {
