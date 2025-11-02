@@ -209,7 +209,7 @@ const {
   sendMessage,
   onMessage
 } = usePeerPigeon({
-  peerId: settings.value.peerId, // Optional - PeerPigeon will generate if not provided
+  // Don't provide a custom peerId - let PeerPigeon generate its own
   networkName: settings.value.networkName,
   maxPeers: 10,
   minPeers: 1,
