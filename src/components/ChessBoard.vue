@@ -2,12 +2,12 @@
   <div class="chess-board-container" :class="{ flipped: flipped }">
     <div class="chess-board" ref="boardRef">
       <div
-        v-for="(row, rowIndex) in 8"
+        v-for="(_, rowIndex) in 8"
         :key="rowIndex"
         class="board-row"
       >
         <div
-          v-for="(col, colIndex) in 8"
+          v-for="(__, colIndex) in 8"
           :key="colIndex"
           class="square"
           :class="{
@@ -35,11 +35,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import type { Chess } from 'chess.js'
+import { ref, watch } from 'vue'
 
 interface Props {
-  chess: Chess
+  chess: any  // Accept any type to handle the ref
   flipped?: boolean
   interactive?: boolean
   showCoordinates?: boolean
@@ -65,14 +64,16 @@ const PIECE_SYMBOLS: Record<string, string> = {
 }
 
 const getSquareName = (row: number, col: number): string => {
-  const actualRow = props.flipped ? row : 7 - row
-  const actualCol = props.flipped ? 7 - col : col
-  return String.fromCharCode(97 + actualCol) + (actualRow + 1)
+  // The visual flip is handled by CSS rotation
+  // So we always use the same coordinate mapping
+  const file = String.fromCharCode(97 + col) // a, b, c, d, e, f, g, h
+  const rank = 8 - row // 8, 7, 6, 5, 4, 3, 2, 1
+  return file + rank
 }
 
 const getPiece = (row: number, col: number) => {
   const square = getSquareName(row, col)
-  return props.chess.get(square)
+  return props.chess.get(square as any)
 }
 
 const getPieceSymbol = (row: number, col: number): string => {
@@ -113,7 +114,7 @@ const handleSquareClick = (row: number, col: number) => {
     } else if (piece && piece.color === props.chess.turn()) {
       // Select a new piece
       selectedSquare.value = square
-      legalMoves.value = props.chess.moves({ square, verbose: true })
+      legalMoves.value = props.chess.moves({ square: square as any, verbose: true })
     } else {
       // Deselect
       selectedSquare.value = null
@@ -122,7 +123,7 @@ const handleSquareClick = (row: number, col: number) => {
   } else if (piece && piece.color === props.chess.turn()) {
     // Select a piece
     selectedSquare.value = square
-    legalMoves.value = props.chess.moves({ square, verbose: true })
+    legalMoves.value = props.chess.moves({ square: square as any, verbose: true })
   }
 }
 
@@ -138,9 +139,10 @@ watch(() => props.chess.fen(), () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
   width: 100%;
+  height: 100%;
   padding: 1rem;
+  box-sizing: border-box;
 }
 
 .chess-board-container.flipped .chess-board {
@@ -156,16 +158,18 @@ watch(() => props.chess.fen(), () => {
 .chess-board {
   display: flex;
   flex-direction: column;
-  aspect-ratio: 1;
-  max-height: 100%;
-  max-width: 100%;
-  border: 2px solid #333;
+  width: 100%;
+  max-width: min(100%, 80vh);
+  max-height: min(100%, 80vh);
+  aspect-ratio: 1 / 1;
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  box-sizing: border-box;
 }
 
 .board-row {
   display: flex;
   flex: 1;
+  width: 100%;
 }
 
 .square {
@@ -176,6 +180,7 @@ watch(() => props.chess.fen(), () => {
   display: flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
 }
 
 .square.light {
@@ -204,9 +209,21 @@ watch(() => props.chess.fen(), () => {
 }
 
 .piece {
-  font-size: clamp(2rem, 5vw, 4rem);
+  font-size: 3rem;
   user-select: none;
   line-height: 1;
+}
+
+@media (min-width: 768px) {
+  .piece {
+    font-size: 4rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .piece {
+    font-size: 4.5rem;
+  }
 }
 
 .rank-label,

@@ -15,9 +15,15 @@
 
     <!-- Connection Status -->
     <div class="status-bar" :class="statusClass">
-      <span class="status-text">{{ statusText }}</span>
+      <div class="status-left">
+        <span class="status-indicator"></span>
+        <span class="status-text">{{ statusText }}</span>
+      </div>
       <span v-if="connectedPeerIds.length > 0" class="peer-count">
-        {{ connectedPeerIds.length }} peer(s) connected
+        👥 {{ connectedPeerIds.length }} {{ connectedPeerIds.length === 1 ? 'peer' : 'peers' }} online
+      </span>
+      <span v-else-if="isConnected" class="peer-count">
+        Searching for peers...
       </span>
     </div>
 
@@ -30,31 +36,24 @@
           <p>Decentralized peer-to-peer chess powered by PeerPigeon</p>
           
           <div class="connection-section">
-            <div v-if="!isConnected">
-              <button 
-                class="primary large"
-                @click="initialize"
-                :disabled="isInitialized"
-              >
-                {{ isInitialized ? 'Initialized' : 'Initialize' }}
-              </button>
-              <button 
-                v-if="isInitialized"
-                class="success large"
-                @click="connectToHub"
-                :disabled="isConnected"
-              >
-                Connect to Network
-              </button>
+            <!-- Loading/Connecting State -->
+            <div v-if="isConnecting || (!isInitialized || !isConnected)" class="connecting-state">
+              <div class="spinner"></div>
+              <p class="connecting-text">{{ statusText }}</p>
             </div>
             
+            <!-- Connected and Ready State -->
             <div v-else class="matchmaking">
-              <h3>Ready to Play!</h3>
-              <p>Waiting for an opponent...</p>
+              <h3>✅ Ready to Play!</h3>
               <p class="peer-id">Your Peer ID: <code>{{ myPeerId }}</code></p>
               
-              <div v-if="connectedPeerIds.length > 0" class="peer-list">
-                <h4>Available Peers:</h4>
+              <div v-if="connectedPeerIds.length === 0" class="waiting-peers">
+                <div class="spinner small"></div>
+                <p>Waiting for opponents to join...</p>
+              </div>
+              
+              <div v-else class="peer-list">
+                <h4>Available Opponents ({{ connectedPeerIds.length }}):</h4>
                 <div 
                   v-for="peerId in connectedPeerIds" 
                   :key="peerId"
@@ -64,16 +63,20 @@
                   <button 
                     class="primary"
                     @click="challengePeer(peerId)"
+                    :disabled="isGameActive"
                   >
-                    Challenge
+                    ⚔️ Challenge
                   </button>
                 </div>
+                <p v-if="isGameActive" class="info-text">
+                  You're currently in a game
+                </p>
               </div>
             </div>
           </div>
           
           <div v-if="error" class="error-message">
-            {{ error }}
+            ⚠️ {{ error }}
           </div>
         </div>
       </div>
@@ -187,7 +190,6 @@ import SettingsModal from './components/SettingsModal.vue'
 import GameHistory from './components/GameHistory.vue'
 import { useChessGame } from './composables/useChessGame'
 import { useSettings } from './composables/useSettings'
-import { generatePeerId } from './utils/helpers'
 import type { ChessMessage } from './types'
 
 // Settings
@@ -198,14 +200,12 @@ const showHistory = ref(false)
 // PeerPigeon setup - let PeerPigeon generate its own peer ID
 const {
   mesh,
-  status,
   isConnected,
   isInitialized,
   connectedPeerIds,
   error,
   init,
   connect,
-  disconnect,
   sendMessage,
   onMessage
 } = usePeerPigeon({
@@ -247,26 +247,44 @@ const statusClass = computed(() => {
 })
 
 const statusText = computed(() => {
-  if (!isInitialized.value) return 'Not initialized'
-  if (!isConnected.value) return 'Connecting...'
+  if (!isInitialized.value) return 'Initializing...'
+  if (!isConnected.value) return 'Connecting to network...'
   return 'Connected to network'
 })
 
-const initialize = async () => {
-  try {
-    await init()
-  } catch (err) {
-    console.error('Failed to initialize:', err)
-  }
-}
+const isConnecting = ref(false)
 
-const connectToHub = async () => {
+const initializeAndConnect = async () => {
+  if (isConnecting.value) return
+  
+  isConnecting.value = true
   try {
-    // Connect to the first signaling URL
-    const url = settings.value.signalingUrls[0]
-    await connect(url)
+    console.log('Auto-initializing...')
+    await init()
+    console.log('Initialized, connecting to signaling...')
+    
+    // Try to connect to signaling servers with retry logic
+    let connected = false
+    for (const url of settings.value.signalingUrls) {
+      try {
+        console.log('Attempting to connect to:', url)
+        await connect(url)
+        connected = true
+        console.log('Connected to:', url)
+        break
+      } catch (err) {
+        console.warn('Failed to connect to', url, err)
+        // Continue to next URL
+      }
+    }
+    
+    if (!connected) {
+      console.error('Failed to connect to any signaling server')
+    }
   } catch (err) {
-    console.error('Failed to connect:', err)
+    console.error('Failed to initialize or connect:', err)
+  } finally {
+    isConnecting.value = false
   }
 }
 
@@ -278,6 +296,12 @@ const formatPeerId = (peerId: string): string => {
 }
 
 const challengePeer = async (peerId: string) => {
+  // Don't allow challenging if already in a game
+  if (currentGame.value && currentGame.value.status === 'active') {
+    alert('You are already in a game!')
+    return
+  }
+  
   const gameInfo = startNewGame(myPeerId.value, peerId)
   
   const message: ChessMessage = {
@@ -295,7 +319,7 @@ const challengePeer = async (peerId: string) => {
 const acceptChallenge = () => {
   if (!incomingChallenge.value) return
   
-  const gameInfo = startNewGame(myPeerId.value, incomingChallenge.value.from)
+  startNewGame(myPeerId.value, incomingChallenge.value.from)
   
   // Override the game ID from the challenge
   if (currentGame.value) {
@@ -354,7 +378,7 @@ const getResultText = (): string => {
 // Message handling
 let unsubscribeMessage: (() => void) | null = null
 
-const handleMessage = (event: any) => {
+const handleMessage = async (event: any) => {
   try {
     console.log('Message received:', event)
     
@@ -376,10 +400,27 @@ const handleMessage = (event: any) => {
     
     switch (message.type) {
       case 'gameStart':
+        // Reject challenge if already in a game
+        if (currentGame.value && currentGame.value.status === 'active') {
+          // Send rejection message
+          const rejectMessage: ChessMessage = {
+            type: 'challengeRejected',
+            gameId: message.gameId
+          }
+          await sendMessage(event.from, JSON.stringify(rejectMessage))
+          break
+        }
+        
         incomingChallenge.value = {
           from: event.from,
           gameId: message.gameId
         }
+        break
+      
+      case 'challengeRejected':
+        // Challenge was rejected
+        alert('Your challenge was rejected. The player is already in a game.')
+        resetGame()
         break
         
       case 'move':
@@ -401,7 +442,7 @@ const handleMessage = (event: any) => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   // Set up message listener using onMessage composable
   unsubscribeMessage = onMessage(handleMessage)
   
@@ -419,6 +460,9 @@ onMounted(() => {
       console.log('Crypto system ready')
     })
   }
+  
+  // Auto-initialize and connect on mount
+  await initializeAndConnect()
 })
 
 onUnmounted(() => {
@@ -458,13 +502,36 @@ onUnmounted(() => {
 }
 
 .status-bar {
-  padding: 0.5rem 2rem;
+  padding: 0.75rem 2rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   font-weight: 500;
   transition: background-color 0.3s;
+}
+
+.status-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.peer-count {
+  font-weight: 600;
 }
 
 .status-disconnected {
@@ -520,6 +587,39 @@ onUnmounted(() => {
   align-items: center;
 }
 
+.connecting-state {
+  text-align: center;
+  padding: 2rem;
+}
+
+.connecting-text {
+  margin-top: 1rem;
+  color: var(--primary-color);
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+
+.spinner {
+  width: 60px;
+  height: 60px;
+  border: 4px solid var(--light-color);
+  border-top: 4px solid var(--primary-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto;
+}
+
+.spinner.small {
+  width: 30px;
+  height: 30px;
+  border-width: 3px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 button.large {
   padding: 0.75rem 2rem;
   font-size: 1.1rem;
@@ -527,7 +627,17 @@ button.large {
 
 .matchmaking h3 {
   margin-bottom: 0.5rem;
-  color: var(--dark-color);
+  color: var(--success-color);
+  font-size: 1.5rem;
+}
+
+.waiting-peers {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem;
+  color: var(--secondary-color);
 }
 
 .matchmaking > p {
@@ -551,28 +661,47 @@ button.large {
 .peer-list {
   width: 100%;
   margin-top: 1.5rem;
+  max-width: 500px;
 }
 
 .peer-list h4 {
   text-align: left;
   margin-bottom: 1rem;
   color: var(--dark-color);
+  font-size: 1.1rem;
 }
 
 .peer-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.75rem;
+  padding: 1rem;
   background: var(--light-color);
-  border-radius: 4px;
+  border-radius: 8px;
   margin-bottom: 0.5rem;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.peer-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
 .peer-name {
   font-family: monospace;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   color: var(--dark-color);
+  font-weight: 500;
+}
+
+.info-text {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: var(--info-color);
+  color: white;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 0.9rem;
 }
 
 .error-message {
@@ -598,6 +727,8 @@ button.large {
   flex-direction: column;
   gap: 1rem;
   min-width: 0;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 .player-info {
@@ -638,11 +769,13 @@ button.large {
   flex: 1;
   background: rgba(255, 255, 255, 0.95);
   border-radius: 8px;
-  padding: 0.5rem;
+  padding: 1rem;
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 0;
+  overflow: hidden;
+  max-height: 100%;
 }
 
 .game-controls {

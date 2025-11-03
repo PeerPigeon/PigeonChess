@@ -1,5 +1,3 @@
-import type { Chess } from 'chess.js'
-
 export interface GameState {
   id: string
   playerWhite: string | null
@@ -25,7 +23,7 @@ export interface Move {
 }
 
 export interface ChessMessage {
-  type: 'move' | 'gameStart' | 'gameEnd' | 'resign' | 'offerDraw' | 'acceptDraw' | 'rejectDraw'
+  type: 'move' | 'gameStart' | 'gameEnd' | 'resign' | 'offerDraw' | 'acceptDraw' | 'rejectDraw' | 'challengeRejected'
   gameId: string
   data?: any
 }
