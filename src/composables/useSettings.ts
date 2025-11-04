@@ -163,9 +163,10 @@ const getMoveDotColor = (hexColor: string): string => {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  signalingUrls: ['wss://pigeonhub.fly.dev', 'wss://pigeonhub-server-3c044110c06f.herokuapp.com'],
+  signalingUrls: ['wss://pigeonhub.fly.dev', 'wss://pigeonhub-c.fly.dev'],
   networkName: 'pigeonchess',
-  boardTheme: 'blue'
+  boardTheme: 'blue',
+  soundEnabled: true
 }
 
 export function useSettings() {
@@ -287,6 +288,10 @@ export function useSettings() {
     }
   }
 
+  const toggleSound = (enabled: boolean) => {
+    settings.value.soundEnabled = enabled
+  }
+
   return {
     settings,
     boardThemes: BOARD_THEMES,
@@ -298,6 +303,7 @@ export function useSettings() {
     setCustomColors,
     setPieceColors,
     setPieceOutlines,
-    setPieceTheme
+    setPieceTheme,
+    toggleSound
   }
 }

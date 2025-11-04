@@ -138,7 +138,12 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     }
     
     const messageStr = typeof message === 'string' ? message : JSON.stringify(message)
-    await mesh.value.sendEncryptedBroadcast(messageStr)
+    // Try unencrypted broadcast first, fall back to encrypted if available
+    if (mesh.value.sendBroadcast) {
+      await mesh.value.sendBroadcast(messageStr)
+    } else {
+      await mesh.value.sendEncryptedBroadcast(messageStr)
+    }
   }
 
   const onMessage = (handler: (event: any) => void) => {

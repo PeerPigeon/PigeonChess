@@ -36,6 +36,20 @@
       </div>
       
       <div class="settings-section">
+        <h3>Sound Effects</h3>
+        <p class="description">Enable or disable game sound effects.</p>
+        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+          <input 
+            type="checkbox" 
+            :checked="settings.soundEnabled !== false"
+            @change="toggleSound"
+            style="width: 20px; height: 20px; cursor: pointer;"
+          />
+          <span>Enable sound effects</span>
+        </label>
+      </div>
+      
+      <div class="settings-section">
         <h3>Network Name</h3>
         <p class="description">The network namespace for game isolation.</p>
         <input 
@@ -226,6 +240,7 @@ const emit = defineEmits<{
   updateCustomColors: [lightSquare: string, darkSquare: string]
   updatePieceColors: [whiteColor: string, blackColor: string]
   updatePieceOutlines: [whiteOutline: string, blackOutline: string]
+  toggleSound: [enabled: boolean]
 }>()
 
 const newUrl = ref('')
@@ -269,6 +284,11 @@ const updatePieceColors = () => {
 
 const updatePieceOutlines = () => {
   emit('updatePieceOutlines', customWhitePieceOutline.value, customBlackPieceOutline.value)
+}
+
+const toggleSound = (event: Event) => {
+  const enabled = (event.target as HTMLInputElement).checked
+  emit('toggleSound', enabled)
 }
 </script>
 

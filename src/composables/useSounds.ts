@@ -1,10 +1,10 @@
-import { ref } from 'vue'
-
-const soundEnabled = ref(true)
+import { useSettings } from './useSettings'
 
 export function useSounds() {
+  const { settings } = useSettings()
+  
   const playMoveSound = () => {
-    if (!soundEnabled.value) return
+    if (settings.value.soundEnabled === false) return
     const audio = new Audio('/sounds/move.mp3')
     audio.volume = 0.5
     audio.play().catch((err) => {
@@ -13,7 +13,7 @@ export function useSounds() {
   }
 
   const playCaptureSound = () => {
-    if (!soundEnabled.value) return
+    if (settings.value.soundEnabled === false) return
     const audio = new Audio('/sounds/capture.mp3')
     audio.volume = 0.5
     audio.play().catch((err) => {
@@ -22,7 +22,7 @@ export function useSounds() {
   }
 
   const playCastleSound = () => {
-    if (!soundEnabled.value) return
+    if (settings.value.soundEnabled === false) return
     // Play move sound twice with slight delay for castling (king + rook moving)
     const audio1 = new Audio('/sounds/move.mp3')
     audio1.volume = 0.5
@@ -39,15 +39,9 @@ export function useSounds() {
     }, 100) // 100ms delay between sounds
   }
 
-  const toggleSound = () => {
-    soundEnabled.value = !soundEnabled.value
-  }
-
   return {
-    soundEnabled,
     playMoveSound,
     playCaptureSound,
-    playCastleSound,
-    toggleSound
+    playCastleSound
   }
 }

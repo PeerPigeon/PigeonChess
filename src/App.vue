@@ -19,8 +19,8 @@
         <span class="status-indicator"></span>
         <span class="status-text">{{ statusText }}</span>
       </div>
-      <span v-if="connectedPeerIds.length > 0" class="peer-count">
-        👥 {{ connectedPeerIds.length }} {{ connectedPeerIds.length === 1 ? 'peer' : 'peers' }} online
+      <span v-if="allKnownPeers.size > 0" class="peer-count">
+        👥 {{ allKnownPeers.size }} {{ allKnownPeers.size === 1 ? 'peer' : 'peers' }} online
       </span>
       <span v-else-if="isConnected" class="peer-count">
         Searching for peers...
@@ -76,12 +76,12 @@
                 <div v-else class="searching-indicator">
                   <div class="spinner small"></div>
                   <p>Searching for opponent with {{ selectedTimeControlDisplay }}...</p>
-                  <p v-if="connectedPeerIds.length === 0" class="waiting-text">Waiting for peers to connect...</p>
+                  <p v-if="allKnownPeers.size === 0" class="waiting-text">Waiting for peers to connect...</p>
                   <button class="secondary" @click="stopSearching">Cancel</button>
                 </div>
               </div>
               
-              <div v-if="connectedPeerIds.length === 0" class="waiting-peers">
+              <div v-if="allKnownPeers.size === 0" class="waiting-peers">
                 <div class="spinner small"></div>
                 <p>Waiting for peers to connect...</p>
               </div>
@@ -254,6 +254,7 @@
       @update-custom-colors="setCustomColors"
       @update-piece-colors="setPieceColors"
       @update-piece-outlines="setPieceOutlines"
+      @toggle-sound="toggleSound"
     />
     
     <GameHistory
@@ -366,7 +367,7 @@ import { useSettings } from './composables/useSettings'
 import type { ChessMessage } from './types'
 
 // Settings
-const { settings, boardThemes, pieceThemes, addSignalingUrl, removeSignalingUrl, resetToDefaults, setBoardTheme, setCustomColors, setPieceColors, setPieceOutlines, setPieceTheme } = useSettings()
+const { settings, boardThemes, pieceThemes, addSignalingUrl, removeSignalingUrl, resetToDefaults, setBoardTheme, setCustomColors, setPieceColors, setPieceOutlines, setPieceTheme, toggleSound } = useSettings()
 const showSettings = ref(false)
 const showHistory = ref(false)
 
@@ -380,6 +381,7 @@ const {
   init,
   connect,
   sendMessage,
+  broadcast,
   onMessage,
   onPeerConnect
 } = usePeerPigeon({
@@ -437,25 +439,91 @@ const stopSearching = () => {
 const broadcastSearchStatus = async () => {
   const message = {
     type: 'matchmaking',
+    peerId: myPeerId.value,
     searching: isSearching.value,
     timeControl: isSearching.value ? selectedTimeControl.value : null
   }
   
-  console.log('Broadcasting search status:', message, 'to', connectedPeerIds.value.length, 'peers')
+  console.log('Broadcasting search status:', message, 'to all peers in network')
   
-  // Broadcast to all connected peers
-  for (const peerId of connectedPeerIds.value) {
-    try {
-      await sendMessage(peerId, JSON.stringify(message))
-      console.log('Sent to peer:', peerId)
-    } catch (err) {
-      console.error('Failed to broadcast search status to', peerId, err)
-    }
+  try {
+    await broadcast(JSON.stringify(message))
+    console.log('Search status broadcasted to network')
+  } catch (err) {
+    console.error('Failed to broadcast search status:', err)
   }
 }
 
 // Track which peers are searching and what time control they want
 const peerSearchStatus = ref<Map<string, string | null>>(new Map())
+
+// Track all known peers in the network (direct + indirect via gossip)
+const allKnownPeers = ref<Set<string>>(new Set())
+const peerLastSeen = ref<Map<string, number>>(new Map())
+
+// Clean up stale peers every 10 seconds
+let staleCheckInterval: ReturnType<typeof setInterval> | null = null
+
+const cleanupStalePeers = () => {
+  const now = Date.now()
+  const staleThreshold = 15000 // 15 seconds
+  
+  for (const [peerId, lastSeen] of peerLastSeen.value.entries()) {
+    if (now - lastSeen > staleThreshold) {
+      allKnownPeers.value.delete(peerId)
+      peerLastSeen.value.delete(peerId)
+      console.log('Removed stale peer:', peerId)
+    }
+  }
+}
+
+// Broadcast peer presence every 5 seconds
+let presenceInterval: ReturnType<typeof setInterval> | null = null
+
+const broadcastPresence = async () => {
+  if (!myPeerId.value || !mesh.value) return
+  
+  const message = {
+    type: 'peer_presence',
+    peerId: myPeerId.value,
+    timestamp: Date.now()
+  }
+  
+  try {
+    await broadcast(JSON.stringify(message))
+  } catch (err) {
+    // Silently fail if crypto/group key not ready yet
+    // This is normal during initial connection
+  }
+}
+
+const startPresenceBroadcast = () => {
+  // Add self to known peers immediately
+  if (myPeerId.value) {
+    allKnownPeers.value.add(myPeerId.value)
+    peerLastSeen.value.set(myPeerId.value, Date.now())
+  }
+  
+  // Broadcast immediately
+  broadcastPresence()
+  
+  // Then every 5 seconds
+  presenceInterval = setInterval(broadcastPresence, 5000)
+  
+  // Start stale peer cleanup
+  staleCheckInterval = setInterval(cleanupStalePeers, 10000)
+}
+
+const stopPresenceBroadcast = () => {
+  if (presenceInterval) {
+    clearInterval(presenceInterval)
+    presenceInterval = null
+  }
+  if (staleCheckInterval) {
+    clearInterval(staleCheckInterval)
+    staleCheckInterval = null
+  }
+}
 
 // Chess game
 const {
@@ -699,23 +767,28 @@ const initializeAndConnect = async () => {
     await init()
     console.log('Initialized, connecting to signaling...')
     
-    // Try to connect to signaling servers with retry logic
-    let connected = false
-    for (const url of settings.value.signalingUrls) {
+    // Connect to ALL signaling servers to discover more peers
+    let connectedCount = 0
+    const connectionPromises = settings.value.signalingUrls.map(async (url) => {
       try {
         console.log('Attempting to connect to:', url)
         await connect(url)
-        connected = true
+        connectedCount++
         console.log('Connected to:', url)
-        break
       } catch (err) {
         console.warn('Failed to connect to', url, err)
-        // Continue to next URL
       }
-    }
+    })
     
-    if (!connected) {
+    // Wait for all connection attempts to complete
+    await Promise.allSettled(connectionPromises)
+    
+    if (connectedCount === 0) {
       console.error('Failed to connect to any signaling server')
+    } else {
+      console.log(`Connected to ${connectedCount} signaling server(s)`)
+      // Start broadcasting presence when connected
+      startPresenceBroadcast()
     }
   } catch (err) {
     console.error('Failed to initialize or connect:', err)
@@ -941,17 +1014,33 @@ const handleMessage = async (event: any) => {
     // Try to parse as ChessMessage or matchmaking message
     const message: any = typeof content === 'string' ? JSON.parse(content) : content
     
+    // Handle peer presence messages
+    if (message.type === 'peer_presence') {
+      if (message.peerId && message.peerId !== myPeerId.value) {
+        allKnownPeers.value.add(message.peerId)
+        peerLastSeen.value.set(message.peerId, Date.now())
+        console.log('Peer presence received from:', message.peerId, '| Total peers:', allKnownPeers.value.size)
+      }
+      return // Don't process further
+    }
+    
     // Handle matchmaking messages
     if (message.type === 'matchmaking') {
+      const senderPeerId = message.peerId || fromPeer
+      
+      if (!senderPeerId || senderPeerId === myPeerId.value) {
+        return // Ignore our own messages or messages without peer ID
+      }
+      
       if (message.searching) {
-        peerSearchStatus.value.set(fromPeer, message.timeControl)
+        peerSearchStatus.value.set(senderPeerId, message.timeControl)
         
         // Check if we're both searching for the same time control
         if (isSearching.value && message.timeControl === selectedTimeControl.value && !isGameActive.value) {
-          console.log('Match found with', fromPeer, 'for', message.timeControl)
+          console.log('Match found with', senderPeerId, 'for', message.timeControl)
           
           // Only the peer with the lower ID initiates the game to avoid race conditions
-          if (myPeerId.value < fromPeer) {
+          if (myPeerId.value < senderPeerId) {
             console.log('I am initiator, starting game...')
             isSearching.value = false
             
@@ -971,19 +1060,19 @@ const handleMessage = async (event: any) => {
               gameId: gameId,
               data: {
                 whitePlayer: myPeerId.value,
-                blackPlayer: fromPeer,
+                blackPlayer: senderPeerId,
                 timeControl: timeControl
               }
             }
             
             try {
-              await sendMessage(fromPeer, JSON.stringify(gameStartMessage))
+              await sendMessage(senderPeerId, JSON.stringify(gameStartMessage))
               
               // Start the game locally
               resetTimers()
               // I am white (lower peer ID), opponent is black
-              startNewGame(myPeerId.value, fromPeer, 'white')
-              opponentId.value = fromPeer
+              startNewGame(myPeerId.value, senderPeerId, 'white')
+              opponentId.value = senderPeerId
               startTimer()
               broadcastSearchStatus() // Stop broadcasting search
             } catch (err) {
@@ -991,7 +1080,7 @@ const handleMessage = async (event: any) => {
               isSearching.value = true // Resume searching on error
             }
           } else {
-            console.log('Peer', fromPeer, 'will initiate game, stopping my search')
+            console.log('Peer', senderPeerId, 'will initiate game, stopping my search')
             // The other peer will send us a gameStart message
             // Stop searching and wait for their gameStart message
             isSearching.value = false
@@ -999,7 +1088,7 @@ const handleMessage = async (event: any) => {
           }
         }
       } else {
-        peerSearchStatus.value.delete(fromPeer)
+        peerSearchStatus.value.delete(senderPeerId)
       }
       return
     }
@@ -1196,6 +1285,7 @@ onUnmounted(() => {
   if (timerInterval) {
     clearInterval(timerInterval)
   }
+  stopPresenceBroadcast()
 })
 </script>
 

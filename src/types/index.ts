@@ -58,6 +58,7 @@ export interface Settings {
   customWhitePieceOutline?: string
   customBlackPieceOutline?: string
   pieceTheme?: string
+  soundEnabled?: boolean
 }
 
 export interface BoardTheme {
