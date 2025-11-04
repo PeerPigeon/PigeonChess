@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import { Chess } from 'chess.js'
-import type { GameState, Player, Move, ChessMessage, GameHistoryEntry } from '@/types'
+import type { GameState, Player, Move, GameHistoryEntry } from '@/types'
 import { generateGameId, saveToLocalStorage, loadFromLocalStorage } from '@/utils/helpers'
 
 export function useChessGame() {
@@ -19,14 +19,13 @@ export function useChessGame() {
     return currentGame.value?.status === 'active'
   })
 
-  const startNewGame = (peerId: string, opponentPeerId: string) => {
-    // Randomly assign colors
-    const isWhite = Math.random() < 0.5
-    const myColor = isWhite ? 'white' : 'black'
+  const startNewGame = (peerId: string, opponentPeerId: string, myColor?: 'white' | 'black') => {
+    // Use provided color or randomly assign
+    const assignedColor = myColor || (Math.random() < 0.5 ? 'white' : 'black')
     
     myPlayer.value = {
       id: peerId,
-      color: myColor
+      color: assignedColor
     }
     
     opponentId.value = opponentPeerId
@@ -36,8 +35,8 @@ export function useChessGame() {
     
     currentGame.value = {
       id: gameId,
-      playerWhite: isWhite ? peerId : opponentPeerId,
-      playerBlack: isWhite ? opponentPeerId : peerId,
+      playerWhite: assignedColor === 'white' ? peerId : opponentPeerId,
+      playerBlack: assignedColor === 'white' ? opponentPeerId : peerId,
       currentTurn: 'white',
       status: 'active',
       moves: [],
@@ -45,7 +44,7 @@ export function useChessGame() {
       createdAt: Date.now()
     }
     
-    return { gameId, myColor, opponentColor: myColor === 'white' ? 'black' : 'white' }
+    return { gameId, myColor: assignedColor, opponentColor: assignedColor === 'white' ? 'black' : 'white' }
   }
 
   const makeMove = (move: Move): boolean => {
@@ -169,7 +168,7 @@ export function useChessGame() {
   }
 
   const getLegalMoves = (square: string) => {
-    return chess.value.moves({ square, verbose: true })
+    return chess.value.moves({ square: square as any, verbose: true })
   }
 
   return {

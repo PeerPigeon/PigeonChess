@@ -19,9 +19,13 @@
           }"
           @click="handleSquareClick(rowIndex, colIndex)"
         >
-          <div v-if="getPiece(rowIndex, colIndex)" class="piece">
-            {{ getPieceSymbol(rowIndex, colIndex) }}
-          </div>
+          <img 
+            v-if="getPiece(rowIndex, colIndex)" 
+            class="piece"
+            :src="getPieceImage(rowIndex, colIndex)"
+            :alt="getPieceSymbol(rowIndex, colIndex)"
+            draggable="false"
+          />
           <div v-if="showCoordinates && colIndex === 0" class="rank-label">
             {{ 8 - rowIndex }}
           </div>
@@ -36,6 +40,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useSounds } from '../composables/useSounds'
 
 interface Props {
   chess: any  // Accept any type to handle the ref
@@ -53,6 +58,8 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   move: [from: string, to: string]
 }>()
+
+const { playMoveSound, playCaptureSound, playCastleSound } = useSounds()
 
 const boardRef = ref<HTMLElement>()
 const selectedSquare = ref<string | null>(null)
@@ -82,6 +89,13 @@ const getPieceSymbol = (row: number, col: number): string => {
   return PIECE_SYMBOLS[`${piece.color}${piece.type}`] || ''
 }
 
+const getPieceImage = (row: number, col: number): string => {
+  const piece = getPiece(row, col)
+  if (!piece) return ''
+  const pieceKey = `${piece.color}${piece.type}`
+  return `/pieces/${pieceKey}.svg`
+}
+
 const isSquareSelected = (row: number, col: number): boolean => {
   return selectedSquare.value === getSquareName(row, col)
 }
@@ -101,12 +115,32 @@ const handleSquareClick = (row: number, col: number) => {
   const square = getSquareName(row, col)
   const piece = getPiece(row, col)
   
+  // If clicking the same square, deselect it
+  if (selectedSquare.value === square) {
+    selectedSquare.value = null
+    legalMoves.value = []
+    return
+  }
+  
   // If a square is already selected
   if (selectedSquare.value) {
     // Check if clicking on a legal move destination
-    const isLegalMove = legalMoves.value.some(move => move.to === square)
+    const move = legalMoves.value.find(m => m.to === square)
     
-    if (isLegalMove) {
+    if (move) {
+      // Check if it's a capture move using chess.js flags
+      const isCapture = move.captured !== undefined
+      const isCastle = move.flags.includes('k') || move.flags.includes('q')
+      
+      // Play appropriate sound
+      if (isCastle) {
+        playCastleSound()
+      } else if (isCapture) {
+        playCaptureSound()
+      } else {
+        playMoveSound()
+      }
+      
       // Make the move
       emit('move', selectedSquare.value, square)
       selectedSquare.value = null
@@ -141,7 +175,6 @@ watch(() => props.chess.fen(), () => {
   justify-content: center;
   width: 100%;
   height: 100%;
-  padding: 1rem;
   box-sizing: border-box;
 }
 
@@ -156,24 +189,23 @@ watch(() => props.chess.fen(), () => {
 }
 
 .chess-board {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-width: min(100%, 80vh);
-  max-height: min(100%, 80vh);
+  display: grid;
+  grid-template-rows: repeat(8, 1fr);
+  grid-template-columns: repeat(8, 1fr);
+  width: min(100%, 100vh - 210px);
+  height: min(100%, 100vh - 210px);
   aspect-ratio: 1 / 1;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
   box-sizing: border-box;
+  border-radius: 4px;
+  overflow: hidden;
 }
 
 .board-row {
-  display: flex;
-  flex: 1;
-  width: 100%;
+  display: contents;
 }
 
 .square {
-  flex: 1;
+  aspect-ratio: 1 / 1;
   position: relative;
   cursor: pointer;
   transition: background-color 0.2s;
@@ -181,6 +213,8 @@ watch(() => props.chess.fen(), () => {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
+  width: 100%;
+  height: 100%;
 }
 
 .square.light {
@@ -193,10 +227,7 @@ watch(() => props.chess.fen(), () => {
 
 .square.selected {
   background-color: var(--board-selected) !important;
-}
-
-.square.highlight {
-  background-color: var(--board-highlight) !important;
+  box-shadow: inset 0 0 0 3px rgba(99, 102, 241, 0.6);
 }
 
 .square.legal-move::after {
@@ -205,24 +236,42 @@ watch(() => props.chess.fen(), () => {
   width: 30%;
   height: 30%;
   border-radius: 50%;
-  background-color: rgba(0, 0, 0, 0.2);
+  background: rgba(255, 255, 255, 1);
+  pointer-events: none;
 }
 
+.square.legal-move:hover::after {
+  background: rgba(255, 255, 255, 1);
+}
+
+
 .piece {
-  font-size: 3rem;
+  width: 85%;
+  height: 85%;
   user-select: none;
-  line-height: 1;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+}
+
+.chess-board-container.flipped .square:hover .piece {
+  transform: rotate(180deg) scale(1.05);
+}
+
+.square:hover .piece {
+  transform: scale(1.05);
 }
 
 @media (min-width: 768px) {
   .piece {
-    font-size: 4rem;
+    width: 85%;
+    height: 85%;
   }
 }
 
 @media (min-width: 1024px) {
   .piece {
-    font-size: 4.5rem;
+    width: 85%;
+    height: 85%;
   }
 }
 

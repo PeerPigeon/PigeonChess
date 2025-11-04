@@ -47,30 +47,43 @@
               <h3>✅ Ready to Play!</h3>
               <p class="peer-id">Your Peer ID: <code>{{ myPeerId }}</code></p>
               
-              <div v-if="connectedPeerIds.length === 0" class="waiting-peers">
-                <div class="spinner small"></div>
-                <p>Waiting for opponents to join...</p>
-              </div>
-              
-              <div v-else class="peer-list">
-                <h4>Available Opponents ({{ connectedPeerIds.length }}):</h4>
-                <div 
-                  v-for="peerId in connectedPeerIds" 
-                  :key="peerId"
-                  class="peer-item"
-                >
-                  <span class="peer-name">{{ formatPeerId(peerId) }}</span>
+              <!-- Time Control Selector -->
+              <div class="time-control-section">
+                <h4>Select Time Control</h4>
+                <div class="time-controls">
                   <button 
-                    class="primary"
-                    @click="challengePeer(peerId)"
-                    :disabled="isGameActive"
+                    v-for="control in timeControls" 
+                    :key="control.id"
+                    class="time-control-btn"
+                    :class="{ active: selectedTimeControl === control.id }"
+                    @click="selectTimeControl(control.id)"
                   >
-                    ⚔️ Challenge
+                    <span class="control-name">{{ control.name }}</span>
+                    <span class="control-time">{{ control.display }}</span>
                   </button>
                 </div>
-                <p v-if="isGameActive" class="info-text">
-                  You're currently in a game
-                </p>
+              </div>
+              
+              <!-- Search Button -->
+              <div class="search-section">
+                <button 
+                  v-if="!isSearching"
+                  class="primary search-btn"
+                  @click="startSearching"
+                  :disabled="connectedPeerIds.length === 0"
+                >
+                  🔍 Search for Game
+                </button>
+                <div v-else class="searching-indicator">
+                  <div class="spinner small"></div>
+                  <p>Searching for opponent with {{ selectedTimeControlDisplay }}...</p>
+                  <button class="secondary" @click="stopSearching">Cancel</button>
+                </div>
+              </div>
+              
+              <div v-if="connectedPeerIds.length === 0" class="waiting-peers">
+                <div class="spinner small"></div>
+                <p>Waiting for peers to connect...</p>
               </div>
             </div>
           </div>
@@ -84,14 +97,6 @@
       <!-- Game Screen -->
       <div v-else class="game-screen">
         <div class="game-info">
-          <div class="player-info">
-            <div class="player-card" :class="{ active: !isMyTurn }">
-              <span class="player-icon">{{ myPlayer?.color === 'white' ? '♚' : '♔' }}</span>
-              <span class="player-label">Opponent</span>
-              <span class="player-name">{{ formatPeerId(opponentId || 'Unknown') }}</span>
-            </div>
-          </div>
-          
           <div class="board-container">
             <ChessBoard 
               :chess="chess"
@@ -100,17 +105,41 @@
               @move="handleMove"
             />
           </div>
-          
-          <div class="player-info">
-            <div class="player-card" :class="{ active: isMyTurn }">
-              <span class="player-icon">{{ myPlayer?.color === 'white' ? '♔' : '♚' }}</span>
-              <span class="player-label">You</span>
-              <span class="player-name">{{ myPlayer?.color }}</span>
-            </div>
-          </div>
         </div>
         
         <div class="game-controls">
+          <!-- Top Timer (opponent's clock, at top of board visually) -->
+          <div class="timer-section opponent-timer" :class="{ active: !isMyTurn }">
+            <div class="timer-display">
+              <span class="timer-icon">{{ myPlayer?.color === 'black' ? '♔' : '♚' }}</span>
+              <span class="timer-time">{{ formatTime(opponentTime) }}</span>
+            </div>
+            <div class="timer-label">Opponent</div>
+          </div>
+          
+          <div class="player-section">
+            <h4>Players</h4>
+            <div class="player-info">
+              <div class="player-display">
+                <span class="player-display-icon">{{ myPlayer?.color === 'white' ? '♔' : '♚' }}</span>
+                <span class="player-display-color">You ({{ myPlayer?.color }})</span>
+              </div>
+              <div class="opponent-display">
+                <span class="opponent-icon">{{ myPlayer?.color === 'white' ? '♚' : '♔' }}</span>
+                <span class="opponent-name">{{ formatPeerId(opponentId || 'Unknown') }}</span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Bottom Timer (my clock, at bottom of board visually) -->
+          <div class="timer-section my-timer" :class="{ active: isMyTurn }">
+            <div class="timer-display">
+              <span class="timer-icon">{{ myPlayer?.color === 'white' ? '♔' : '♚' }}</span>
+              <span class="timer-time">{{ formatTime(myTime) }}</span>
+            </div>
+            <div class="timer-label">You</div>
+          </div>
+          
           <div v-if="currentGame?.status === 'finished'" class="game-result">
             <h3>Game Over!</h3>
             <p class="result-text">
@@ -126,9 +155,17 @@
               <span v-if="isMyTurn" class="your-turn">Your Turn</span>
               <span v-else class="opponent-turn">Opponent's Turn</span>
             </div>
-            <button class="danger" @click="handleResign">
-              Resign
-            </button>
+            <div class="control-buttons">
+              <button class="secondary" @click="offerDraw">
+                🤝 Offer Draw
+              </button>
+              <button class="secondary" @click="offerTakeback">
+                ↩️ Request Takeback
+              </button>
+              <button class="danger" @click="handleResign">
+                Resign
+              </button>
+            </div>
           </div>
           
           <div class="moves-history">
@@ -179,11 +216,86 @@
         </div>
       </div>
     </div>
+    
+    <!-- Already in Game Modal -->
+    <div v-if="showAlreadyInGameModal" class="modal-overlay">
+      <div class="modal info-modal">
+        <h2>Already in Game</h2>
+        <p>You are already in an active game. Finish your current game before starting a new one.</p>
+        <div class="actions">
+          <button class="primary" @click="showAlreadyInGameModal = false">
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Resign Confirmation Modal -->
+    <div v-if="showResignConfirmModal" class="modal-overlay">
+      <div class="modal confirm-modal">
+        <h2>Resign Game?</h2>
+        <p>Are you sure you want to resign? This will end the game and count as a loss.</p>
+        <div class="actions">
+          <button class="secondary" @click="showResignConfirmModal = false">
+            Cancel
+          </button>
+          <button class="danger" @click="confirmResign">
+            Resign
+          </button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Draw Offer Modal -->
+    <div v-if="incomingDrawOffer" class="modal-overlay">
+      <div class="modal offer-modal">
+        <h2>Draw Offered</h2>
+        <p>{{ formatPeerId(incomingDrawOffer.from) }} is offering a draw.</p>
+        <div class="actions">
+          <button class="danger" @click="declineDrawOffer">
+            Decline
+          </button>
+          <button class="success" @click="acceptDrawOffer">
+            Accept Draw
+          </button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Takeback Request Modal -->
+    <div v-if="incomingTakebackRequest" class="modal-overlay">
+      <div class="modal offer-modal">
+        <h2>Takeback Requested</h2>
+        <p>{{ formatPeerId(incomingTakebackRequest.from) }} requests to undo their last move.</p>
+        <div class="actions">
+          <button class="danger" @click="declineTakebackRequest">
+            Decline
+          </button>
+          <button class="success" @click="acceptTakebackRequest">
+            Accept
+          </button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Challenge Rejected Modal -->
+    <div v-if="showChallengeRejectedModal" class="modal-overlay">
+      <div class="modal info-modal">
+        <h2>Challenge Rejected</h2>
+        <p>Your challenge was rejected. The player is already in a game.</p>
+        <div class="actions">
+          <button class="primary" @click="showChallengeRejectedModal = false">
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { Chess } from 'chess.js'
 import { usePeerPigeon } from './composables/usePeerPigeon'
 import ChessBoard from './components/ChessBoard.vue'
 import SettingsModal from './components/SettingsModal.vue'
@@ -221,6 +333,65 @@ const myPeerId = computed(() => {
   return mesh.value?.peerId || 'Not connected'
 })
 
+// Time controls
+const timeControls = [
+  { id: 'bullet1', name: 'Bullet', display: '1+0', minutes: 1, increment: 0 },
+  { id: 'bullet2', name: 'Bullet', display: '2+1', minutes: 2, increment: 1 },
+  { id: 'blitz3', name: 'Blitz', display: '3+0', minutes: 3, increment: 0 },
+  { id: 'blitz5', name: 'Blitz', display: '5+0', minutes: 5, increment: 0 },
+  { id: 'rapid10', name: 'Rapid', display: '10+0', minutes: 10, increment: 0 },
+  { id: 'rapid15', name: 'Rapid', display: '15+10', minutes: 15, increment: 10 },
+  { id: 'classical30', name: 'Classical', display: '30+0', minutes: 30, increment: 0 }
+]
+const selectedTimeControl = ref('blitz5')
+const isSearching = ref(false)
+
+const selectedTimeControlDisplay = computed(() => {
+  return timeControls.find(tc => tc.id === selectedTimeControl.value)?.display || ''
+})
+
+const selectTimeControl = (controlId: string) => {
+  selectedTimeControl.value = controlId
+  if (isSearching.value) {
+    // If already searching, update the search
+    broadcastSearchStatus()
+  }
+}
+
+const startSearching = () => {
+  if (isGameActive.value) return
+  isSearching.value = true
+  broadcastSearchStatus()
+}
+
+const stopSearching = () => {
+  isSearching.value = false
+  broadcastSearchStatus()
+}
+
+const broadcastSearchStatus = async () => {
+  const message = {
+    type: 'matchmaking',
+    searching: isSearching.value,
+    timeControl: isSearching.value ? selectedTimeControl.value : null
+  }
+  
+  console.log('Broadcasting search status:', message, 'to', connectedPeerIds.value.length, 'peers')
+  
+  // Broadcast to all connected peers
+  for (const peerId of connectedPeerIds.value) {
+    try {
+      await sendMessage(peerId, JSON.stringify(message))
+      console.log('Sent to peer:', peerId)
+    } catch (err) {
+      console.error('Failed to broadcast search status to', peerId, err)
+    }
+  }
+}
+
+// Track which peers are searching and what time control they want
+const peerSearchStatus = ref<Map<string, string | null>>(new Map())
+
 // Chess game
 const {
   chess,
@@ -238,7 +409,70 @@ const {
 } = useChessGame()
 
 // Challenge handling
-const incomingChallenge = ref<{ from: string, gameId: string } | null>(null)
+const incomingChallenge = ref<{ from: string, gameId: string, opponentColor: 'white' | 'black' } | null>(null)
+const showAlreadyInGameModal = ref(false)
+const showResignConfirmModal = ref(false)
+const showChallengeRejectedModal = ref(false)
+
+// Draw and Takeback offers
+const incomingDrawOffer = ref<{ from: string } | null>(null)
+const incomingTakebackRequest = ref<{ from: string } | null>(null)
+
+// Timer state
+const myTime = ref(300) // seconds
+const opponentTime = ref(300) // seconds
+const currentGameTimeControl = ref<{ minutes: number, increment: number } | null>(null)
+let timerInterval: ReturnType<typeof setInterval> | null = null
+
+const formatTime = (seconds: number): string => {
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+const startTimer = () => {
+  if (timerInterval) clearInterval(timerInterval)
+  
+  timerInterval = setInterval(() => {
+    if (!isGameActive.value) {
+      if (timerInterval) clearInterval(timerInterval)
+      return
+    }
+    
+    if (isMyTurn.value) {
+      myTime.value = Math.max(0, myTime.value - 1)
+      if (myTime.value === 0) {
+        // Time ran out - resign
+        handleTimeOut()
+      }
+    } else {
+      opponentTime.value = Math.max(0, opponentTime.value - 1)
+    }
+  }, 1000)
+}
+
+const handleTimeOut = async () => {
+  if (timerInterval) clearInterval(timerInterval)
+  resign()
+  
+  if (opponentId.value) {
+    const message: ChessMessage = {
+      type: 'resign',
+      gameId: currentGame.value!.id
+    }
+    await sendMessage(opponentId.value, JSON.stringify(message))
+  }
+}
+
+const resetTimers = () => {
+  if (timerInterval) clearInterval(timerInterval)
+  const control = currentGameTimeControl.value
+  if (control) {
+    const totalSeconds = control.minutes * 60
+    myTime.value = totalSeconds
+    opponentTime.value = totalSeconds
+  }
+}
 
 const statusClass = computed(() => {
   if (!isInitialized.value) return 'status-disconnected'
@@ -295,35 +529,30 @@ const formatPeerId = (peerId: string): string => {
   return peerId
 }
 
-const challengePeer = async (peerId: string) => {
-  // Don't allow challenging if already in a game
-  if (currentGame.value && currentGame.value.status === 'active') {
-    alert('You are already in a game!')
-    return
-  }
-  
-  const gameInfo = startNewGame(myPeerId.value, peerId)
-  
-  const message: ChessMessage = {
-    type: 'gameStart',
-    gameId: gameInfo.gameId,
-    data: {
-      myColor: gameInfo.myColor,
-      opponentColor: gameInfo.opponentColor
-    }
-  }
-  
-  await sendMessage(peerId, JSON.stringify(message))
-}
-
 const acceptChallenge = () => {
   if (!incomingChallenge.value) return
   
-  startNewGame(myPeerId.value, incomingChallenge.value.from)
+  // Set opponent's color as the opposite of what they chose
+  const myColor = incomingChallenge.value.opponentColor === 'white' ? 'black' : 'white'
   
-  // Override the game ID from the challenge
-  if (currentGame.value) {
-    currentGame.value.id = incomingChallenge.value.gameId
+  myPlayer.value = {
+    id: myPeerId.value,
+    color: myColor
+  }
+  
+  opponentId.value = incomingChallenge.value.from
+  
+  chess.value = new Chess()
+  
+  currentGame.value = {
+    id: incomingChallenge.value.gameId,
+    playerWhite: myColor === 'white' ? myPeerId.value : incomingChallenge.value.from,
+    playerBlack: myColor === 'black' ? myPeerId.value : incomingChallenge.value.from,
+    currentTurn: 'white',
+    status: 'active',
+    moves: [],
+    fen: chess.value.fen(),
+    createdAt: Date.now()
   }
   
   incomingChallenge.value = null
@@ -337,32 +566,137 @@ const handleMove = async (from: string, to: string) => {
   const success = makeMove({ from, to })
   
   if (success && opponentId.value) {
+    // Add increment to my time
+    if (currentGameTimeControl.value) {
+      myTime.value += currentGameTimeControl.value.increment
+    }
+    
     const message: ChessMessage = {
       type: 'move',
       gameId: currentGame.value!.id,
       data: { from, to }
     }
     
-    await sendMessage(opponentId.value, JSON.stringify(message))
-  }
-}
-
-const handleResign = async () => {
-  if (confirm('Are you sure you want to resign?')) {
-    resign()
-    
-    if (opponentId.value) {
-      const message: ChessMessage = {
-        type: 'resign',
-        gameId: currentGame.value!.id
-      }
-      
+    try {
       await sendMessage(opponentId.value, JSON.stringify(message))
+    } catch (err) {
+      console.error('Failed to send move - opponent may have disconnected:', err)
+      // Continue playing anyway - the move is valid locally
     }
   }
 }
 
+const handleResign = async () => {
+  showResignConfirmModal.value = true
+}
+
+const confirmResign = async () => {
+  resign()
+  
+  if (opponentId.value) {
+    const message: ChessMessage = {
+      type: 'resign',
+      gameId: currentGame.value!.id
+    }
+    
+    try {
+      await sendMessage(opponentId.value, JSON.stringify(message))
+    } catch (err) {
+      console.error('Failed to send resign message:', err)
+    }
+  }
+  
+  showResignConfirmModal.value = false
+}
+
+const offerDraw = async () => {
+  if (!opponentId.value) return
+  
+  const message: ChessMessage = {
+    type: 'draw_offer',
+    gameId: currentGame.value!.id
+  }
+  
+  try {
+    await sendMessage(opponentId.value, JSON.stringify(message))
+    console.log('Draw offer sent')
+  } catch (err) {
+    console.error('Failed to send draw offer:', err)
+  }
+}
+
+const acceptDrawOffer = async () => {
+  if (!incomingDrawOffer.value) return
+  
+  const message: ChessMessage = {
+    type: 'draw_accept',
+    gameId: currentGame.value!.id
+  }
+  
+  try {
+    await sendMessage(incomingDrawOffer.value.from, JSON.stringify(message))
+  } catch (err) {
+    console.error('Failed to send draw accept:', err)
+  }
+  
+  // End game as draw
+  if (currentGame.value) {
+    currentGame.value.result = 'draw'
+    currentGame.value.status = 'finished'
+    currentGame.value.finishedAt = Date.now()
+  }
+  
+  incomingDrawOffer.value = null
+}
+
+const declineDrawOffer = () => {
+  incomingDrawOffer.value = null
+}
+
+const offerTakeback = async () => {
+  if (!opponentId.value) return
+  
+  const message: ChessMessage = {
+    type: 'takeback_request',
+    gameId: currentGame.value!.id
+  }
+  
+  try {
+    await sendMessage(opponentId.value, JSON.stringify(message))
+    console.log('Takeback request sent')
+  } catch (err) {
+    console.error('Failed to send takeback request:', err)
+  }
+}
+
+const acceptTakebackRequest = async () => {
+  if (!incomingTakebackRequest.value) return
+  
+  const message: ChessMessage = {
+    type: 'takeback_accept',
+    gameId: currentGame.value!.id
+  }
+  
+  try {
+    await sendMessage(incomingTakebackRequest.value.from, JSON.stringify(message))
+  } catch (err) {
+    console.error('Failed to send takeback accept:', err)
+  }
+  
+  // Undo the last move
+  if (chess.value) {
+    chess.value.undo()
+  }
+  
+  incomingTakebackRequest.value = null
+}
+
+const declineTakebackRequest = () => {
+  incomingTakebackRequest.value = null
+}
+
 const returnToLobby = () => {
+  if (timerInterval) clearInterval(timerInterval)
   resetGame()
 }
 
@@ -382,6 +716,8 @@ const handleMessage = async (event: any) => {
   try {
     console.log('Message received:', event)
     
+    const fromPeer = event.from || event.source || event.peer
+    
     // Extract content properly - PeerPigeon wraps it in an object
     let content = event.content
     if (typeof content === 'object') {
@@ -395,37 +731,164 @@ const handleMessage = async (event: any) => {
       }
     }
     
-    // Try to parse as ChessMessage
-    const message: ChessMessage = typeof content === 'string' ? JSON.parse(content) : content
+    // Try to parse as ChessMessage or matchmaking message
+    const message: any = typeof content === 'string' ? JSON.parse(content) : content
     
-    switch (message.type) {
+    // Handle matchmaking messages
+    if (message.type === 'matchmaking') {
+      if (message.searching) {
+        peerSearchStatus.value.set(fromPeer, message.timeControl)
+        
+        // Check if we're both searching for the same time control
+        if (isSearching.value && message.timeControl === selectedTimeControl.value && !isGameActive.value) {
+          console.log('Match found with', fromPeer, 'for', message.timeControl)
+          
+          // Only the peer with the lower ID initiates the game to avoid race conditions
+          if (myPeerId.value < fromPeer) {
+            console.log('I am initiator, starting game...')
+            isSearching.value = false
+            
+            const timeControl = timeControls.find(tc => tc.id === selectedTimeControl.value)!
+            currentGameTimeControl.value = {
+              minutes: timeControl.minutes,
+              increment: timeControl.increment
+            }
+            
+            // Generate game ID and determine colors
+            const gameId = `game-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+            // Lower peer ID gets white
+            
+            // Send gameStart message to opponent
+            const gameStartMessage: ChessMessage = {
+              type: 'gameStart',
+              gameId: gameId,
+              data: {
+                whitePlayer: myPeerId.value,
+                blackPlayer: fromPeer,
+                timeControl: timeControl
+              }
+            }
+            
+            try {
+              await sendMessage(fromPeer, JSON.stringify(gameStartMessage))
+              
+              // Start the game locally
+              resetTimers()
+              // I am white (lower peer ID), opponent is black
+              startNewGame(myPeerId.value, fromPeer, 'white')
+              opponentId.value = fromPeer
+              startTimer()
+              broadcastSearchStatus() // Stop broadcasting search
+            } catch (err) {
+              console.error('Failed to send game start message:', err)
+              isSearching.value = true // Resume searching on error
+            }
+          } else {
+            console.log('Peer', fromPeer, 'will initiate game, stopping my search')
+            // The other peer will send us a gameStart message
+            // Stop searching and wait for their gameStart message
+            isSearching.value = false
+            broadcastSearchStatus()
+          }
+        }
+      } else {
+        peerSearchStatus.value.delete(fromPeer)
+      }
+      return
+    }
+    
+    const chessMessage: ChessMessage = message
+    
+    switch (chessMessage.type) {
       case 'gameStart':
+        console.log('Received gameStart message:', chessMessage)
+        
         // Reject challenge if already in a game
         if (currentGame.value && currentGame.value.status === 'active') {
+          console.log('Rejecting - already in active game')
           // Send rejection message
           const rejectMessage: ChessMessage = {
             type: 'challengeRejected',
-            gameId: message.gameId
+            gameId: chessMessage.gameId || 'unknown'
           }
-          await sendMessage(event.from, JSON.stringify(rejectMessage))
+          await sendMessage(fromPeer, JSON.stringify(rejectMessage))
           break
         }
         
-        incomingChallenge.value = {
-          from: event.from,
-          gameId: message.gameId
+        // Check if this is from matchmaking (has whitePlayer and blackPlayer)
+        if (chessMessage.data?.whitePlayer && chessMessage.data?.blackPlayer) {
+          console.log('Accepting matched game from', fromPeer, 'whitePlayer:', chessMessage.data.whitePlayer, 'blackPlayer:', chessMessage.data.blackPlayer)
+          
+          // Stop searching
+          isSearching.value = false
+          
+          // Set up time control
+          const incomingTimeControl = chessMessage.data?.timeControl
+          if (incomingTimeControl) {
+            currentGameTimeControl.value = {
+              minutes: incomingTimeControl.minutes,
+              increment: incomingTimeControl.increment
+            }
+          }
+          resetTimers()
+          
+          // Determine which player is me and which is opponent
+          const amIWhite = chessMessage.data.whitePlayer === myPeerId.value
+          const opponent = amIWhite ? chessMessage.data.blackPlayer : chessMessage.data.whitePlayer
+          const myColor = amIWhite ? 'white' : 'black'
+          
+          // Start the game with the assigned colors
+          startNewGame(myPeerId.value, opponent, myColor)
+          opponentId.value = opponent
+          startTimer()
+          broadcastSearchStatus() // Stop broadcasting search
+          break
+        }
+        
+        // Legacy challenge system - check if time control matches
+        const incomingTimeControl = chessMessage.data?.timeControl
+        const myTimeControl = timeControls.find(tc => tc.id === selectedTimeControl.value)
+        
+        if (incomingTimeControl && myTimeControl && incomingTimeControl.id === myTimeControl.id) {
+          // Auto-accept if time controls match
+          console.log('Auto-accepting challenge with matching time control:', incomingTimeControl.id)
+          
+          // Set up time control
+          currentGameTimeControl.value = {
+            minutes: incomingTimeControl.minutes,
+            increment: incomingTimeControl.increment
+          }
+          resetTimers()
+          
+          const myColor = chessMessage.data?.opponentColor || 'black'
+          startNewGame(
+            myColor === 'white' ? myPeerId.value : fromPeer,
+            myColor === 'white' ? fromPeer : myPeerId.value
+          )
+          
+          // Start timer
+          startTimer()
+          
+          // No need to send response - both sides start the game
+        } else {
+          // Show challenge modal for non-matching time controls
+          incomingChallenge.value = {
+            from: fromPeer,
+            gameId: chessMessage.gameId || 'unknown',
+            opponentColor: chessMessage.data?.myColor || 'white'
+          }
         }
         break
       
       case 'challengeRejected':
         // Challenge was rejected
-        alert('Your challenge was rejected. The player is already in a game.')
+        showChallengeRejectedModal.value = true
         resetGame()
         break
         
       case 'move':
-        if (message.data) {
-          receiveMove(`${message.data.from}${message.data.to}`)
+        if (chessMessage.data) {
+          receiveMove(`${chessMessage.data.from}${chessMessage.data.to}`)
         }
         break
         
@@ -435,6 +898,34 @@ const handleMessage = async (event: any) => {
           currentGame.value.status = 'finished'
           currentGame.value.result = myPlayer.value?.color || 'white'
         }
+        break
+        
+      case 'draw_offer':
+        // Received draw offer
+        incomingDrawOffer.value = { from: fromPeer }
+        break
+        
+      case 'draw_accept':
+        // Draw was accepted
+        if (currentGame.value) {
+          currentGame.value.result = 'draw'
+          currentGame.value.status = 'finished'
+          currentGame.value.finishedAt = Date.now()
+        }
+        console.log('Draw accepted by opponent')
+        break
+        
+      case 'takeback_request':
+        // Received takeback request
+        incomingTakebackRequest.value = { from: fromPeer }
+        break
+        
+      case 'takeback_accept':
+        // Takeback was accepted
+        if (chess.value) {
+          chess.value.undo()
+        }
+        console.log('Takeback accepted by opponent')
         break
     }
   } catch (err) {
@@ -470,6 +961,9 @@ onUnmounted(() => {
     unsubscribeMessage()
     unsubscribeMessage = null
   }
+  if (timerInterval) {
+    clearInterval(timerInterval)
+  }
 })
 </script>
 
@@ -478,21 +972,27 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
 }
 
 .app-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 2rem;
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 1.25rem 2rem;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-md);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 .app-header h1 {
-  font-size: 1.8rem;
-  color: var(--dark-color);
+  font-size: 2rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, #2563eb, #1e40af);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin: 0;
 }
 
@@ -535,17 +1035,17 @@ onUnmounted(() => {
 }
 
 .status-disconnected {
-  background: var(--danger-color);
+  background: #ef4444;
   color: white;
 }
 
 .status-connecting {
-  background: var(--warning-color);
+  background: #f59e0b;
   color: white;
 }
 
 .status-connected {
-  background: var(--success-color);
+  background: #2563eb;
   color: white;
 }
 
@@ -570,14 +1070,17 @@ onUnmounted(() => {
 }
 
 .welcome-card h2 {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
   color: var(--dark-color);
+  letter-spacing: -0.025em;
 }
 
 .welcome-card > p {
   color: var(--secondary-color);
-  margin-bottom: 2rem;
+  margin-bottom: 2.5rem;
+  font-size: 1.05rem;
 }
 
 .connection-section {
@@ -602,10 +1105,10 @@ onUnmounted(() => {
 .spinner {
   width: 60px;
   height: 60px;
-  border: 4px solid var(--light-color);
+  border: 4px solid rgba(99, 102, 241, 0.1);
   border-top: 4px solid var(--primary-color);
   border-radius: 50%;
-  animation: spin 1s linear infinite;
+  animation: spin 0.8s linear infinite;
   margin: 0 auto;
 }
 
@@ -627,8 +1130,9 @@ button.large {
 
 .matchmaking h3 {
   margin-bottom: 0.5rem;
-  color: var(--success-color);
-  font-size: 1.5rem;
+  color: #2563eb;
+  font-size: 1.75rem;
+  font-weight: 700;
 }
 
 .waiting-peers {
@@ -636,7 +1140,7 @@ button.large {
   flex-direction: column;
   align-items: center;
   gap: 1rem;
-  padding: 2rem;
+  padding: 2.5rem;
   color: var(--secondary-color);
 }
 
@@ -648,14 +1152,101 @@ button.large {
 .peer-id {
   font-size: 0.9rem;
   color: var(--secondary-color);
-  margin-bottom: 1.5rem;
+  margin-bottom: 2rem;
 }
 
 .peer-id code {
-  background: var(--light-color);
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  font-family: monospace;
+  background: #eff6ff;
+  padding: 0.375rem 0.75rem;
+  border-radius: 6px;
+  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+  font-size: 0.85rem;
+  border: 1px solid #bfdbfe;
+}
+
+.time-control-section {
+  width: 100%;
+  max-width: 600px;
+  margin: 1.5rem 0;
+}
+
+.time-control-section h4 {
+  margin-bottom: 1rem;
+  color: var(--dark-color);
+  font-size: 1.1rem;
+}
+
+.time-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.75rem;
+}
+
+.time-control-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem;
+  border: 2px solid #bfdbfe;
+  background: white;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.time-control-btn:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  transform: translateY(-1px);
+}
+
+.time-control-btn.active {
+  border-color: #2563eb;
+  background: #dbeafe;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.control-name {
+  font-size: 0.85rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.control-time {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--dark-color);
+  margin-top: 0.25rem;
+}
+
+.search-section {
+  width: 100%;
+  max-width: 500px;
+  margin-top: 1.5rem;
+}
+
+.search-btn {
+  width: 100%;
+  padding: 1rem 1.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.searching-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: #dbeafe;
+  border-radius: 12px;
+  border: 2px solid #93c5fd;
+}
+
+.searching-indicator p {
+  font-weight: 600;
+  color: #2563eb;
+  margin: 0;
 }
 
 .peer-list {
@@ -675,16 +1266,19 @@ button.large {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem;
-  background: var(--light-color);
-  border-radius: 8px;
-  margin-bottom: 0.5rem;
-  transition: transform 0.2s, box-shadow 0.2s;
+  padding: 1.25rem 1.5rem;
+  background: white;
+  border: 2px solid #dbeafe;
+  border-radius: 12px;
+  margin-bottom: 0.75rem;
+  transition: all 0.2s ease;
 }
 
 .peer-item:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-lg);
+  border-color: #3b82f6;
+  background: #eff6ff;
 }
 
 .peer-name {
@@ -696,21 +1290,24 @@ button.large {
 
 .info-text {
   margin-top: 1rem;
-  padding: 0.75rem;
-  background: var(--info-color);
+  padding: 0.875rem 1.25rem;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
   color: white;
-  border-radius: 4px;
+  border-radius: 10px;
   text-align: center;
   font-size: 0.9rem;
+  font-weight: 500;
+  box-shadow: var(--shadow-sm);
 }
 
 .error-message {
   margin-top: 1rem;
-  padding: 0.75rem;
-  background: #fee;
-  border: 1px solid var(--danger-color);
-  border-radius: 4px;
+  padding: 0.875rem 1.25rem;
+  background: #fef2f2;
+  border: 2px solid var(--danger-color);
+  border-radius: 10px;
   color: var(--danger-color);
+  font-weight: 500;
 }
 
 .game-screen {
@@ -725,68 +1322,136 @@ button.large {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
   min-width: 0;
-  max-height: 100%;
   overflow: hidden;
+  gap: 1rem;
 }
 
-.player-info {
+.timer-section {
   background: rgba(255, 255, 255, 0.95);
-  border-radius: 8px;
-  padding: 1rem;
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  padding: 0.75rem 1.5rem;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.3s ease;
 }
 
-.player-card {
+.timer-section.active {
+  background: #dbeafe;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+  transform: scale(1.02);
+}
+
+.timer-display {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem;
-  border-radius: 4px;
-  transition: background-color 0.3s;
+  gap: 1rem;
+  justify-content: center;
 }
 
-.player-card.active {
-  background: var(--board-highlight);
+.timer-label {
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.25rem;
 }
 
-.player-icon {
+.timer-section.active .timer-label {
+  color: #2563eb;
+}
+
+.timer-icon {
   font-size: 2rem;
 }
 
-.player-label {
-  font-weight: bold;
+.timer-time {
+  font-size: 2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
   color: var(--dark-color);
 }
 
-.player-name {
-  margin-left: auto;
-  color: var(--secondary-color);
-  font-size: 0.9rem;
+.timer-section.active .timer-time {
+  color: #2563eb;
 }
 
 .board-container {
   flex: 1;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 8px;
-  padding: 1rem;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  padding: 1.5rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 0;
   overflow: hidden;
-  max-height: 100%;
+  box-shadow: var(--shadow-md);
 }
 
 .game-controls {
-  width: 300px;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 8px;
+  width: 320px;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
   padding: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
   overflow-y: auto;
+  box-shadow: var(--shadow-md);
+}
+
+.player-section {
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.player-section h4 {
+  margin-bottom: 0.75rem;
+  color: var(--dark-color);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.player-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.player-display,
+.opponent-display {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: #eff6ff;
+  border: 2px solid #bfdbfe;
+  border-radius: 10px;
+}
+
+.player-display-icon,
+.opponent-icon {
+  font-size: 1.5rem;
+}
+
+.player-display-color {
+  font-weight: 600;
+  color: var(--dark-color);
+}
+
+.opponent-name {
+  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+  font-size: 0.85rem;
+  color: var(--dark-color);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .game-result {
@@ -802,7 +1467,7 @@ button.large {
   font-size: 1.5rem;
   font-weight: bold;
   margin-bottom: 1.5rem;
-  color: var(--primary-color);
+  color: #2563eb;
 }
 
 .active-controls {
@@ -811,19 +1476,33 @@ button.large {
   gap: 1rem;
 }
 
+.control-buttons {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.control-buttons button {
+  flex: 1;
+  min-width: 120px;
+}
+
 .turn-indicator {
   text-align: center;
-  padding: 0.75rem;
-  border-radius: 4px;
-  font-weight: bold;
+  padding: 1rem;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 1.05rem;
+  background: #eff6ff;
+  border: 2px solid #bfdbfe;
 }
 
 .your-turn {
-  color: var(--success-color);
+  color: #2563eb;
 }
 
 .opponent-turn {
-  color: var(--secondary-color);
+  color: #64748b;
 }
 
 .moves-history {
@@ -844,10 +1523,17 @@ button.large {
 
 .move-item {
   font-size: 0.9rem;
-  font-family: monospace;
-  padding: 0.25rem;
-  background: var(--light-color);
-  border-radius: 4px;
+  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+  padding: 0.5rem;
+  background: white;
+  border: 1px solid #dbeafe;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.move-item:hover {
+  background: #eff6ff;
+  border-color: #3b82f6;
 }
 
 .move-number {
@@ -864,19 +1550,32 @@ button.large {
   text-align: center;
 }
 
-.challenge-modal h2 {
+.challenge-modal h2,
+.info-modal h2,
+.confirm-modal h2 {
   margin-bottom: 1rem;
-}
-
-.challenge-modal p {
-  margin-bottom: 1.5rem;
   color: var(--dark-color);
 }
 
-.challenge-modal .actions {
+.challenge-modal p,
+.info-modal p,
+.confirm-modal p {
+  margin-bottom: 1.5rem;
+  color: var(--dark-color);
+  line-height: 1.6;
+}
+
+.challenge-modal .actions,
+.info-modal .actions,
+.confirm-modal .actions {
   display: flex;
   gap: 1rem;
   justify-content: center;
+}
+
+.info-modal,
+.confirm-modal {
+  text-align: center;
 }
 
 @media (max-width: 768px) {

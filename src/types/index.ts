@@ -23,9 +23,11 @@ export interface Move {
 }
 
 export interface ChessMessage {
-  type: 'move' | 'gameStart' | 'gameEnd' | 'resign' | 'offerDraw' | 'acceptDraw' | 'rejectDraw' | 'challengeRejected'
-  gameId: string
+  type: 'move' | 'gameStart' | 'gameEnd' | 'resign' | 'offerDraw' | 'acceptDraw' | 'rejectDraw' | 'challengeRejected' | 'draw_offer' | 'draw_accept' | 'takeback_request' | 'takeback_accept' | 'matchmaking'
+  gameId?: string
   data?: any
+  searching?: boolean
+  timeControl?: string | null
 }
 
 export interface MatchmakingRequest {
