@@ -24,9 +24,16 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
   const status = ref<any>(null)
   
   const messageHandlers = new Set<(event: any) => void>()
+  const peerConnectHandlers = new Set<(peerId: string) => void>()
 
   const handleMessageReceived = (event: any) => {
     messageHandlers.forEach((handler) => handler(event))
+  }
+  
+  const handlePeerConnected = (event: any) => {
+    console.log('Peer connected:', event.peerId)
+    refreshStatus()
+    peerConnectHandlers.forEach((handler) => handler(event.peerId))
   }
 
   const refreshStatus = () => {
@@ -63,10 +70,7 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
       
       // Set up event listeners
       instance.addEventListener('statusChanged', refreshStatus)
-      instance.addEventListener('peerConnected', (e: any) => {
-        console.log('Peer connected:', e.peerId)
-        refreshStatus()
-      })
+      instance.addEventListener('peerConnected', handlePeerConnected)
       instance.addEventListener('peerDisconnected', (e: any) => {
         console.log('Peer disconnected:', e.peerId)
         refreshStatus()
@@ -143,6 +147,13 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
       messageHandlers.delete(handler)
     }
   }
+  
+  const onPeerConnect = (handler: (peerId: string) => void) => {
+    peerConnectHandlers.add(handler)
+    return () => {
+      peerConnectHandlers.delete(handler)
+    }
+  }
 
   onUnmounted(() => {
     disconnect()
@@ -161,6 +172,7 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     sendMessage,
     broadcast,
     onMessage,
+    onPeerConnect,
     refreshStatus
   }
 }

@@ -70,13 +70,13 @@
                   v-if="!isSearching"
                   class="primary search-btn"
                   @click="startSearching"
-                  :disabled="connectedPeerIds.length === 0"
                 >
                   🔍 Search for Game
                 </button>
                 <div v-else class="searching-indicator">
                   <div class="spinner small"></div>
                   <p>Searching for opponent with {{ selectedTimeControlDisplay }}...</p>
+                  <p v-if="connectedPeerIds.length === 0" class="waiting-text">Waiting for peers to connect...</p>
                   <button class="secondary" @click="stopSearching">Cancel</button>
                 </div>
               </div>
@@ -109,7 +109,11 @@
         
         <div class="game-controls">
           <!-- Top Timer (opponent's clock, at top of board visually) -->
-          <div class="timer-section opponent-timer" :class="{ active: !isMyTurn }">
+          <div 
+            v-if="currentGameTimeControl && currentGameTimeControl.minutes > 0"
+            class="timer-section opponent-timer" 
+            :class="{ active: !isMyTurn }"
+          >
             <div class="timer-display">
               <span class="timer-icon">{{ myPlayer?.color === 'black' ? '♔' : '♚' }}</span>
               <span class="timer-time">{{ formatTime(opponentTime) }}</span>
@@ -129,10 +133,54 @@
                 <span class="opponent-name">{{ formatPeerId(opponentId || 'Unknown') }}</span>
               </div>
             </div>
+            <div v-if="currentGameTimeControl && currentGameTimeControl.minutes === 0" class="casual-mode-badge">
+              ♾️ Casual - No Time Limit
+            </div>
+          </div>
+          
+          <!-- Material Score -->
+          <div v-if="capturedPieces.white.length > 0 || capturedPieces.black.length > 0" class="material-section">
+            <h4>Material</h4>
+            <div class="material-display">
+              <div v-if="capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black'].length > 0" class="captured-pieces">
+                <div class="captured-label">You captured:</div>
+                <div class="pieces-row">
+                  <img 
+                    v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black']"
+                    :key="`my-${idx}`"
+                    :src="`/pieces/${myPlayer?.color === 'white' ? 'b' : 'w'}${piece}.svg`" 
+                    :alt="piece"
+                    class="captured-piece"
+                  />
+                  <span v-if="materialAdvantage[myPlayer?.color || 'white'] > 0" class="advantage-score">
+                    +{{ materialAdvantage[myPlayer?.color || 'white'] }}
+                  </span>
+                </div>
+              </div>
+              <div v-if="capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white'].length > 0" class="captured-pieces">
+                <div class="captured-label">Opponent captured:</div>
+                <div class="pieces-row">
+                  <img 
+                    v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']"
+                    :key="`opp-${idx}`"
+                    :src="`/pieces/${myPlayer?.color === 'white' ? 'w' : 'b'}${piece}.svg`" 
+                    :alt="piece"
+                    class="captured-piece"
+                  />
+                  <span v-if="materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] > 0" class="advantage-score">
+                    +{{ materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] }}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
           
           <!-- Bottom Timer (my clock, at bottom of board visually) -->
-          <div class="timer-section my-timer" :class="{ active: isMyTurn }">
+          <div 
+            v-if="currentGameTimeControl && currentGameTimeControl.minutes > 0"
+            class="timer-section my-timer" 
+            :class="{ active: isMyTurn }"
+          >
             <div class="timer-display">
               <span class="timer-icon">{{ myPlayer?.color === 'white' ? '♔' : '♚' }}</span>
               <span class="timer-time">{{ formatTime(myTime) }}</span>
@@ -319,7 +367,8 @@ const {
   init,
   connect,
   sendMessage,
-  onMessage
+  onMessage,
+  onPeerConnect
 } = usePeerPigeon({
   // Don't provide a custom peerId - let PeerPigeon generate its own
   networkName: settings.value.networkName,
@@ -335,10 +384,13 @@ const myPeerId = computed(() => {
 
 // Time controls
 const timeControls = [
+  { id: 'casual', name: 'Casual', display: 'No Time', minutes: 0, increment: 0 },
   { id: 'bullet1', name: 'Bullet', display: '1+0', minutes: 1, increment: 0 },
   { id: 'bullet2', name: 'Bullet', display: '2+1', minutes: 2, increment: 1 },
   { id: 'blitz3', name: 'Blitz', display: '3+0', minutes: 3, increment: 0 },
+  { id: 'blitz3-1', name: 'Blitz', display: '3+1', minutes: 3, increment: 1 },
   { id: 'blitz5', name: 'Blitz', display: '5+0', minutes: 5, increment: 0 },
+  { id: 'blitz5-1', name: 'Blitz', display: '5+1', minutes: 5, increment: 1 },
   { id: 'rapid10', name: 'Rapid', display: '10+0', minutes: 10, increment: 0 },
   { id: 'rapid15', name: 'Rapid', display: '15+10', minutes: 15, increment: 10 },
   { id: 'classical30', name: 'Classical', display: '30+0', minutes: 30, increment: 0 }
@@ -405,8 +457,20 @@ const {
   makeMove,
   receiveMove,
   resign,
-  resetGame
+  resetGame,
+  setOnGameEndCallback
 } = useChessGame()
+
+// Set up the game end callback to play win/lose sounds
+setOnGameEndCallback((result) => {
+  if (result === 'win') {
+    playWinSound()
+  } else if (result === 'loss') {
+    playLoseSound()
+  } else if (result === 'draw') {
+    playDrawSound()
+  }
+})
 
 // Challenge handling
 const incomingChallenge = ref<{ from: string, gameId: string, opponentColor: 'white' | 'black' } | null>(null)
@@ -423,8 +487,46 @@ const myTime = ref(300) // seconds
 const opponentTime = ref(300) // seconds
 const currentGameTimeControl = ref<{ minutes: number, increment: number } | null>(null)
 let timerInterval: ReturnType<typeof setInterval> | null = null
+let lowTimeWarningPlayed = ref(false)
+
+const playLowTimeWarning = () => {
+  // Play the shaker sound 3 times in rapid succession
+  const audio1 = new Audio('/sounds/shaker.mp3')
+  const audio2 = new Audio('/sounds/shaker.mp3')
+  const audio3 = new Audio('/sounds/shaker.mp3')
+  
+  audio1.volume = 0.5
+  audio2.volume = 0.5
+  audio3.volume = 0.5
+  
+  audio1.play().catch((err) => console.error('Low time warning error:', err))
+  setTimeout(() => audio2.play().catch((err) => console.error('Low time warning error:', err)), 150)
+  setTimeout(() => audio3.play().catch((err) => console.error('Low time warning error:', err)), 300)
+}
+
+const playWinSound = () => {
+  const audio = new Audio('/sounds/win.mp3')
+  audio.volume = 0.6
+  audio.play().catch((err) => console.error('Win sound error:', err))
+}
+
+const playLoseSound = () => {
+  const audio = new Audio('/sounds/lose.mp3')
+  audio.volume = 0.6
+  audio.play().catch((err) => console.error('Lose sound error:', err))
+}
+
+const playDrawSound = () => {
+  const audio = new Audio('/sounds/draw.mp3')
+  audio.volume = 0.6
+  audio.play().catch((err) => console.error('Draw sound error:', err))
+}
 
 const formatTime = (seconds: number): string => {
+  // Show infinity symbol for casual games
+  if (currentGameTimeControl.value && currentGameTimeControl.value.minutes === 0) {
+    return '∞'
+  }
   const mins = Math.floor(seconds / 60)
   const secs = seconds % 60
   return `${mins}:${secs.toString().padStart(2, '0')}`
@@ -432,6 +534,11 @@ const formatTime = (seconds: number): string => {
 
 const startTimer = () => {
   if (timerInterval) clearInterval(timerInterval)
+  
+  // Don't start timer for casual games (0 minutes)
+  if (currentGameTimeControl.value && currentGameTimeControl.value.minutes === 0) {
+    return
+  }
   
   timerInterval = setInterval(() => {
     if (!isGameActive.value) {
@@ -441,6 +548,13 @@ const startTimer = () => {
     
     if (isMyTurn.value) {
       myTime.value = Math.max(0, myTime.value - 1)
+      
+      // Play warning sound at 20 seconds
+      if (myTime.value === 20 && !lowTimeWarningPlayed.value) {
+        playLowTimeWarning()
+        lowTimeWarningPlayed.value = true
+      }
+      
       if (myTime.value === 0) {
         // Time ran out - resign
         handleTimeOut()
@@ -453,6 +567,7 @@ const startTimer = () => {
 
 const handleTimeOut = async () => {
   if (timerInterval) clearInterval(timerInterval)
+  playLoseSound() // Play lose sound when time runs out
   resign()
   
   if (opponentId.value) {
@@ -466,6 +581,7 @@ const handleTimeOut = async () => {
 
 const resetTimers = () => {
   if (timerInterval) clearInterval(timerInterval)
+  lowTimeWarningPlayed.value = false
   const control = currentGameTimeControl.value
   if (control) {
     const totalSeconds = control.minutes * 60
@@ -484,6 +600,79 @@ const statusText = computed(() => {
   if (!isInitialized.value) return 'Initializing...'
   if (!isConnected.value) return 'Connecting to network...'
   return 'Connected to network'
+})
+
+// Material counting
+const pieceValues: Record<string, number> = {
+  p: 1, n: 3, b: 3, r: 5, q: 9, k: 0
+}
+
+const capturedPieces = computed(() => {
+  if (!currentGame.value) return { white: [], black: [] }
+  
+  const initialPieces: Record<string, number> = {
+    p: 8, n: 2, b: 2, r: 2, q: 1, k: 1
+  }
+  
+  const currentPieces = { 
+    white: { p: 0, n: 0, b: 0, r: 0, q: 0, k: 0 }, 
+    black: { p: 0, n: 0, b: 0, r: 0, q: 0, k: 0 } 
+  }
+  
+  // Count current pieces on the board
+  const board = chess.value.board()
+  board.forEach(row => {
+    row.forEach(square => {
+      if (square) {
+        const color = square.color === 'w' ? 'white' : 'black'
+        const piece = square.type
+        currentPieces[color][piece]++
+      }
+    })
+  })
+  
+  // Calculate captured pieces
+  const captured = {
+    white: [] as string[], // Pieces captured BY white (black pieces taken)
+    black: [] as string[]  // Pieces captured BY black (white pieces taken)
+  }
+  
+  // White captured black pieces (black pieces missing from board)
+  Object.entries(currentPieces.black).forEach(([piece, remaining]) => {
+    const capturedCount = initialPieces[piece] - remaining
+    for (let i = 0; i < capturedCount; i++) {
+      captured.white.push(piece)
+    }
+  })
+  
+  // Black captured white pieces (white pieces missing from board)
+  Object.entries(currentPieces.white).forEach(([piece, remaining]) => {
+    const capturedCount = initialPieces[piece] - remaining
+    for (let i = 0; i < capturedCount; i++) {
+      captured.black.push(piece)
+    }
+  })
+  
+  return captured
+})
+
+const materialAdvantage = computed(() => {
+  const captured = capturedPieces.value
+  let whiteScore = 0
+  let blackScore = 0
+  
+  captured.white.forEach(piece => {
+    whiteScore += pieceValues[piece] || 0
+  })
+  
+  captured.black.forEach(piece => {
+    blackScore += pieceValues[piece] || 0
+  })
+  
+  return {
+    white: whiteScore - blackScore,
+    black: blackScore - whiteScore
+  }
 })
 
 const isConnecting = ref(false)
@@ -569,6 +758,10 @@ const handleMove = async (from: string, to: string) => {
     // Add increment to my time
     if (currentGameTimeControl.value) {
       myTime.value += currentGameTimeControl.value.increment
+      // Reset warning flag if time goes above 20 again
+      if (myTime.value > 20) {
+        lowTimeWarningPlayed.value = false
+      }
     }
     
     const message: ChessMessage = {
@@ -711,6 +904,7 @@ const getResultText = (): string => {
 
 // Message handling
 let unsubscribeMessage: (() => void) | null = null
+let unsubscribePeerConnect: (() => void) | null = null
 
 const handleMessage = async (event: any) => {
   try {
@@ -897,6 +1091,7 @@ const handleMessage = async (event: any) => {
         if (currentGame.value) {
           currentGame.value.status = 'finished'
           currentGame.value.result = myPlayer.value?.color || 'white'
+          playWinSound() // Play win sound when opponent resigns
         }
         break
         
@@ -911,6 +1106,7 @@ const handleMessage = async (event: any) => {
           currentGame.value.result = 'draw'
           currentGame.value.status = 'finished'
           currentGame.value.finishedAt = Date.now()
+          playDrawSound() // Play draw sound when draw is accepted
         }
         console.log('Draw accepted by opponent')
         break
@@ -937,6 +1133,25 @@ onMounted(async () => {
   // Set up message listener using onMessage composable
   unsubscribeMessage = onMessage(handleMessage)
   
+  // Set up peer connect listener - broadcast search status when new peer connects
+  unsubscribePeerConnect = onPeerConnect((peerId: string) => {
+    console.log('New peer connected:', peerId)
+    // If we're currently searching, broadcast our search status to the new peer
+    if (isSearching.value) {
+      const message = {
+        type: 'matchmaking',
+        searching: true,
+        timeControl: selectedTimeControl.value
+      }
+      try {
+        sendMessage(peerId, JSON.stringify(message))
+        console.log('Sent search status to new peer:', peerId)
+      } catch (err) {
+        console.error('Failed to send search status to new peer:', err)
+      }
+    }
+  })
+  
   // Set up mesh event listeners
   if (mesh.value) {
     mesh.value.addEventListener('peerConnected', (e: any) => {
@@ -960,6 +1175,10 @@ onUnmounted(() => {
   if (unsubscribeMessage) {
     unsubscribeMessage()
     unsubscribeMessage = null
+  }
+  if (unsubscribePeerConnect) {
+    unsubscribePeerConnect()
+    unsubscribePeerConnect = null
   }
   if (timerInterval) {
     clearInterval(timerInterval)
@@ -1249,6 +1468,12 @@ button.large {
   margin: 0;
 }
 
+.searching-indicator .waiting-text {
+  font-size: 0.9rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
 .peer-list {
   width: 100%;
   margin-top: 1.5rem;
@@ -1416,6 +1641,77 @@ button.large {
   font-size: 0.9rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.casual-mode-badge {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 2px solid #fbbf24;
+  border-radius: 10px;
+  text-align: center;
+  font-weight: 600;
+  color: #92400e;
+  font-size: 0.95rem;
+}
+
+.material-section {
+  padding: 1rem 0;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.material-section h4 {
+  margin-bottom: 0.75rem;
+  color: var(--dark-color);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.material-display {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.captured-pieces {
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.captured-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pieces-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: center;
+  min-height: 28px;
+}
+
+.captured-piece {
+  width: 24px;
+  height: 24px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+}
+
+.advantage-score {
+  margin-left: 0.5rem;
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #16a34a;
+  background: #dcfce7;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #86efac;
 }
 
 .player-info {

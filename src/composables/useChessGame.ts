@@ -9,6 +9,11 @@ export function useChessGame() {
   const myPlayer = ref<Player | null>(null)
   const opponentId = ref<string | null>(null)
   const gameHistory = ref<GameHistoryEntry[]>(loadFromLocalStorage('chess-game-history', []))
+  let onGameEndCallback: ((result: 'win' | 'loss' | 'draw') => void) | null = null
+  
+  const setOnGameEndCallback = (callback: (result: 'win' | 'loss' | 'draw') => void) => {
+    onGameEndCallback = callback
+  }
   
   const isMyTurn = computed(() => {
     if (!currentGame.value || !myPlayer.value) return false
@@ -114,13 +119,24 @@ export function useChessGame() {
     currentGame.value.result = result
     currentGame.value.finishedAt = Date.now()
     
+    // Determine if it's a win, loss, or draw for this player
+    const playerResult = result === 'draw' ? 'draw' : (result === myPlayer.value.color ? 'win' : 'loss')
+    
+    // Call the callback if it exists
+    if (onGameEndCallback) {
+      onGameEndCallback(playerResult)
+    }
+    
     // Save to history
-    if (opponentId.value) {
+    if (opponentId.value && currentGame.value && myPlayer.value) {
       const historyEntry: GameHistoryEntry = {
         gameId: currentGame.value.id,
+        whitePlayer: currentGame.value.playerWhite || '',
+        blackPlayer: currentGame.value.playerBlack || '',
+        myPeerId: myPlayer.value.id,
         opponent: opponentId.value,
         myColor: myPlayer.value.color,
-        result: result === 'draw' ? 'draw' : (result === myPlayer.value.color ? 'win' : 'loss'),
+        result: playerResult,
         moves: currentGame.value.moves,
         date: Date.now()
       }
@@ -141,10 +157,18 @@ export function useChessGame() {
     currentGame.value.result = myPlayer.value.color === 'white' ? 'black' : 'white'
     currentGame.value.finishedAt = Date.now()
     
+    // Call the callback for losing
+    if (onGameEndCallback) {
+      onGameEndCallback('loss')
+    }
+    
     // Save to history
-    if (opponentId.value) {
+    if (opponentId.value && currentGame.value && myPlayer.value) {
       const historyEntry: GameHistoryEntry = {
         gameId: currentGame.value.id,
+        whitePlayer: currentGame.value.playerWhite || '',
+        blackPlayer: currentGame.value.playerBlack || '',
+        myPeerId: myPlayer.value.id,
         opponent: opponentId.value,
         myColor: myPlayer.value.color,
         result: 'loss',
@@ -185,6 +209,7 @@ export function useChessGame() {
     endGame,
     resign,
     resetGame,
-    getLegalMoves
+    getLegalMoves,
+    setOnGameEndCallback
   }
 }

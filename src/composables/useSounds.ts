@@ -2,18 +2,6 @@ import { ref } from 'vue'
 
 const soundEnabled = ref(true)
 
-const sounds = {
-  move: new Audio('/sounds/move.mp3'),
-  capture: new Audio('/sounds/capture.mp3'),
-  castle: new Audio('/sounds/castle.mp3')
-}
-
-// Preload sounds
-Object.values(sounds).forEach(sound => {
-  sound.preload = 'auto'
-  sound.volume = 0.5
-})
-
 export function useSounds() {
   const playMoveSound = () => {
     if (!soundEnabled.value) return
@@ -26,18 +14,29 @@ export function useSounds() {
 
   const playCaptureSound = () => {
     if (!soundEnabled.value) return
-    sounds.capture.currentTime = 0
-    sounds.capture.play().catch((err) => {
+    const audio = new Audio('/sounds/capture.mp3')
+    audio.volume = 0.5
+    audio.play().catch((err) => {
       console.error('Capture sound error:', err)
     })
   }
 
   const playCastleSound = () => {
     if (!soundEnabled.value) return
-    sounds.castle.currentTime = 0
-    sounds.castle.play().catch((err) => {
+    // Play move sound twice with slight delay for castling (king + rook moving)
+    const audio1 = new Audio('/sounds/move.mp3')
+    audio1.volume = 0.5
+    audio1.play().catch((err) => {
       console.error('Castle sound error:', err)
     })
+    
+    setTimeout(() => {
+      const audio2 = new Audio('/sounds/move.mp3')
+      audio2.volume = 0.5
+      audio2.play().catch((err) => {
+        console.error('Castle sound error:', err)
+      })
+    }, 100) // 100ms delay between sounds
   }
 
   const toggleSound = () => {

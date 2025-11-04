@@ -9,7 +9,7 @@
       
       <div v-else class="history-list">
         <div 
-          v-for="(game, index) in gameHistory" 
+          v-for="game in gameHistory" 
           :key="game.gameId"
           class="history-item"
           :class="game.result"
@@ -26,7 +26,15 @@
               <span class="label">Color:</span>
               <span class="value">{{ game.myColor === 'white' ? '♔ White' : '♚ Black' }}</span>
             </div>
-            <div class="info-row">
+            <div v-if="game.whitePlayer" class="info-row">
+              <span class="label">White:</span>
+              <span class="value opponent-id">{{ formatPeerId(game.whitePlayer) }}</span>
+            </div>
+            <div v-if="game.blackPlayer" class="info-row">
+              <span class="label">Black:</span>
+              <span class="value opponent-id">{{ formatPeerId(game.blackPlayer) }}</span>
+            </div>
+            <div v-if="!game.whitePlayer && !game.blackPlayer" class="info-row">
               <span class="label">Opponent:</span>
               <span class="value opponent-id">{{ formatPeerId(game.opponent) }}</span>
             </div>
@@ -76,7 +84,8 @@ const formatDate = (timestamp: number): string => {
   return date.toLocaleString()
 }
 
-const formatPeerId = (peerId: string): string => {
+const formatPeerId = (peerId: string | undefined): string => {
+  if (!peerId) return 'Unknown'
   if (peerId.length > 20) {
     return peerId.substring(0, 10) + '...' + peerId.substring(peerId.length - 8)
   }

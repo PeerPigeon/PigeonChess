@@ -37,6 +37,9 @@ export interface MatchmakingRequest {
 
 export interface GameHistoryEntry {
   gameId: string
+  whitePlayer?: string  // Optional for backwards compatibility
+  blackPlayer?: string  // Optional for backwards compatibility
+  myPeerId?: string     // Optional for backwards compatibility
   opponent: string
   myColor: 'white' | 'black'
   result: 'win' | 'loss' | 'draw'
