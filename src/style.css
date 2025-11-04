@@ -15,6 +15,7 @@
   --board-dark: #6366f1;
   --board-highlight: rgba(99, 102, 241, 0.3);
   --board-selected: rgba(37, 99, 235, 0.4);
+  --board-move-dot: rgba(0, 0, 0, 0.2);
   --gradient-1: #3b82f6;
   --gradient-2: #1e40af;
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);

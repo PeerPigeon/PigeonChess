@@ -50,4 +50,21 @@ export interface GameHistoryEntry {
 export interface Settings {
   signalingUrls: string[]
   networkName: string
+  boardTheme?: string
+  customLightSquare?: string
+  customDarkSquare?: string
+  customWhitePieceColor?: string
+  customBlackPieceColor?: string
+  customWhitePieceOutline?: string
+  customBlackPieceOutline?: string
+}
+
+export interface BoardTheme {
+  id: string
+  name: string
+  light: string
+  dark: string
+  highlight: string
+  selected: string
+  moveDot: string
 }

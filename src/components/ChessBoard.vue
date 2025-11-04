@@ -22,7 +22,7 @@
           <img 
             v-if="getPiece(rowIndex, colIndex)" 
             class="piece"
-            :src="getPieceImage(rowIndex, colIndex)"
+            :src="getPieceImageUrl(rowIndex, colIndex)"
             :alt="getPieceSymbol(rowIndex, colIndex)"
             draggable="false"
           />
@@ -39,7 +39,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useSounds } from '../composables/useSounds'
 
 interface Props {
@@ -47,6 +47,12 @@ interface Props {
   flipped?: boolean
   interactive?: boolean
   showCoordinates?: boolean
+  pieceColors?: {
+    whiteFill?: string
+    blackFill?: string
+    whiteStroke?: string
+    blackStroke?: string
+  }
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -94,6 +100,99 @@ const getPieceImage = (row: number, col: number): string => {
   if (!piece) return ''
   const pieceKey = `${piece.color}${piece.type}`
   return `/pieces/${pieceKey}.svg`
+}
+
+// Cache for colored SVG data URLs
+const coloredSvgCache = ref(new Map<string, string>())
+
+// Watch for custom color changes and clear cache
+const customColorsKey = computed(() => {
+  const colors = props.pieceColors || {}
+  return `${colors.whiteFill}|${colors.blackFill}|${colors.whiteStroke}|${colors.blackStroke}`
+})
+
+watch(customColorsKey, () => {
+  // Clear cache when colors change
+  coloredSvgCache.value.clear()
+})
+
+const getPieceImageWithColors = async (row: number, col: number): Promise<string> => {
+  const piece = getPiece(row, col)
+  if (!piece) return ''
+  
+  const colors = props.pieceColors || {}
+  
+  // If no custom colors, use original SVG
+  if (!colors.whiteFill && !colors.blackFill && !colors.whiteStroke && !colors.blackStroke) {
+    return getPieceImage(row, col)
+  }
+  
+  const isWhite = piece.color === 'w'
+  const fillColor = isWhite 
+    ? colors.whiteFill || '#ffffff'
+    : colors.blackFill || '#000000'
+  const strokeColor = isWhite
+    ? colors.whiteStroke || '#000000'
+    : colors.blackStroke || '#ffffff'
+  
+  const pieceKey = `${piece.color}${piece.type}`
+  const cacheKey = `${pieceKey}-${fillColor}-${strokeColor}`
+  
+  // Return cached version if available
+  if (coloredSvgCache.value.has(cacheKey)) {
+    return coloredSvgCache.value.get(cacheKey)!
+  }
+  
+  // Always fetch white piece as template
+  const templatePath = `/pieces/w${piece.type}.svg`
+  
+  try {
+    const response = await fetch(templatePath)
+    const svgText = await response.text()
+    
+    // Replace fill and stroke colors in SVG (both attribute and style formats)
+    let modifiedSvg = svgText
+    
+    // Attribute format: fill="#fff" stroke="#000"
+    modifiedSvg = modifiedSvg.replace(/fill="#fff"/gi, `fill="${fillColor}"`)
+    modifiedSvg = modifiedSvg.replace(/fill="#ffffff"/gi, `fill="${fillColor}"`)
+    modifiedSvg = modifiedSvg.replace(/stroke="#000"/g, `stroke="${strokeColor}"`)
+    modifiedSvg = modifiedSvg.replace(/stroke="#000000"/g, `stroke="${strokeColor}"`)
+    // Style format: style="fill:#ffffff;stroke:#000000"
+    modifiedSvg = modifiedSvg.replace(/fill:#fff(fff)?/gi, `fill:${fillColor}`)
+    modifiedSvg = modifiedSvg.replace(/stroke:#000(000)?/gi, `stroke:${strokeColor}`)
+    
+    // Convert to data URL
+    const dataUrl = 'data:image/svg+xml;base64,' + btoa(modifiedSvg)
+    coloredSvgCache.value.set(cacheKey, dataUrl)
+    return dataUrl
+  } catch (err) {
+    console.error('Failed to load SVG:', err)
+    return templatePath
+  }
+}
+
+// Reactive piece images with colors
+const pieceImages = ref<Map<string, string>>(new Map())
+
+// Update piece images when colors or board changes
+watch([() => props.chess.fen(), customColorsKey], async () => {
+  pieceImages.value.clear()
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const piece = getPiece(row, col)
+      if (piece) {
+        const key = `${row}-${col}`
+        const imageUrl = await getPieceImageWithColors(row, col)
+        pieceImages.value.set(key, imageUrl)
+      }
+    }
+  }
+}, { immediate: true })
+
+const getPieceImageUrl = (row: number, col: number): string => {
+  const key = `${row}-${col}`
+  return pieceImages.value.get(key) || ''
 }
 
 const isSquareSelected = (row: number, col: number): boolean => {
@@ -236,12 +335,12 @@ watch(() => props.chess.fen(), () => {
   width: 30%;
   height: 30%;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 1);
+  background: var(--board-move-dot, rgba(0, 0, 0, 0.2));
   pointer-events: none;
 }
 
 .square.legal-move:hover::after {
-  background: rgba(255, 255, 255, 1);
+  background: var(--board-move-dot, rgba(0, 0, 0, 0.2));
 }
 
 

@@ -102,6 +102,12 @@
               :chess="chess"
               :flipped="myPlayer?.color === 'black'"
               :interactive="isMyTurn && isGameActive"
+              :piece-colors="{
+                whiteFill: settings.customWhitePieceColor,
+                blackFill: settings.customBlackPieceColor,
+                whiteStroke: settings.customWhitePieceOutline,
+                blackStroke: settings.customBlackPieceOutline
+              }"
               @move="handleMove"
             />
           </div>
@@ -237,10 +243,15 @@
     <SettingsModal 
       v-if="showSettings"
       :settings="settings"
+      :board-themes="boardThemes"
       @close="showSettings = false"
       @reset="resetToDefaults"
       @add-url="addSignalingUrl"
       @remove-url="removeSignalingUrl"
+      @select-theme="setBoardTheme"
+      @update-custom-colors="setCustomColors"
+      @update-piece-colors="setPieceColors"
+      @update-piece-outlines="setPieceOutlines"
     />
     
     <GameHistory
@@ -353,7 +364,7 @@ import { useSettings } from './composables/useSettings'
 import type { ChessMessage } from './types'
 
 // Settings
-const { settings, addSignalingUrl, removeSignalingUrl, resetToDefaults } = useSettings()
+const { settings, boardThemes, addSignalingUrl, removeSignalingUrl, resetToDefaults, setBoardTheme, setCustomColors, setPieceColors, setPieceOutlines } = useSettings()
 const showSettings = ref(false)
 const showHistory = ref(false)
 
