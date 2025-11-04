@@ -57,6 +57,7 @@ export interface Settings {
   customBlackPieceColor?: string
   customWhitePieceOutline?: string
   customBlackPieceOutline?: string
+  pieceTheme?: string
 }
 
 export interface BoardTheme {
@@ -67,4 +68,13 @@ export interface BoardTheme {
   highlight: string
   selected: string
   moveDot: string
+}
+
+export interface PieceTheme {
+  id: string
+  name: string
+  whiteFill: string
+  whiteStroke: string
+  blackFill: string
+  blackStroke: string
 }

@@ -1,5 +1,5 @@
 import { ref, watch } from 'vue'
-import type { Settings, BoardTheme } from '@/types'
+import type { Settings, BoardTheme, PieceTheme } from '@/types'
 import { loadFromLocalStorage, saveToLocalStorage } from '@/utils/helpers'
 
 const BOARD_THEMES: BoardTheme[] = [
@@ -58,6 +58,24 @@ const BOARD_THEMES: BoardTheme[] = [
     moveDot: 'rgba(0, 0, 0, 0.2)'
   },
   {
+    id: 'monochrome',
+    name: 'Black & White',
+    light: '#ffffff',
+    dark: '#1a1a1a',
+    highlight: 'rgba(100, 100, 100, 0.3)',
+    selected: 'rgba(60, 60, 60, 0.5)',
+    moveDot: 'rgba(0, 0, 0, 0.2)'
+  },
+  {
+    id: 'crimson',
+    name: 'Red & Black',
+    light: '#ff4444',
+    dark: '#1a1a1a',
+    highlight: 'rgba(255, 68, 68, 0.3)',
+    selected: 'rgba(200, 0, 0, 0.5)',
+    moveDot: 'rgba(255, 255, 255, 0.3)'
+  },
+  {
     id: 'custom',
     name: 'Custom Colors',
     light: '#f0d9b5',
@@ -65,6 +83,65 @@ const BOARD_THEMES: BoardTheme[] = [
     highlight: 'rgba(181, 136, 99, 0.3)',
     selected: 'rgba(20, 85, 30, 0.5)',
     moveDot: 'rgba(0, 0, 0, 0.2)'
+  }
+]
+
+const PIECE_THEMES: PieceTheme[] = [
+  {
+    id: 'classic',
+    name: 'Classic (Default)',
+    whiteFill: '#ffffff',
+    whiteStroke: '#000000',
+    blackFill: '#000000',
+    blackStroke: '#ffffff'
+  },
+  {
+    id: 'wood',
+    name: 'Wood',
+    whiteFill: '#f0d9b5',
+    whiteStroke: '#8b4513',
+    blackFill: '#8b4513',
+    blackStroke: '#f0d9b5'
+  },
+  {
+    id: 'metal',
+    name: 'Metal',
+    whiteFill: '#e8e8e8',
+    whiteStroke: '#4a4a4a',
+    blackFill: '#4a4a4a',
+    blackStroke: '#c0c0c0'
+  },
+  {
+    id: 'ocean',
+    name: 'Ocean',
+    whiteFill: '#a7d8de',
+    whiteStroke: '#004d7a',
+    blackFill: '#004d7a',
+    blackStroke: '#a7d8de'
+  },
+  {
+    id: 'fire',
+    name: 'Fire & Ice',
+    whiteFill: '#87ceeb',
+    whiteStroke: '#1e90ff',
+    blackFill: '#ff4500',
+    blackStroke: '#ff8c00'
+  },
+  {
+    id: 'neon',
+    name: 'Neon',
+    whiteFill: '#00ff00',
+    whiteStroke: '#00aa00',
+    blackFill: '#ff00ff',
+    blackStroke: '#aa00aa'
+  },
+  {
+    id: 'custom',
+    name: 'Custom Colors',
+    whiteFill: '#ffffff',
+    whiteStroke: '#000000',
+    blackFill: '#000000',
+    blackStroke: '#ffffff'
   }
 ]
 
@@ -199,15 +276,28 @@ export function useSettings() {
     settings.value.customBlackPieceOutline = blackOutline
   }
 
+  const setPieceTheme = (themeId: string) => {
+    settings.value.pieceTheme = themeId
+    const theme = PIECE_THEMES.find(t => t.id === themeId)
+    if (theme && themeId !== 'custom') {
+      settings.value.customWhitePieceColor = theme.whiteFill
+      settings.value.customBlackPieceColor = theme.blackFill
+      settings.value.customWhitePieceOutline = theme.whiteStroke
+      settings.value.customBlackPieceOutline = theme.blackStroke
+    }
+  }
+
   return {
     settings,
     boardThemes: BOARD_THEMES,
+    pieceThemes: PIECE_THEMES,
     addSignalingUrl,
     removeSignalingUrl,
     resetToDefaults,
     setBoardTheme,
     setCustomColors,
     setPieceColors,
-    setPieceOutlines
+    setPieceOutlines,
+    setPieceTheme
   }
 }

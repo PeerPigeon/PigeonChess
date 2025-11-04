@@ -244,11 +244,13 @@
       v-if="showSettings"
       :settings="settings"
       :board-themes="boardThemes"
+      :piece-themes="pieceThemes"
       @close="showSettings = false"
       @reset="resetToDefaults"
       @add-url="addSignalingUrl"
       @remove-url="removeSignalingUrl"
       @select-theme="setBoardTheme"
+      @select-piece-theme="setPieceTheme"
       @update-custom-colors="setCustomColors"
       @update-piece-colors="setPieceColors"
       @update-piece-outlines="setPieceOutlines"
@@ -364,7 +366,7 @@ import { useSettings } from './composables/useSettings'
 import type { ChessMessage } from './types'
 
 // Settings
-const { settings, boardThemes, addSignalingUrl, removeSignalingUrl, resetToDefaults, setBoardTheme, setCustomColors, setPieceColors, setPieceOutlines } = useSettings()
+const { settings, boardThemes, pieceThemes, addSignalingUrl, removeSignalingUrl, resetToDefaults, setBoardTheme, setCustomColors, setPieceColors, setPieceOutlines, setPieceTheme } = useSettings()
 const showSettings = ref(false)
 const showHistory = ref(false)
 

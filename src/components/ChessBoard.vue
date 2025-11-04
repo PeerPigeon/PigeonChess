@@ -95,13 +95,6 @@ const getPieceSymbol = (row: number, col: number): string => {
   return PIECE_SYMBOLS[`${piece.color}${piece.type}`] || ''
 }
 
-const getPieceImage = (row: number, col: number): string => {
-  const piece = getPiece(row, col)
-  if (!piece) return ''
-  const pieceKey = `${piece.color}${piece.type}`
-  return `/pieces/${pieceKey}.svg`
-}
-
 // Cache for colored SVG data URLs
 const coloredSvgCache = ref(new Map<string, string>())
 
@@ -121,20 +114,17 @@ const getPieceImageWithColors = async (row: number, col: number): Promise<string
   if (!piece) return ''
   
   const colors = props.pieceColors || {}
-  
-  // If no custom colors, use original SVG
-  if (!colors.whiteFill && !colors.blackFill && !colors.whiteStroke && !colors.blackStroke) {
-    return getPieceImage(row, col)
-  }
-  
   const isWhite = piece.color === 'w'
-  const fillColor = isWhite 
-    ? colors.whiteFill || '#ffffff'
-    : colors.blackFill || '#000000'
-  const strokeColor = isWhite
-    ? colors.whiteStroke || '#000000'
-    : colors.blackStroke || '#ffffff'
   
+  // Determine colors: if custom colors provided, use them; otherwise use defaults
+  const fillColor = isWhite 
+    ? (colors.whiteFill || '#ffffff')
+    : (colors.blackFill || '#000000')
+  const strokeColor = isWhite
+    ? (colors.whiteStroke || '#000000')
+    : (colors.blackStroke || '#ffffff')
+  
+  // Always use white piece SVGs as template and recolor them
   const pieceKey = `${piece.color}${piece.type}`
   const cacheKey = `${pieceKey}-${fillColor}-${strokeColor}`
   
@@ -158,9 +148,11 @@ const getPieceImageWithColors = async (row: number, col: number): Promise<string
     modifiedSvg = modifiedSvg.replace(/fill="#ffffff"/gi, `fill="${fillColor}"`)
     modifiedSvg = modifiedSvg.replace(/stroke="#000"/g, `stroke="${strokeColor}"`)
     modifiedSvg = modifiedSvg.replace(/stroke="#000000"/g, `stroke="${strokeColor}"`)
-    // Style format: style="fill:#ffffff;stroke:#000000"
-    modifiedSvg = modifiedSvg.replace(/fill:#fff(fff)?/gi, `fill:${fillColor}`)
-    modifiedSvg = modifiedSvg.replace(/stroke:#000(000)?/gi, `stroke:${strokeColor}`)
+    // Style format: style="fill:#ffffff;stroke:#000000" (but NOT fill:none)
+    modifiedSvg = modifiedSvg.replace(/fill:#ffffff\b/gi, `fill:${fillColor}`)
+    modifiedSvg = modifiedSvg.replace(/fill:#fff\b/gi, `fill:${fillColor}`)
+    modifiedSvg = modifiedSvg.replace(/stroke:#000000\b/gi, `stroke:${strokeColor}`)
+    modifiedSvg = modifiedSvg.replace(/stroke:#000\b/gi, `stroke:${strokeColor}`)
     
     // Convert to data URL
     const dataUrl = 'data:image/svg+xml;base64,' + btoa(modifiedSvg)

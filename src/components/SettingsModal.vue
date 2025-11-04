@@ -57,8 +57,18 @@
             @click="selectTheme(theme.id)"
           >
             <div class="theme-preview">
-              <div class="theme-square light" :style="{ backgroundColor: theme.id === 'custom' && customLightSquare ? customLightSquare : theme.light }"></div>
-              <div class="theme-square dark" :style="{ backgroundColor: theme.id === 'custom' && customDarkSquare ? customDarkSquare : theme.dark }"></div>
+              <div 
+                class="theme-square light" 
+                :style="theme.id === 'custom' 
+                  ? { background: 'linear-gradient(135deg, #ff0000 0%, #ff7f00 16%, #ffff00 33%, #00ff00 50%, #0000ff 66%, #4b0082 83%, #9400d3 100%)' }
+                  : { backgroundColor: theme.id === 'custom' && customLightSquare ? customLightSquare : theme.light }"
+              ></div>
+              <div 
+                class="theme-square dark" 
+                :style="theme.id === 'custom'
+                  ? { background: 'linear-gradient(135deg, #9400d3 0%, #4b0082 16%, #0000ff 33%, #00ff00 50%, #ffff00 66%, #ff7f00 83%, #ff0000 100%)' }
+                  : { backgroundColor: theme.id === 'custom' && customDarkSquare ? customDarkSquare : theme.dark }"
+              ></div>
             </div>
             <span class="theme-name">{{ theme.name }}</span>
           </div>
@@ -92,9 +102,36 @@
       </div>
       
       <div class="settings-section">
-        <h3>Piece Colors (Optional)</h3>
-        <p class="description">Customize piece colors. Leave empty to use original SVG colors.</p>
-        <div class="custom-colors">
+        <h3>Piece Colors</h3>
+        <p class="description">Choose your preferred piece color scheme.</p>
+        <div class="theme-grid">
+          <div 
+            v-for="theme in pieceThemes" 
+            :key="theme.id"
+            class="theme-option"
+            :class="{ active: settings.pieceTheme === theme.id }"
+            @click="selectPieceTheme(theme.id)"
+          >
+            <div class="theme-preview">
+              <div 
+                class="theme-square light" 
+                :style="theme.id === 'custom'
+                  ? { background: 'linear-gradient(135deg, #ff0000 0%, #ff7f00 16%, #ffff00 33%, #00ff00 50%, #0000ff 66%, #4b0082 83%, #9400d3 100%)' }
+                  : { backgroundColor: theme.whiteFill, border: `3px solid ${theme.whiteStroke}` }"
+              ></div>
+              <div 
+                class="theme-square dark" 
+                :style="theme.id === 'custom'
+                  ? { background: 'linear-gradient(135deg, #9400d3 0%, #4b0082 16%, #0000ff 33%, #00ff00 50%, #ffff00 66%, #ff7f00 83%, #ff0000 100%)' }
+                  : { backgroundColor: theme.blackFill, border: `3px solid ${theme.blackStroke}` }"
+              ></div>
+            </div>
+            <span class="theme-name">{{ theme.name }}</span>
+          </div>
+        </div>
+        
+        <!-- Custom Piece Color Pickers -->
+        <div v-if="settings.pieceTheme === 'custom'" class="custom-colors">
           <div class="color-picker-group">
             <label>
               White Pieces Fill
@@ -118,27 +155,43 @@
             </label>
           </div>
         </div>
-        <div class="custom-colors" style="margin-top: 1rem;">
+        <div v-if="settings.pieceTheme === 'custom'" class="custom-colors" style="margin-top: 1rem;">
           <div class="color-picker-group">
             <label>
               White Pieces Outline
-              <input 
-                type="color" 
-                v-model="customWhitePieceOutline"
-                @input="updatePieceOutlines"
-              />
-              <span class="color-value">{{ customWhitePieceOutline }}</span>
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <input 
+                  type="color" 
+                  v-model="customWhitePieceOutline"
+                  @input="updatePieceOutlines"
+                />
+                <input 
+                  type="text" 
+                  v-model="customWhitePieceOutline"
+                  @input="updatePieceOutlines"
+                  placeholder="#000000"
+                  style="width: 100px; font-family: monospace;"
+                />
+              </div>
             </label>
           </div>
           <div class="color-picker-group">
             <label>
               Black Pieces Outline
-              <input 
-                type="color" 
-                v-model="customBlackPieceOutline"
-                @input="updatePieceOutlines"
-              />
-              <span class="color-value">{{ customBlackPieceOutline }}</span>
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <input 
+                  type="color" 
+                  v-model="customBlackPieceOutline"
+                  @input="updatePieceOutlines"
+                />
+                <input 
+                  type="text" 
+                  v-model="customBlackPieceOutline"
+                  @input="updatePieceOutlines"
+                  placeholder="#ffffff"
+                  style="width: 100px; font-family: monospace;"
+                />
+              </div>
             </label>
           </div>
         </div>
@@ -154,11 +207,12 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { Settings, BoardTheme } from '@/types'
+import type { Settings, BoardTheme, PieceTheme } from '@/types'
 
 interface Props {
   settings: Settings
   boardThemes: BoardTheme[]
+  pieceThemes: PieceTheme[]
 }
 
 const props = defineProps<Props>()
@@ -168,6 +222,7 @@ const emit = defineEmits<{
   addUrl: [url: string]
   removeUrl: [url: string]
   selectTheme: [themeId: string]
+  selectPieceTheme: [themeId: string]
   updateCustomColors: [lightSquare: string, darkSquare: string]
   updatePieceColors: [whiteColor: string, blackColor: string]
   updatePieceOutlines: [whiteOutline: string, blackOutline: string]
@@ -198,6 +253,10 @@ const reset = () => {
 
 const selectTheme = (themeId: string) => {
   emit('selectTheme', themeId)
+}
+
+const selectPieceTheme = (themeId: string) => {
+  emit('selectPieceTheme', themeId)
 }
 
 const updateCustomColors = () => {
