@@ -15,16 +15,22 @@
             dark: (rowIndex + colIndex) % 2 === 1,
             selected: isSquareSelected(rowIndex, colIndex),
             highlight: isSquareHighlighted(rowIndex, colIndex),
-            'legal-move': isLegalMoveSquare(rowIndex, colIndex)
+            'legal-move': isLegalMoveSquare(rowIndex, colIndex),
+            'drag-over': isDragOver(rowIndex, colIndex)
           }"
           @click="handleSquareClick(rowIndex, colIndex)"
+          @dragover.prevent="handleDragOver(rowIndex, colIndex)"
+          @dragleave="handleDragLeave(rowIndex, colIndex)"
+          @drop="handleDrop(rowIndex, colIndex)"
         >
           <img 
             v-if="getPiece(rowIndex, colIndex)" 
             class="piece"
             :src="getPieceImageUrl(rowIndex, colIndex)"
             :alt="getPieceSymbol(rowIndex, colIndex)"
-            draggable="false"
+            :draggable="interactive && getPiece(rowIndex, colIndex)?.color === chess.turn()"
+            @dragstart="handleDragStart(rowIndex, colIndex, $event)"
+            @dragend="handleDragEnd"
           />
           <div v-if="showCoordinates && colIndex === 0" class="rank-label">
             {{ 8 - rowIndex }}
@@ -70,6 +76,8 @@ const { playMoveSound, playCaptureSound, playCastleSound } = useSounds()
 const boardRef = ref<HTMLElement>()
 const selectedSquare = ref<string | null>(null)
 const legalMoves = ref<any[]>([])
+const draggedSquare = ref<string | null>(null)
+const dragOverSquare = ref<string | null>(null)
 
 const PIECE_SYMBOLS: Record<string, string> = {
   'wp': '♙', 'wn': '♘', 'wb': '♗', 'wr': '♖', 'wq': '♕', 'wk': '♔',
@@ -252,6 +260,84 @@ const handleSquareClick = (row: number, col: number) => {
   }
 }
 
+// Drag and drop handlers
+const handleDragStart = (row: number, col: number, event: DragEvent) => {
+  if (!props.interactive) return
+  
+  const square = getSquareName(row, col)
+  const piece = getPiece(row, col)
+  
+  if (!piece || piece.color !== props.chess.turn()) {
+    event.preventDefault()
+    return
+  }
+  
+  draggedSquare.value = square
+  selectedSquare.value = square
+  legalMoves.value = props.chess.moves({ square: square as any, verbose: true })
+  
+  // Set drag image (optional - makes the piece follow cursor)
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', square)
+  }
+}
+
+const handleDragOver = (row: number, col: number) => {
+  if (!props.interactive || !draggedSquare.value) return
+  dragOverSquare.value = getSquareName(row, col)
+}
+
+const handleDragLeave = (row: number, col: number) => {
+  if (!props.interactive) return
+  const square = getSquareName(row, col)
+  if (dragOverSquare.value === square) {
+    dragOverSquare.value = null
+  }
+}
+
+const handleDrop = (row: number, col: number) => {
+  if (!props.interactive || !draggedSquare.value) return
+  
+  const targetSquare = getSquareName(row, col)
+  const move = legalMoves.value.find(m => m.to === targetSquare)
+  
+  if (move) {
+    // Check if it's a capture move using chess.js flags
+    const isCapture = move.captured !== undefined
+    const isCastle = move.flags.includes('k') || move.flags.includes('q')
+    
+    // Play appropriate sound
+    if (isCastle) {
+      playCastleSound()
+    } else if (isCapture) {
+      playCaptureSound()
+    } else {
+      playMoveSound()
+    }
+    
+    // Make the move
+    emit('move', draggedSquare.value, targetSquare)
+  }
+  
+  // Reset drag state
+  draggedSquare.value = null
+  dragOverSquare.value = null
+  selectedSquare.value = null
+  legalMoves.value = []
+}
+
+const handleDragEnd = () => {
+  draggedSquare.value = null
+  dragOverSquare.value = null
+  selectedSquare.value = null
+  legalMoves.value = []
+}
+
+const isDragOver = (row: number, col: number): boolean => {
+  return dragOverSquare.value === getSquareName(row, col)
+}
+
 // Reset selection when chess state changes
 watch(() => props.chess.fen(), () => {
   selectedSquare.value = null
@@ -321,6 +407,11 @@ watch(() => props.chess.fen(), () => {
   box-shadow: inset 0 0 0 3px rgba(99, 102, 241, 0.6);
 }
 
+.square.drag-over {
+  background-color: var(--board-selected) !important;
+  box-shadow: inset 0 0 0 3px rgba(34, 197, 94, 0.6);
+}
+
 .square.legal-move::after {
   content: '';
   position: absolute;
@@ -342,13 +433,27 @@ watch(() => props.chess.fen(), () => {
   user-select: none;
   pointer-events: none;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+  transition: transform 0.1s ease;
+}
+
+.piece[draggable="true"] {
+  cursor: grab;
+  pointer-events: auto;
+}
+
+.piece[draggable="true"]:active {
+  cursor: grabbing;
 }
 
 .chess-board-container.flipped .square:hover .piece {
   transform: rotate(180deg) scale(1.05);
 }
 
-.square:hover .piece {
+.square:hover .piece[draggable="true"] {
+  transform: scale(1.08);
+}
+
+.square:hover .piece:not([draggable="true"]) {
   transform: scale(1.05);
 }
 

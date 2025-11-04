@@ -356,7 +356,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { Chess } from 'chess.js'
 import { usePeerPigeon } from './composables/usePeerPigeon'
 import ChessBoard from './components/ChessBoard.vue'
@@ -370,6 +370,14 @@ import type { ChessMessage } from './types'
 const { settings, boardThemes, pieceThemes, addSignalingUrl, removeSignalingUrl, resetToDefaults, setBoardTheme, setCustomColors, setPieceColors, setPieceOutlines, setPieceTheme, toggleSound } = useSettings()
 const showSettings = ref(false)
 const showHistory = ref(false)
+
+// Watch showHistory to debug
+watch(showHistory, (value) => {
+  if (value) {
+    console.log('Opening game history. Games in history:', gameHistory.value.length)
+    console.log('Game history data:', gameHistory.value)
+  }
+})
 
 // PeerPigeon setup - let PeerPigeon generate its own peer ID
 const {
@@ -429,6 +437,72 @@ const startSearching = () => {
   if (isGameActive.value) return
   isSearching.value = true
   broadcastSearchStatus()
+  
+  // Check if any peers are already searching for the same time control
+  console.log('Checking existing peer search statuses:', peerSearchStatus.value)
+  for (const [peerId, timeControl] of peerSearchStatus.value.entries()) {
+    if (timeControl === selectedTimeControl.value) {
+      console.log('Found peer already searching:', peerId, 'for', timeControl)
+      
+      // Simulate receiving a matchmaking message from this peer
+      handleMatchmakingMessage(peerId, timeControl)
+      break // Only match with one peer
+    }
+  }
+}
+
+const handleMatchmakingMessage = async (senderPeerId: string, timeControl: string) => {
+  // Check if we're both searching for the same time control
+  if (isSearching.value && timeControl === selectedTimeControl.value && !isGameActive.value) {
+    console.log('Match found with', senderPeerId, 'for', timeControl, 'My ID:', myPeerId.value)
+    
+    // Only the peer with the lower ID initiates the game to avoid race conditions
+    if (myPeerId.value < senderPeerId) {
+      console.log('I am initiator (lower ID), starting game...')
+      isSearching.value = false
+      
+      const timeControlObj = timeControls.find(tc => tc.id === selectedTimeControl.value)!
+      currentGameTimeControl.value = {
+        minutes: timeControlObj.minutes,
+        increment: timeControlObj.increment
+      }
+      
+      // Generate game ID and determine colors
+      const gameId = `game-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      // Lower peer ID gets white
+      
+      // Send gameStart message to opponent
+      const gameStartMessage: ChessMessage = {
+        type: 'gameStart',
+        gameId: gameId,
+        data: {
+          whitePlayer: myPeerId.value,
+          blackPlayer: senderPeerId,
+          timeControl: timeControlObj
+        }
+      }
+      
+      try {
+        await sendMessage(senderPeerId, JSON.stringify(gameStartMessage))
+        
+        // Start the game locally
+        resetTimers()
+        // I am white (lower peer ID), opponent is black
+        startNewGame(myPeerId.value, senderPeerId, 'white')
+        opponentId.value = senderPeerId
+        startTimer()
+        broadcastSearchStatus() // Stop broadcasting search
+      } catch (err) {
+        console.error('Failed to send game start message:', err)
+        isSearching.value = true // Resume searching on error
+      }
+    } else {
+      console.log('Peer', senderPeerId, 'will initiate game (they have lower ID), waiting for gameStart message...')
+      // The other peer will send us a gameStart message
+      // Keep searching until we receive the gameStart to ensure they got our message
+      // We'll stop searching when we receive the gameStart message
+    }
+  }
 }
 
 const stopSearching = () => {
@@ -447,7 +521,7 @@ const broadcastSearchStatus = async () => {
   console.log('Broadcasting search status:', message, 'to all peers in network')
   
   try {
-    await broadcast(JSON.stringify(message))
+    await broadcast(JSON.stringify(message), false) // Unencrypted
     console.log('Search status broadcasted to network')
   } catch (err) {
     console.error('Failed to broadcast search status:', err)
@@ -490,7 +564,7 @@ const broadcastPresence = async () => {
   }
   
   try {
-    await broadcast(JSON.stringify(message))
+    await broadcast(JSON.stringify(message), false) // Unencrypted
   } catch (err) {
     // Silently fail if crypto/group key not ready yet
     // This is normal during initial connection
@@ -965,6 +1039,11 @@ const acceptTakebackRequest = async () => {
   // Undo the last move
   if (chess.value) {
     chess.value.undo()
+    
+    // Play move sound for takeback
+    const audio = new Audio('/sounds/move.mp3')
+    audio.volume = 0.6
+    audio.play().catch((err) => console.error('Move sound error:', err))
   }
   
   incomingTakebackRequest.value = null
@@ -994,21 +1073,30 @@ let unsubscribePeerConnect: (() => void) | null = null
 
 const handleMessage = async (event: any) => {
   try {
-    console.log('Message received:', event)
-    
     const fromPeer = event.from || event.source || event.peer
     
     // Extract content properly - PeerPigeon wraps it in an object
     let content = event.content
+    
     if (typeof content === 'object') {
-      // Check for encrypted message
-      if (content.encrypted && content.data) {
+      // Check for encrypted message - check both data and decrypted fields
+      if (content.encrypted && content.decrypted) {
+        content = content.decrypted
+      } else if (content.encrypted && content.data) {
         content = content.data
       } else if (content.message) {
         content = content.message
       } else if (content.broadcast && content.data) {
         content = content.data
       }
+    }
+    
+    // If content is still an object and not a string, it might be the message itself
+    if (typeof content === 'object' && content.type) {
+      // Content is already the parsed message
+    } else if (typeof content !== 'string') {
+      // Can't parse this message
+      return
     }
     
     // Try to parse as ChessMessage or matchmaking message
@@ -1019,7 +1107,6 @@ const handleMessage = async (event: any) => {
       if (message.peerId && message.peerId !== myPeerId.value) {
         allKnownPeers.value.add(message.peerId)
         peerLastSeen.value.set(message.peerId, Date.now())
-        console.log('Peer presence received from:', message.peerId, '| Total peers:', allKnownPeers.value.size)
       }
       return // Don't process further
     }
@@ -1028,66 +1115,26 @@ const handleMessage = async (event: any) => {
     if (message.type === 'matchmaking') {
       const senderPeerId = message.peerId || fromPeer
       
+      console.log('Matchmaking message received:', {
+        senderPeerId,
+        myPeerId: myPeerId.value,
+        isSearching: isSearching.value,
+        message
+      })
+      
       if (!senderPeerId || senderPeerId === myPeerId.value) {
+        console.log('Ignoring own message or message without peer ID')
         return // Ignore our own messages or messages without peer ID
       }
       
       if (message.searching) {
         peerSearchStatus.value.set(senderPeerId, message.timeControl)
+        console.log('Peer is searching:', senderPeerId, 'for', message.timeControl)
         
         // Check if we're both searching for the same time control
-        if (isSearching.value && message.timeControl === selectedTimeControl.value && !isGameActive.value) {
-          console.log('Match found with', senderPeerId, 'for', message.timeControl)
-          
-          // Only the peer with the lower ID initiates the game to avoid race conditions
-          if (myPeerId.value < senderPeerId) {
-            console.log('I am initiator, starting game...')
-            isSearching.value = false
-            
-            const timeControl = timeControls.find(tc => tc.id === selectedTimeControl.value)!
-            currentGameTimeControl.value = {
-              minutes: timeControl.minutes,
-              increment: timeControl.increment
-            }
-            
-            // Generate game ID and determine colors
-            const gameId = `game-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-            // Lower peer ID gets white
-            
-            // Send gameStart message to opponent
-            const gameStartMessage: ChessMessage = {
-              type: 'gameStart',
-              gameId: gameId,
-              data: {
-                whitePlayer: myPeerId.value,
-                blackPlayer: senderPeerId,
-                timeControl: timeControl
-              }
-            }
-            
-            try {
-              await sendMessage(senderPeerId, JSON.stringify(gameStartMessage))
-              
-              // Start the game locally
-              resetTimers()
-              // I am white (lower peer ID), opponent is black
-              startNewGame(myPeerId.value, senderPeerId, 'white')
-              opponentId.value = senderPeerId
-              startTimer()
-              broadcastSearchStatus() // Stop broadcasting search
-            } catch (err) {
-              console.error('Failed to send game start message:', err)
-              isSearching.value = true // Resume searching on error
-            }
-          } else {
-            console.log('Peer', senderPeerId, 'will initiate game, stopping my search')
-            // The other peer will send us a gameStart message
-            // Stop searching and wait for their gameStart message
-            isSearching.value = false
-            broadcastSearchStatus()
-          }
-        }
+        await handleMatchmakingMessage(senderPeerId, message.timeControl)
       } else {
+        console.log('Peer stopped searching:', senderPeerId)
         peerSearchStatus.value.delete(senderPeerId)
       }
       return
@@ -1236,17 +1283,21 @@ onMounted(async () => {
   unsubscribeMessage = onMessage(handleMessage)
   
   // Set up peer connect listener - broadcast search status when new peer connects
-  unsubscribePeerConnect = onPeerConnect((peerId: string) => {
+  unsubscribePeerConnect = onPeerConnect(async (peerId: string) => {
     console.log('New peer connected:', peerId)
     // If we're currently searching, broadcast our search status to the new peer
     if (isSearching.value) {
+      // Small delay to ensure peer is ready to receive messages
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
       const message = {
         type: 'matchmaking',
+        peerId: myPeerId.value,
         searching: true,
         timeControl: selectedTimeControl.value
       }
       try {
-        sendMessage(peerId, JSON.stringify(message))
+        await sendMessage(peerId, JSON.stringify(message))
         console.log('Sent search status to new peer:', peerId)
       } catch (err) {
         console.error('Failed to send search status to new peer:', err)

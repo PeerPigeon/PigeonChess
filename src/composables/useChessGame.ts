@@ -9,6 +9,9 @@ export function useChessGame() {
   const myPlayer = ref<Player | null>(null)
   const opponentId = ref<string | null>(null)
   const gameHistory = ref<GameHistoryEntry[]>(loadFromLocalStorage('chess-game-history', []))
+  
+  console.log('useChessGame initialized, gameHistory length:', gameHistory.value.length)
+  
   let onGameEndCallback: ((result: 'win' | 'loss' | 'draw') => void) | null = null
   
   const setOnGameEndCallback = (callback: (result: 'win' | 'loss' | 'draw') => void) => {
@@ -146,7 +149,11 @@ export function useChessGame() {
       if (gameHistory.value.length > 50) {
         gameHistory.value = gameHistory.value.slice(0, 50)
       }
+      console.log('Saving game to history. Total games:', gameHistory.value.length)
       saveToLocalStorage('chess-game-history', gameHistory.value)
+      console.log('Game saved to localStorage')
+    } else {
+      console.log('NOT saving game to history. opponentId:', opponentId.value, 'currentGame:', !!currentGame.value, 'myPlayer:', !!myPlayer.value)
     }
   }
 

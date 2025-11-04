@@ -132,16 +132,23 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     await mesh.value.sendEncryptedMessage(peerId, messageStr)
   }
 
-  const broadcast = async (message: any) => {
+  const broadcast = async (message: any, encrypted: boolean = false) => {
     if (!mesh.value) {
       throw new Error('Mesh not initialized')
     }
     
     const messageStr = typeof message === 'string' ? message : JSON.stringify(message)
-    // Try unencrypted broadcast first, fall back to encrypted if available
-    if (mesh.value.sendBroadcast) {
+    
+    // Use unencrypted broadcast if requested and available
+    if (!encrypted && mesh.value.sendBroadcast) {
+      await mesh.value.sendBroadcast(messageStr)
+    } else if (encrypted && mesh.value.sendEncryptedBroadcast) {
+      await mesh.value.sendEncryptedBroadcast(messageStr)
+    } else if (mesh.value.sendBroadcast) {
+      // Fallback to unencrypted
       await mesh.value.sendBroadcast(messageStr)
     } else {
+      // Last resort - encrypted
       await mesh.value.sendEncryptedBroadcast(messageStr)
     }
   }
