@@ -16,7 +16,8 @@
             selected: isSquareSelected(rowIndex, colIndex),
             highlight: isSquareHighlighted(rowIndex, colIndex),
             'legal-move': isLegalMoveSquare(rowIndex, colIndex),
-            'drag-over': isDragOver(rowIndex, colIndex)
+            'drag-over': isDragOver(rowIndex, colIndex),
+            'king-in-check': isKingInCheck(rowIndex, colIndex)
           }"
           @click="handleSquareClick(rowIndex, colIndex)"
           @dragover.prevent="handleDragOver(rowIndex, colIndex)"
@@ -31,6 +32,9 @@
             :draggable="interactive && getPiece(rowIndex, colIndex)?.color === chess.turn()"
             @dragstart="handleDragStart(rowIndex, colIndex, $event)"
             @dragend="handleDragEnd"
+            @touchstart="handleTouchStart(rowIndex, colIndex, $event)"
+            @touchmove.prevent="handleTouchMove($event)"
+            @touchend="handleTouchEnd($event)"
           />
           <div v-if="showCoordinates && colIndex === 0" class="rank-label">
             {{ 8 - rowIndex }}
@@ -204,6 +208,14 @@ const isSquareHighlighted = (row: number, col: number): boolean => {
   return legalMoves.value.some(move => move.to === getSquareName(row, col))
 }
 
+const isKingInCheck = (row: number, col: number): boolean => {
+  const piece = getPiece(row, col)
+  if (!piece || piece.type !== 'k') return false
+  
+  // Check if this king's color is currently in check
+  return props.chess.isCheck() && props.chess.turn() === piece.color
+}
+
 const isLegalMoveSquare = (row: number, col: number): boolean => {
   return isSquareHighlighted(row, col)
 }
@@ -334,6 +346,78 @@ const handleDragEnd = () => {
   legalMoves.value = []
 }
 
+// Touch handlers for mobile
+const handleTouchStart = (row: number, col: number, _event: TouchEvent) => {
+  if (!props.interactive) return
+  
+  const square = getSquareName(row, col)
+  const piece = getPiece(row, col)
+  
+  if (!piece || piece.color !== props.chess.turn()) {
+    return
+  }
+  
+  draggedSquare.value = square
+  selectedSquare.value = square
+  legalMoves.value = props.chess.moves({ square: square as any, verbose: true })
+}
+
+const handleTouchMove = (event: TouchEvent) => {
+  if (!props.interactive || !draggedSquare.value || !boardRef.value) return
+  
+  const touch = event.touches[0]
+  const element = document.elementFromPoint(touch.clientX, touch.clientY)
+  
+  if (element && element.classList.contains('square')) {
+    const allSquares = Array.from(boardRef.value.querySelectorAll('.square'))
+    const index = allSquares.indexOf(element as Element)
+    if (index !== -1) {
+      const row = Math.floor(index / 8)
+      const col = index % 8
+      dragOverSquare.value = getSquareName(row, col)
+    }
+  }
+}
+
+const handleTouchEnd = (event: TouchEvent) => {
+  if (!props.interactive || !draggedSquare.value || !boardRef.value) return
+  
+  const touch = event.changedTouches[0]
+  const element = document.elementFromPoint(touch.clientX, touch.clientY)
+  
+  if (element && element.classList.contains('square')) {
+    const allSquares = Array.from(boardRef.value.querySelectorAll('.square'))
+    const index = allSquares.indexOf(element as Element)
+    if (index !== -1) {
+      const row = Math.floor(index / 8)
+      const col = index % 8
+      const targetSquare = getSquareName(row, col)
+      const move = legalMoves.value.find(m => m.to === targetSquare)
+      
+      if (move) {
+        const isCapture = move.captured !== undefined
+        const isCastle = move.flags.includes('k') || move.flags.includes('q')
+        
+        if (isCastle) {
+          playCastleSound()
+        } else if (isCapture) {
+          playCaptureSound()
+        } else {
+          playMoveSound()
+        }
+        
+        emit('move', draggedSquare.value, targetSquare)
+      }
+    }
+  }
+  
+  // Reset state
+  draggedSquare.value = null
+  dragOverSquare.value = null
+  selectedSquare.value = null
+  legalMoves.value = []
+}
+
 const isDragOver = (row: number, col: number): boolean => {
   return dragOverSquare.value === getSquareName(row, col)
 }
@@ -369,12 +453,100 @@ watch(() => props.chess.fen(), () => {
   display: grid;
   grid-template-rows: repeat(8, 1fr);
   grid-template-columns: repeat(8, 1fr);
-  width: min(100%, 100vh - 210px);
-  height: min(100%, 100vh - 210px);
+  width: 100%;
+  max-width: min(100%, 100vh - 180px);
   aspect-ratio: 1 / 1;
   box-sizing: border-box;
   border-radius: 4px;
   overflow: hidden;
+  position: relative;
+}
+
+/* Make the board responsive on small screens */
+@media (max-width: 1024px) {
+  .chess-board {
+    /* use available viewport width while leaving padding/margins */
+    width: calc(100vw - 30px);
+    height: auto;
+    aspect-ratio: 1 / 1;
+    max-width: none;
+  }
+
+  .piece {
+    width: 90%;
+    height: 90%;
+  }
+
+  .rank-label, .file-label {
+    font-size: 0.65rem;
+  }
+  
+  .square {
+    /* Better touch targets on mobile */
+    min-width: 40px;
+    min-height: 40px;
+  }
+  
+  .square.legal-move::after {
+    width: 35%;
+    height: 35%;
+  }
+}
+
+/* Landscape mode - make board fit the available space */
+@media (max-width: 1024px) and (orientation: landscape) {
+  .chess-board-container {
+    width: 100% !important;
+    height: 100% !important;
+  }
+  
+  .chess-board {
+    width: auto !important;
+    height: 95% !important;
+    max-width: 95% !important;
+    max-height: 95% !important;
+    aspect-ratio: 1 / 1 !important;
+    grid-template-rows: repeat(8, 1fr) !important;
+    grid-template-columns: repeat(8, 1fr) !important;
+  }
+  
+  .square {
+    min-width: 0 !important;
+    min-height: 0 !important;
+  }
+  
+  .piece {
+    width: 85% !important;
+    height: 85% !important;
+  }
+}
+
+/* Touch device specific adjustments */
+@media (hover: none) and (pointer: coarse) {
+  .square {
+    cursor: default;
+    touch-action: none;
+  }
+  
+  .piece {
+    pointer-events: auto;
+    touch-action: none;
+  }
+  
+  .piece[draggable="true"] {
+    cursor: default;
+    pointer-events: auto;
+  }
+  
+  /* Disable hover effects on touch devices */
+  .square:hover .piece[draggable="true"],
+  .square:hover .piece:not([draggable="true"]) {
+    transform: none;
+  }
+  
+  .chess-board-container.flipped .square:hover .piece {
+    transform: rotate(180deg);
+  }
 }
 
 .board-row {
@@ -382,7 +554,6 @@ watch(() => props.chess.fen(), () => {
 }
 
 .square {
-  aspect-ratio: 1 / 1;
   position: relative;
   cursor: pointer;
   transition: background-color 0.2s;
@@ -392,6 +563,8 @@ watch(() => props.chess.fen(), () => {
   box-sizing: border-box;
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 
 .square.light {
@@ -405,6 +578,20 @@ watch(() => props.chess.fen(), () => {
 .square.selected {
   background-color: var(--board-selected) !important;
   box-shadow: inset 0 0 0 3px rgba(99, 102, 241, 0.6);
+}
+
+.square.king-in-check {
+  background-color: rgba(220, 38, 38, 0.4) !important;
+  animation: checkSquarePulse 1s ease-in-out infinite;
+}
+
+@keyframes checkSquarePulse {
+  0%, 100% {
+    box-shadow: inset 0 0 0 3px rgba(220, 38, 38, 0.6);
+  }
+  50% {
+    box-shadow: inset 0 0 0 5px rgba(220, 38, 38, 0.9);
+  }
 }
 
 .square.drag-over {
