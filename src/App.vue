@@ -407,6 +407,7 @@ const myPeerId = computed(() => {
 
 // Time controls
 const timeControls = [
+  { id: 'any', name: 'Any', display: 'Any Time', minutes: 5, increment: 0 }, // Default to 5+0 if matched
   { id: 'casual', name: 'Casual', display: 'No Time', minutes: 0, increment: 0 },
   { id: 'bullet1', name: 'Bullet', display: '1+0', minutes: 1, increment: 0 },
   { id: 'bullet2', name: 'Bullet', display: '2+1', minutes: 2, increment: 1 },
@@ -418,7 +419,7 @@ const timeControls = [
   { id: 'rapid15', name: 'Rapid', display: '15+10', minutes: 15, increment: 10 },
   { id: 'classical30', name: 'Classical', display: '30+0', minutes: 30, increment: 0 }
 ]
-const selectedTimeControl = ref('blitz5')
+const selectedTimeControl = ref('any')
 const isSearching = ref(false)
 
 const selectedTimeControlDisplay = computed(() => {
@@ -438,10 +439,17 @@ const startSearching = () => {
   isSearching.value = true
   broadcastSearchStatus()
   
-  // Check if any peers are already searching for the same time control
+  // Check if any peers are already searching for compatible time controls
   console.log('Checking existing peer search statuses:', peerSearchStatus.value)
   for (const [peerId, timeControl] of peerSearchStatus.value.entries()) {
-    if (timeControl === selectedTimeControl.value) {
+    if (!timeControl) continue // Skip if null
+    
+    // Match if: exact match, or either side is searching for 'any'
+    const isMatch = timeControl === selectedTimeControl.value || 
+                    timeControl === 'any' || 
+                    selectedTimeControl.value === 'any'
+    
+    if (isMatch) {
       console.log('Found peer already searching:', peerId, 'for', timeControl)
       
       // Simulate receiving a matchmaking message from this peer
@@ -452,8 +460,14 @@ const startSearching = () => {
 }
 
 const handleMatchmakingMessage = async (senderPeerId: string, timeControl: string) => {
-  // Check if we're both searching for the same time control
-  if (isSearching.value && timeControl === selectedTimeControl.value && !isGameActive.value) {
+  // Check if we're both searching for compatible time controls
+  const isMatch = isSearching.value && 
+                  !isGameActive.value &&
+                  (timeControl === selectedTimeControl.value || 
+                   timeControl === 'any' || 
+                   selectedTimeControl.value === 'any')
+  
+  if (isMatch) {
     console.log('Match found with', senderPeerId, 'for', timeControl, 'My ID:', myPeerId.value)
     
     // Only the peer with the lower ID initiates the game to avoid race conditions
@@ -461,7 +475,16 @@ const handleMatchmakingMessage = async (senderPeerId: string, timeControl: strin
       console.log('I am initiator (lower ID), starting game...')
       isSearching.value = false
       
-      const timeControlObj = timeControls.find(tc => tc.id === selectedTimeControl.value)!
+      // Determine which time control to use:
+      // If I selected 'any', use opponent's time control
+      // If opponent selected 'any', use my time control
+      // Otherwise use my time control (they match)
+      let finalTimeControlId = selectedTimeControl.value
+      if (selectedTimeControl.value === 'any') {
+        finalTimeControlId = timeControl
+      }
+      
+      const timeControlObj = timeControls.find(tc => tc.id === finalTimeControlId)!
       currentGameTimeControl.value = {
         minutes: timeControlObj.minutes,
         increment: timeControlObj.increment
@@ -491,6 +514,7 @@ const handleMatchmakingMessage = async (senderPeerId: string, timeControl: strin
         startNewGame(myPeerId.value, senderPeerId, 'white')
         opponentId.value = senderPeerId
         startTimer()
+        startTimerSyncBroadcast()
         broadcastSearchStatus() // Stop broadcasting search
       } catch (err) {
         console.error('Failed to send game start message:', err)
@@ -643,6 +667,144 @@ const opponentTime = ref(300) // seconds
 const currentGameTimeControl = ref<{ minutes: number, increment: number } | null>(null)
 let timerInterval: ReturnType<typeof setInterval> | null = null
 let lowTimeWarningPlayed = ref(false)
+// Vector clock for timer sync
+const vectorClock = ref<Record<string, number>>({})
+let timerSyncInterval: ReturnType<typeof setInterval> | null = null
+
+const ensureClockHas = (peerId: string) => {
+  if (!vectorClock.value[peerId]) vectorClock.value[peerId] = 0
+}
+
+const incrementLocalClock = () => {
+  const me = myPeerId.value
+  if (!me || me === 'Not connected') return
+  ensureClockHas(me)
+  vectorClock.value[me] = (vectorClock.value[me] || 0) + 1
+}
+
+const happenedBefore = (a: Record<string, number>, b: Record<string, number>) => {
+  // returns true if a happened before b (a <= b and a != b)
+  let lessOrEqual = true
+  let strictlyLess = false
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+  keys.forEach(k => {
+    const av = a[k] || 0
+    const bv = b[k] || 0
+    if (av > bv) lessOrEqual = false
+    if (av < bv) strictlyLess = true
+  })
+  return lessOrEqual && strictlyLess
+}
+
+const isConcurrent = (a: Record<string, number>, b: Record<string, number>) => {
+  return !happenedBefore(a, b) && !happenedBefore(b, a)
+}
+
+const mergeClocks = (local: Record<string, number>, incoming: Record<string, number>) => {
+  const keys = new Set([...Object.keys(local), ...Object.keys(incoming)])
+  keys.forEach(k => {
+    local[k] = Math.max(local[k] || 0, incoming[k] || 0)
+  })
+}
+
+const sendTimerSync = async (toPeer?: string) => {
+  if (!currentGame.value) return
+  // Build canonical white/black times so both peers interpret correctly
+  const payload = {
+    type: 'timer_sync',
+    gameId: currentGame.value.id,
+    data: {
+      whiteTime: myPlayer.value?.color === 'white' ? myTime.value : opponentTime.value,
+      blackTime: myPlayer.value?.color === 'black' ? myTime.value : opponentTime.value,
+      currentTurn: currentGame.value.currentTurn,
+      lastUpdated: Date.now()
+    },
+    vectorClock: vectorClock.value
+  }
+
+  try {
+    if (toPeer && opponentId.value === toPeer) {
+      await sendMessage(toPeer, JSON.stringify(payload))
+    } else if (opponentId.value) {
+      // send direct to opponent
+      await sendMessage(opponentId.value, JSON.stringify(payload))
+    }
+  } catch (err) {
+    console.warn('Failed to send timer sync:', err)
+  }
+}
+
+const startTimerSyncBroadcast = () => {
+  if (timerSyncInterval) clearInterval(timerSyncInterval)
+  timerSyncInterval = setInterval(() => {
+    // increment logical clock before broadcasting periodic state
+    incrementLocalClock()
+    sendTimerSync()
+  }, 3000)
+}
+
+const stopTimerSyncBroadcast = () => {
+  if (timerSyncInterval) {
+    clearInterval(timerSyncInterval)
+    timerSyncInterval = null
+  }
+}
+
+const processIncomingTimer = (incomingTimer: any, incomingClock: Record<string, number> | undefined, senderPeerId?: string) => {
+  if (!incomingTimer || !currentGame.value) return
+
+  // Ensure clocks have entries
+  if (incomingClock) {
+    Object.keys(incomingClock).forEach(k => ensureClockHas(k))
+  }
+
+  // Decide whether to accept incoming state
+  const localClock = { ...vectorClock.value }
+  const incoming = incomingClock || {}
+
+  let accept = false
+  if (happenedBefore(localClock, incoming)) {
+    accept = true
+  } else if (happenedBefore(incoming, localClock)) {
+    accept = false
+  } else {
+    // concurrent - tie break deterministically by peer id
+    if (senderPeerId && myPeerId.value) {
+      accept = senderPeerId < myPeerId.value
+    } else {
+      accept = true
+    }
+  }
+
+  if (!accept) return
+
+  // Merge clocks
+  mergeClocks(vectorClock.value, incoming)
+
+  // Reconstruct times accounting for elapsed network delay
+  const now = Date.now()
+  const elapsedSec = Math.floor((now - (incomingTimer.lastUpdated || now)) / 1000)
+
+  let whiteT = Math.max(0, (incomingTimer.whiteTime || 0) - (incomingTimer.currentTurn === 'white' ? elapsedSec : 0))
+  let blackT = Math.max(0, (incomingTimer.blackTime || 0) - (incomingTimer.currentTurn === 'black' ? elapsedSec : 0))
+
+  // Map to local myTime/opponentTime depending on our color
+  if (myPlayer.value?.color === 'white') {
+    myTime.value = whiteT
+    opponentTime.value = blackT
+  } else if (myPlayer.value?.color === 'black') {
+    myTime.value = blackT
+    opponentTime.value = whiteT
+  }
+
+  // Update current turn
+  currentGame.value.currentTurn = incomingTimer.currentTurn
+
+  // Restart timer loop to use updated state
+  if (timerInterval) clearInterval(timerInterval)
+  startTimer()
+}
+
 
 const playLowTimeWarning = () => {
   // Play the shaker sound 3 times in rapid succession
@@ -914,7 +1076,7 @@ const declineChallenge = () => {
 const handleMove = async (from: string, to: string) => {
   const success = makeMove({ from, to })
   
-  if (success && opponentId.value) {
+  if (success && opponentId.value && currentGame.value) {
     // Add increment to my time
     if (currentGameTimeControl.value) {
       myTime.value += currentGameTimeControl.value.increment
@@ -924,12 +1086,23 @@ const handleMove = async (from: string, to: string) => {
       }
     }
     
+    // Advance vector clock for this causal event (move)
+    incrementLocalClock()
+
     const message: ChessMessage = {
       type: 'move',
-      gameId: currentGame.value!.id,
-      data: { from, to }
+      gameId: currentGame.value.id,
+      data: { from, to },
+      // include timer snapshot and vector clock so the peer can reconcile
+      timer: {
+        whiteTime: myPlayer.value?.color === 'white' ? myTime.value : opponentTime.value,
+        blackTime: myPlayer.value?.color === 'black' ? myTime.value : opponentTime.value,
+        currentTurn: currentGame.value.currentTurn,
+        lastUpdated: Date.now()
+      },
+      vectorClock: vectorClock.value
     }
-    
+
     try {
       await sendMessage(opponentId.value, JSON.stringify(message))
     } catch (err) {
@@ -1055,6 +1228,7 @@ const declineTakebackRequest = () => {
 
 const returnToLobby = () => {
   if (timerInterval) clearInterval(timerInterval)
+  stopTimerSyncBroadcast()
   resetGame()
 }
 
@@ -1184,6 +1358,7 @@ const handleMessage = async (event: any) => {
           startNewGame(myPeerId.value, opponent, myColor)
           opponentId.value = opponent
           startTimer()
+          startTimerSyncBroadcast()
           broadcastSearchStatus() // Stop broadcasting search
           break
         }
@@ -1211,6 +1386,7 @@ const handleMessage = async (event: any) => {
           
           // Start timer
           startTimer()
+          startTimerSyncBroadcast()
           
           // No need to send response - both sides start the game
         } else {
@@ -1232,6 +1408,17 @@ const handleMessage = async (event: any) => {
       case 'move':
         if (chessMessage.data) {
           receiveMove(`${chessMessage.data.from}${chessMessage.data.to}`)
+          // Process incoming timer sync if present
+          if (chessMessage.timer && chessMessage.vectorClock) {
+            processIncomingTimer(chessMessage.timer, chessMessage.vectorClock, fromPeer)
+          }
+        }
+        break
+        
+      case 'timer_sync':
+        // Dedicated timer sync message
+        if (chessMessage.data && chessMessage.vectorClock) {
+          processIncomingTimer(chessMessage.data, chessMessage.vectorClock, fromPeer)
         }
         break
         
@@ -1336,6 +1523,7 @@ onUnmounted(() => {
   if (timerInterval) {
     clearInterval(timerInterval)
   }
+  stopTimerSyncBroadcast()
   stopPresenceBroadcast()
 })
 </script>

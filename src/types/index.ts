@@ -23,11 +23,20 @@ export interface Move {
 }
 
 export interface ChessMessage {
-  type: 'move' | 'gameStart' | 'gameEnd' | 'resign' | 'offerDraw' | 'acceptDraw' | 'rejectDraw' | 'challengeRejected' | 'draw_offer' | 'draw_accept' | 'takeback_request' | 'takeback_accept' | 'matchmaking'
+  type: 'move' | 'gameStart' | 'gameEnd' | 'resign' | 'offerDraw' | 'acceptDraw' | 'rejectDraw' | 'challengeRejected' | 'draw_offer' | 'draw_accept' | 'takeback_request' | 'takeback_accept' | 'matchmaking' | 'timer_sync'
   gameId?: string
   data?: any
   searching?: boolean
   timeControl?: string | null
+  // Optional timer sync payload
+  timer?: {
+    whiteTime: number
+    blackTime: number
+    currentTurn: 'white' | 'black'
+    lastUpdated: number
+  }
+  // Vector clock for causal ordering of timer/move events
+  vectorClock?: Record<string, number>
 }
 
 export interface MatchmakingRequest {

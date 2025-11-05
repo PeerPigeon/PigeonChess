@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "tsc -p tsconfig.test.json && node test-dist/vector-clock-test.js"
   },
   "keywords": [
     "chess",
@@ -24,7 +25,9 @@
   },
   "devDependencies": {
     "@types/node": "^20.19.24",
+    "@types/puppeteer": "^5.4.7",
     "@vitejs/plugin-vue": "^5.2.4",
+    "puppeteer": "^24.28.0",
     "typescript": "^5.9.3",
     "vite": "^5.4.21"
   }
