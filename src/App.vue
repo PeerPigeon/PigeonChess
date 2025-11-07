@@ -179,7 +179,7 @@
           </div>
           
           <!-- Timers on one line -->
-          <div v-if="currentGameTimeControl && currentGameTimeControl.minutes > 0" class="timers-container">
+          <div v-if="currentGameTimeControl" class="timers-container">
             <div class="timer-section my-timer" :class="{ active: isMyTurn, 'in-check': isMyKingInCheck }">
               <div class="timer-display">
                 <span class="timer-icon">{{ myPlayer?.color === 'white' ? '♔' : '♚' }}</span>
