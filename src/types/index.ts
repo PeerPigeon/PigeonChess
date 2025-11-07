@@ -70,6 +70,9 @@ export interface Settings {
   customBlackPieceOutline?: string
   pieceTheme?: string
   soundEnabled?: boolean
+  whiteArrowColor?: string
+  blackArrowColor?: string
+  emptyArrowColor?: string
 }
 
 export interface BoardTheme {

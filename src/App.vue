@@ -147,6 +147,9 @@
                 whiteStroke: settings.customWhitePieceOutline,
                 blackStroke: settings.customBlackPieceOutline
               }"
+              :white-arrow-color="settings.whiteArrowColor"
+              :black-arrow-color="settings.blackArrowColor"
+              :empty-arrow-color="settings.emptyArrowColor"
               @move="handleMove"
             />
             
@@ -477,6 +480,7 @@
       @update-custom-colors="setCustomColors"
       @update-piece-colors="setPieceColors"
       @update-piece-outlines="setPieceOutlines"
+      @update-arrow-colors="setArrowColors"
       @toggle-sound="toggleSound"
     />
     
@@ -489,9 +493,9 @@
     <!-- Challenge Modal -->
     <div v-if="incomingChallenge" class="modal-overlay">
       <div class="modal challenge-modal">
-        <h2>Incoming Challenge!</h2>
+        <h3>🎮 Incoming Challenge!</h3>
         <p>{{ formatPeerId(incomingChallenge.from) }} wants to play a game.</p>
-        <div class="actions">
+        <div class="modal-buttons">
           <button class="danger" @click="declineChallenge">
             Decline
           </button>
@@ -505,9 +509,9 @@
     <!-- Already in Game Modal -->
     <div v-if="showAlreadyInGameModal" class="modal-overlay">
       <div class="modal info-modal">
-        <h2>Already in Game</h2>
+        <h3>⚠️ Already in Game</h3>
         <p>You are already in an active game. Finish your current game before starting a new one.</p>
-        <div class="actions">
+        <div class="modal-buttons">
           <button class="primary" @click="showAlreadyInGameModal = false">
             OK
           </button>
@@ -518,9 +522,9 @@
     <!-- Resign Confirmation Modal -->
     <div v-if="showResignConfirmModal" class="modal-overlay">
       <div class="modal confirm-modal">
-        <h2>Resign Game?</h2>
+        <h3>🏳️ Resign Game?</h3>
         <p>Are you sure you want to resign? This will end the game and count as a loss.</p>
-        <div class="actions">
+        <div class="modal-buttons">
           <button class="secondary" @click="showResignConfirmModal = false">
             Cancel
           </button>
@@ -534,9 +538,9 @@
     <!-- Draw Offer Modal -->
     <div v-if="incomingDrawOffer" class="modal-overlay">
       <div class="modal offer-modal">
-        <h2>Draw Offered</h2>
+        <h3>🤝 Draw Offered</h3>
         <p>{{ formatPeerId(incomingDrawOffer.from) }} is offering a draw.</p>
-        <div class="actions">
+        <div class="modal-buttons">
           <button class="danger" @click="declineDrawOffer">
             Decline
           </button>
@@ -550,9 +554,9 @@
     <!-- Takeback Request Modal -->
     <div v-if="incomingTakebackRequest" class="modal-overlay">
       <div class="modal offer-modal">
-        <h2>Takeback Requested</h2>
+        <h3>↩️ Takeback Requested</h3>
         <p>{{ formatPeerId(incomingTakebackRequest.from) }} requests to undo their last move.</p>
-        <div class="actions">
+        <div class="modal-buttons">
           <button class="danger" @click="declineTakebackRequest">
             Decline
           </button>
@@ -566,9 +570,9 @@
     <!-- Challenge Rejected Modal -->
     <div v-if="showChallengeRejectedModal" class="modal-overlay">
       <div class="modal info-modal">
-        <h2>Challenge Rejected</h2>
+        <h3>❌ Challenge Rejected</h3>
         <p>Your challenge was rejected. The player is already in a game.</p>
-        <div class="actions">
+        <div class="modal-buttons">
           <button class="primary" @click="showChallengeRejectedModal = false">
             OK
           </button>
@@ -579,7 +583,7 @@
     <!-- Game Abandoned Modal -->
     <div v-if="showAbandonmentModal" class="modal-overlay">
       <div class="modal info-modal">
-        <h2>Game Abandoned</h2>
+        <h3>⚠️ Game Abandoned</h3>
         <p v-if="abandonmentReason === 'initial_move_timeout'">
           <strong>{{ iAbandoned ? 'Game Abandoned' : 'You Won!' }}</strong><br>
           {{ iAbandoned ? 'You' : 'Opponent' }} failed to make the first move within the time limit.
@@ -588,7 +592,7 @@
           <strong>{{ iAbandoned ? 'Game Abandoned' : 'You Won!' }}</strong><br>
           {{ iAbandoned ? 'Your' : 'Opponent\'s' }} connection was lost and could not be re-established.
         </p>
-        <div class="actions">
+        <div class="modal-buttons">
           <button class="primary" @click="showAbandonmentModal = false; abandonmentReason = null; iAbandoned = false">
             OK
           </button>
@@ -612,7 +616,7 @@ import type { ChessMessage, GameHistoryEntry } from './types'
 import { saveToLocalStorage } from './utils/helpers'
 
 // Settings
-const { settings, boardThemes, pieceThemes, addSignalingUrl, removeSignalingUrl, resetToDefaults, setBoardTheme, setCustomColors, setPieceColors, setPieceOutlines, setPieceTheme, toggleSound } = useSettings()
+const { settings, boardThemes, pieceThemes, addSignalingUrl, removeSignalingUrl, resetToDefaults, setBoardTheme, setCustomColors, setPieceColors, setPieceOutlines, setArrowColors, setPieceTheme, toggleSound } = useSettings()
 const showSettings = ref(false)
 const showHistory = ref(false)
 const showMenu = ref(false)

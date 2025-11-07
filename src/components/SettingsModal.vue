@@ -211,6 +211,46 @@
         </div>
       </div>
       
+      <div class="settings-section">
+        <h3>Arrow Colors</h3>
+        <p class="description">Choose arrow colors for each player.</p>
+        <div class="custom-colors">
+          <div class="color-picker-group">
+            <label>
+              White Player Arrows
+              <input 
+                type="color" 
+                v-model="whiteArrowColor"
+                @input="updateArrowColors"
+              />
+              <span class="color-value">{{ whiteArrowColor }}</span>
+            </label>
+          </div>
+          <div class="color-picker-group">
+            <label>
+              Black Player Arrows
+              <input 
+                type="color" 
+                v-model="blackArrowColor"
+                @input="updateArrowColors"
+              />
+              <span class="color-value">{{ blackArrowColor }}</span>
+            </label>
+          </div>
+          <div class="color-picker-group">
+            <label>
+              Empty Square Arrows
+              <input 
+                type="color" 
+                v-model="emptyArrowColor"
+                @input="updateArrowColors"
+              />
+              <span class="color-value">{{ emptyArrowColor }}</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      
       <div class="actions">
         <button class="secondary" @click="reset">Reset to Defaults</button>
         <button class="primary" @click="$emit('close')">Close</button>
@@ -220,7 +260,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { Settings, BoardTheme, PieceTheme } from '@/types'
 
 interface Props {
@@ -240,6 +280,7 @@ const emit = defineEmits<{
   updateCustomColors: [lightSquare: string, darkSquare: string]
   updatePieceColors: [whiteColor: string, blackColor: string]
   updatePieceOutlines: [whiteOutline: string, blackOutline: string]
+  updateArrowColors: [whiteArrow: string, blackArrow: string, emptyArrow: string]
   toggleSound: [enabled: boolean]
 }>()
 
@@ -250,6 +291,20 @@ const customWhitePieceColor = ref(props.settings.customWhitePieceColor || '#ffff
 const customBlackPieceColor = ref(props.settings.customBlackPieceColor || '#000000')
 const customWhitePieceOutline = ref(props.settings.customWhitePieceOutline || '#000000')
 const customBlackPieceOutline = ref(props.settings.customBlackPieceOutline || '#ffffff')
+const whiteArrowColor = ref(props.settings.whiteArrowColor || '#ffaa00')
+const blackArrowColor = ref(props.settings.blackArrowColor || '#ffaa00')
+const emptyArrowColor = ref(props.settings.emptyArrowColor || '#ffaa00')
+
+// Watch for settings changes to update arrow color refs
+watch(() => props.settings.whiteArrowColor, (newVal) => {
+  whiteArrowColor.value = newVal || '#ffaa00'
+})
+watch(() => props.settings.blackArrowColor, (newVal) => {
+  blackArrowColor.value = newVal || '#ffaa00'
+})
+watch(() => props.settings.emptyArrowColor, (newVal) => {
+  emptyArrowColor.value = newVal || '#ffaa00'
+})
 
 const addUrl = () => {
   if (newUrl.value.trim()) {
@@ -284,6 +339,10 @@ const updatePieceColors = () => {
 
 const updatePieceOutlines = () => {
   emit('updatePieceOutlines', customWhitePieceOutline.value, customBlackPieceOutline.value)
+}
+
+const updateArrowColors = () => {
+  emit('updateArrowColors', whiteArrowColor.value, blackArrowColor.value, emptyArrowColor.value)
 }
 
 const toggleSound = (event: Event) => {

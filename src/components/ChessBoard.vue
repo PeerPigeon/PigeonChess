@@ -1,6 +1,89 @@
 <template>
   <div class="chess-board-container" :class="{ flipped: flipped }">
     <div class="chess-board" ref="boardRef">
+      <!-- Arrow canvas for drawing arrows -->
+      <svg 
+        class="arrow-canvas" 
+        ref="arrowCanvas"
+        viewBox="0 0 8 8"
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <defs>
+          <marker
+            id="arrowhead-white"
+            viewBox="0 0 10 10"
+            refX="0"
+            refY="5"
+            markerWidth="2.5"
+            markerHeight="2.5"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" :fill="whiteArrowColor || '#ffaa00'" />
+          </marker>
+          <marker
+            id="arrowhead-black"
+            viewBox="0 0 10 10"
+            refX="0"
+            refY="5"
+            markerWidth="2.5"
+            markerHeight="2.5"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" :fill="blackArrowColor || '#ffaa00'" />
+          </marker>
+          <marker
+            id="arrowhead-empty"
+            viewBox="0 0 10 10"
+            refX="0"
+            refY="5"
+            markerWidth="2.5"
+            markerHeight="2.5"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" :fill="emptyArrowColor || '#ffaa00'" />
+          </marker>
+        </defs>
+        <!-- Permanent arrows -->
+        <g v-for="(arrow, index) in arrows" :key="index">
+          <line
+            :x1="arrow.x1"
+            :y1="arrow.y1"
+            :x2="arrow.x2"
+            :y2="arrow.y2"
+            :stroke="getColorFromType(arrow.type)"
+            stroke-width="0.15"
+            stroke-linecap="round"
+            :marker-end="getMarkerUrl(arrow.type)"
+            :opacity="arrow.removing ? 0 : 0.85"
+            style="transition: opacity 0.3s ease-out"
+          />
+        </g>
+        <!-- Temporary arrow being drawn -->
+        <g v-if="drawingArrow">
+          <!-- Show circle if dragging to same square, otherwise show arrow -->
+          <circle
+            v-if="Math.abs(drawingArrow.x2 - drawingArrow.x1) < 0.1 && Math.abs(drawingArrow.y2 - drawingArrow.y1) < 0.1"
+            :cx="drawingArrow.x1"
+            :cy="drawingArrow.y1"
+            r="0.15"
+            :fill="getColorFromType(drawingArrow.type)"
+            opacity="0.6"
+          />
+          <line
+            v-else
+            :x1="drawingArrow.x1"
+            :y1="drawingArrow.y1"
+            :x2="drawingArrow.x2"
+            :y2="drawingArrow.y2"
+            :stroke="getColorFromType(drawingArrow.type)"
+            stroke-width="0.15"
+            stroke-linecap="round"
+            :marker-end="getMarkerUrl(drawingArrow.type)"
+            opacity="0.6"
+          />
+        </g>
+      </svg>
+      
       <div
         v-for="(_, rowIndex) in 8"
         :key="rowIndex"
@@ -24,6 +107,8 @@
           @dragover.prevent="handleDragOver(rowIndex, colIndex)"
           @dragleave="handleDragLeave(rowIndex, colIndex)"
           @drop="handleDrop(rowIndex, colIndex)"
+          @mousedown.right.prevent="handleRightMouseDown(rowIndex, colIndex)"
+          @contextmenu.prevent
         >
           <img 
             v-if="getPiece(rowIndex, colIndex)" 
@@ -87,7 +172,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useSounds } from '../composables/useSounds'
 
 interface Props {
@@ -102,6 +187,9 @@ interface Props {
     whiteStroke?: string
     blackStroke?: string
   }
+  whiteArrowColor?: string
+  blackArrowColor?: string
+  emptyArrowColor?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -118,6 +206,7 @@ const emit = defineEmits<{
 const { playMoveSound, playCaptureSound, playCastleSound } = useSounds()
 
 const boardRef = ref<HTMLElement>()
+const arrowCanvas = ref<SVGElement>()
 const selectedSquare = ref<string | null>(null)
 const legalMoves = ref<any[]>([])
 const draggedSquare = ref<string | null>(null)
@@ -125,6 +214,48 @@ const dragOverSquare = ref<string | null>(null)
 const showPromotionDialog = ref(false)
 const promotionMove = ref<{ from: string; to: string } | null>(null)
 const promotingColor = ref<'w' | 'b'>('w') // Store color to avoid reactivity issues
+
+// Arrow drawing state
+interface Arrow {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  type: 'white' | 'black' | 'empty' // Store type instead of color
+  removing?: boolean
+}
+
+const arrows = ref<Arrow[]>([])
+const drawingArrow = ref<Arrow | null>(null)
+const arrowStartSquare = ref<{ row: number; col: number } | null>(null)
+const arrowDragMoved = ref(false) // Track if mouse moved during arrow drag
+
+// Get arrow type based on piece at start square
+const getArrowType = (row: number, col: number): 'white' | 'black' | 'empty' => {
+  return getArrowTypeAtSquare(row, col)
+}
+
+// Get arrow color from type
+const getColorFromType = (type: 'white' | 'black' | 'empty'): string => {
+  if (type === 'white') {
+    return props.whiteArrowColor || '#ffaa00'
+  } else if (type === 'black') {
+    return props.blackArrowColor || '#ffaa00'
+  } else {
+    return props.emptyArrowColor || '#ffaa00'
+  }
+}
+
+// Get marker URL based on type
+const getMarkerUrl = (type: 'white' | 'black' | 'empty'): string => {
+  if (type === 'white') {
+    return 'url(#arrowhead-white)'
+  } else if (type === 'black') {
+    return 'url(#arrowhead-black)'
+  } else {
+    return 'url(#arrowhead-empty)'
+  }
+}
 
 const PIECE_SYMBOLS: Record<string, string> = {
   'wp': '♙', 'wn': '♘', 'wb': '♗', 'wr': '♖', 'wq': '♕', 'wk': '♔',
@@ -272,6 +403,39 @@ const isLegalMoveSquare = (row: number, col: number): boolean => {
 const handleSquareClick = (row: number, col: number) => {
   if (!props.interactive) return
   
+  // Check if clicking on/near an arrow first
+  const clickCenter = getSquareCenterCoordinates(row, col)
+  const clickedArrowIndex = arrows.value.findIndex(arrow => {
+    // Check if click is near the arrow line
+    const dx = arrow.x2 - arrow.x1
+    const dy = arrow.y2 - arrow.y1
+    const lengthSquared = dx * dx + dy * dy
+    
+    if (lengthSquared === 0) return false
+    
+    const t = Math.max(0, Math.min(1, 
+      ((clickCenter.x - arrow.x1) * dx + (clickCenter.y - arrow.y1) * dy) / lengthSquared
+    ))
+    
+    const closestX = arrow.x1 + t * dx
+    const closestY = arrow.y1 + t * dy
+    
+    const distance = Math.sqrt(
+      (clickCenter.x - closestX) ** 2 + (clickCenter.y - closestY) ** 2
+    )
+    
+    return distance < 0.4
+  })
+  
+  if (clickedArrowIndex >= 0) {
+    // Remove just this arrow and don't process the square click
+    removeArrow(clickedArrowIndex)
+    return
+  }
+  
+  // Clear arrows on any click (if not clicking an arrow)
+  clearArrows()
+  
   const square = getSquareName(row, col)
   const piece = getPiece(row, col)
   
@@ -358,6 +522,9 @@ const handlePromotion = (piece: 'q' | 'r' | 'b' | 'n') => {
 // Drag and drop handlers
 const handleDragStart = (row: number, col: number, event: DragEvent) => {
   if (!props.interactive) return
+  
+  // Clear arrows on drag start
+  clearArrows()
   
   const square = getSquareName(row, col)
   const piece = getPiece(row, col)
@@ -454,6 +621,9 @@ const handleDragEnd = () => {
 const handleTouchStart = (row: number, col: number, _event: TouchEvent) => {
   if (!props.interactive) return
   
+  // Clear arrows on touch start
+  clearArrows()
+  
   const square = getSquareName(row, col)
   const piece = getPiece(row, col)
   
@@ -549,11 +719,251 @@ const isDragOver = (row: number, col: number): boolean => {
   return dragOverSquare.value === getSquareName(row, col)
 }
 
+// Arrow clearing with fade animation
+const clearArrows = () => {
+  // Mark all arrows as removing
+  arrows.value.forEach(arrow => arrow.removing = true)
+  
+  // Actually remove them after animation completes
+  setTimeout(() => {
+    arrows.value = []
+  }, 300)
+}
+
+const removeArrow = (index: number) => {
+  // Mark arrow as removing
+  arrows.value[index].removing = true
+  
+  // Actually remove it after animation completes
+  setTimeout(() => {
+    arrows.value.splice(index, 1)
+  }, 300)
+}
+
+// Arrow drawing handlers
+const getSquareCenterCoordinates = (row: number, col: number): { x: number; y: number } => {
+  // row and col are VISUAL positions (0-7 from top-left of rendered board)
+  // No flip needed - they already represent what we see
+  
+  // Center of each square in the 8x8 grid
+  const x = col + 0.5
+  const y = row + 0.5
+  
+  return { x, y }
+}
+
+// Get arrow type - check for existing arrow destination first, then piece color
+const getArrowTypeAtSquare = (row: number, col: number): 'white' | 'black' | 'empty' => {
+  const center = getSquareCenterCoordinates(row, col)
+  
+  // Check if this square is NEAR the destination of an existing arrow
+  // We need to check the general area because arrows are shortened to avoid arrowhead overlap
+  const existingArrow = arrows.value.find(arrow => {
+    const dx = Math.abs(arrow.x2 - center.x)
+    const dy = Math.abs(arrow.y2 - center.y)
+    // Use a larger tolerance (0.5) since arrows are shortened
+    return dx < 0.5 && dy < 0.5
+  })
+  
+  // If there's an existing arrow ending here, use its type (ignore the piece)
+  if (existingArrow) {
+    return existingArrow.type
+  }
+  
+  // Otherwise, check if there's a piece at this square
+  const square = getSquareName(row, col)
+  const piece = props.chess.get(square)
+  
+  // No existing arrow and no piece - use empty color
+  if (!piece) {
+    return 'empty'
+  }
+  
+  // No existing arrow but there is a piece - use piece color
+  return piece.color === 'w' ? 'white' : 'black'
+}
+
+const getSquareFromCoordinates = (clientX: number, clientY: number): { row: number; col: number } | null => {
+  if (!boardRef.value) return null
+  
+  const boardRect = boardRef.value.getBoundingClientRect()
+  const squareSize = boardRect.width / 8
+  
+  const x = clientX - boardRect.left
+  const y = clientY - boardRect.top
+  
+  if (x < 0 || x >= boardRect.width || y < 0 || y >= boardRect.height) {
+    return null
+  }
+  
+  let col = Math.floor(x / squareSize)
+  let row = Math.floor(y / squareSize)
+  
+  // Account for board orientation
+  if (props.flipped) {
+    row = 7 - row
+    col = 7 - col
+  }
+  
+  return { row, col }
+}
+
+const handleRightMouseDown = (row: number, col: number) => {
+  const center = getSquareCenterCoordinates(row, col)
+  arrowStartSquare.value = { row, col }
+  arrowDragMoved.value = false // Reset flag
+  const type = getArrowType(row, col)
+  drawingArrow.value = {
+    x1: center.x,
+    y1: center.y,
+    x2: center.x,
+    y2: center.y,
+    type
+  }
+}
+
+const handleMouseMove = (event: MouseEvent) => {
+  if (!drawingArrow.value || !boardRef.value) return
+  
+  // Get the square the mouse is currently over
+  const currentSquare = getSquareFromCoordinates(event.clientX, event.clientY)
+  
+  if (currentSquare && arrowStartSquare.value) {
+    // Mark that the drag moved if it's on a different square
+    if (currentSquare.row !== arrowStartSquare.value.row || currentSquare.col !== arrowStartSquare.value.col) {
+      arrowDragMoved.value = true
+    }
+    
+    const endCenter = getSquareCenterCoordinates(currentSquare.row, currentSquare.col)
+    const startCenter = getSquareCenterCoordinates(arrowStartSquare.value.row, arrowStartSquare.value.col)
+    
+    // Calculate shortened endpoint for preview
+    const dx = endCenter.x - startCenter.x
+    const dy = endCenter.y - startCenter.y
+    const length = Math.sqrt(dx * dx + dy * dy)
+    
+    if (length > 0.1) {
+      const arrowheadLength = 0.3
+      const shortenFactor = (length - arrowheadLength) / length
+      
+      drawingArrow.value.x2 = startCenter.x + dx * shortenFactor
+      drawingArrow.value.y2 = startCenter.y + dy * shortenFactor
+    } else {
+      drawingArrow.value.x2 = startCenter.x
+      drawingArrow.value.y2 = startCenter.y
+    }
+  }
+}
+
+const handleRightMouseUp = (event: MouseEvent) => {
+  if (!drawingArrow.value || !arrowStartSquare.value) return
+  
+  const endSquare = getSquareFromCoordinates(event.clientX, event.clientY)
+  
+  if (endSquare) {
+    const endCenter = getSquareCenterCoordinates(endSquare.row, endSquare.col)
+    const startCenter = getSquareCenterCoordinates(arrowStartSquare.value.row, arrowStartSquare.value.col)
+    
+    // Check if it's the same square (just a click, not a drag)
+    if (endSquare.row === arrowStartSquare.value.row && endSquare.col === arrowStartSquare.value.col) {
+      // Right-click on same square (no drag to a different square)
+      // Check if there's an arrow starting from here
+      const arrowFromThisSquare = arrows.value.findIndex(
+        arrow => Math.abs(arrow.x1 - startCenter.x) < 0.1 && 
+                 Math.abs(arrow.y1 - startCenter.y) < 0.1
+      )
+      
+      if (arrowFromThisSquare >= 0) {
+        // Remove arrow starting from this square
+        removeArrow(arrowFromThisSquare)
+      }
+      // If no arrow from this square and mouse didn't move, do nothing
+    } else {
+      // Dragged to different square - create arrow
+      const dx = endCenter.x - startCenter.x
+      const dy = endCenter.y - startCenter.y
+      const length = Math.sqrt(dx * dx + dy * dy)
+      const arrowheadLength = 0.3 // Length of arrowhead in grid units
+      
+      // Shorten the line by the arrowhead length
+      const shortenFactor = (length - arrowheadLength) / length
+      const adjustedX2 = startCenter.x + dx * shortenFactor
+      const adjustedY2 = startCenter.y + dy * shortenFactor
+      
+      const newArrow = {
+        x1: startCenter.x,
+        y1: startCenter.y,
+        x2: adjustedX2,
+        y2: adjustedY2,
+        type: drawingArrow.value.type
+      }
+      
+      // Check if an arrow already exists in this location (for toggling)
+      const existingIndex = arrows.value.findIndex(
+        arrow => Math.abs(arrow.x1 - newArrow.x1) < 0.1 && 
+                 Math.abs(arrow.y1 - newArrow.y1) < 0.1 &&
+                 Math.abs(arrow.x2 - newArrow.x2) < 0.1 && 
+                 Math.abs(arrow.y2 - newArrow.y2) < 0.1
+      )
+      
+      if (existingIndex >= 0) {
+        // Remove existing arrow (toggle off)
+        removeArrow(existingIndex)
+      } else {
+        // Add new arrow (don't clear existing arrows, just add to them)
+        arrows.value.push(newArrow)
+      }
+    }
+  }
+  
+  drawingArrow.value = null
+  arrowStartSquare.value = null
+}
+
 // Reset selection when chess state changes
 watch(() => props.chess.fen(), () => {
   selectedSquare.value = null
   legalMoves.value = []
+  // Clear arrows when a move is made
+  clearArrows()
 })
+
+// Set up global mouse event listeners for arrow drawing
+onMounted(() => {
+  document.addEventListener('mousemove', handleMouseMove)
+  document.addEventListener('mouseup', handleRightMouseUp)
+  document.addEventListener('mousedown', handleMouseDown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('mousemove', handleMouseMove)
+  document.removeEventListener('mouseup', handleRightMouseUp)
+  document.removeEventListener('mousedown', handleMouseDown)
+})
+
+const handleMouseDown = (event: MouseEvent) => {
+  // Handle left click within the board
+  if (event.button === 0 && boardRef.value) {
+    // Don't clear if clicking on a modal or other overlay
+    const target = event.target as HTMLElement
+    if (target.closest('.modal-overlay, .modal, input[type="color"]')) {
+      return
+    }
+    
+    const rect = boardRef.value.getBoundingClientRect()
+    const isInsideBoard = 
+      event.clientX >= rect.left &&
+      event.clientX <= rect.right &&
+      event.clientY >= rect.top &&
+      event.clientY <= rect.bottom
+    
+    if (isInsideBoard) {
+      // Arrow removal is now handled in handleSquareClick
+      // This just clears all arrows if clicking on empty board area
+      clearArrows()
+    }
+  }
+}
 </script>
 
 <style scoped>
@@ -587,6 +997,20 @@ watch(() => props.chess.fen(), () => {
   border-radius: 4px;
   overflow: hidden;
   position: relative;
+}
+
+.arrow-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.arrow-canvas line {
+  pointer-events: none;
 }
 
 /* Make the board responsive on small screens */

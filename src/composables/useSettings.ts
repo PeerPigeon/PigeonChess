@@ -277,6 +277,12 @@ export function useSettings() {
     settings.value.customBlackPieceOutline = blackOutline
   }
 
+  const setArrowColors = (whiteArrow: string, blackArrow: string, emptyArrow: string) => {
+    settings.value.whiteArrowColor = whiteArrow
+    settings.value.blackArrowColor = blackArrow
+    settings.value.emptyArrowColor = emptyArrow
+  }
+
   const setPieceTheme = (themeId: string) => {
     settings.value.pieceTheme = themeId
     const theme = PIECE_THEMES.find(t => t.id === themeId)
@@ -303,6 +309,7 @@ export function useSettings() {
     setCustomColors,
     setPieceColors,
     setPieceOutlines,
+    setArrowColors,
     setPieceTheme,
     toggleSound
   }
