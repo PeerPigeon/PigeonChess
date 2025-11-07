@@ -30,8 +30,8 @@
         <span class="status-indicator"></span>
         <span class="status-text">{{ statusText }}</span>
       </div>
-      <span v-if="allKnownPeers.size > 0" class="peer-count">
-        👥 {{ allKnownPeers.size }} {{ allKnownPeers.size === 1 ? 'peer' : 'peers' }} online
+      <span v-if="otherPeersCount > 0" class="peer-count">
+        👥 {{ otherPeersCount }} {{ otherPeersCount === 1 ? 'peer' : 'peers' }} online
       </span>
       <span v-else-if="isConnected" class="peer-count">
         Searching for peers...
@@ -1182,6 +1182,15 @@ const peerSearchStatus = ref<Map<string, string | null>>(new Map())
 // Track all known peers in the network (direct + indirect via gossip)
 const allKnownPeers = ref<Set<string>>(new Set())
 const peerLastSeen = ref<Map<string, number>>(new Map())
+
+// Computed: peer count excluding self
+const otherPeersCount = computed(() => {
+  let count = allKnownPeers.value.size
+  if (allKnownPeers.value.has(myPeerId.value)) {
+    count--
+  }
+  return count
+})
 
 // Clean up stale peers every 10 seconds
 let staleCheckInterval: ReturnType<typeof setInterval> | null = null
