@@ -703,11 +703,13 @@ watch(() => props.chess.fen(), () => {
 }
 
 .square.last-move.light {
-  background-color: rgba(240, 217, 181, 0.8) !important;
+  background-color: var(--board-light);
+  filter: brightness(0.85);
 }
 
 .square.last-move.dark {
-  background-color: rgba(181, 136, 99, 0.8) !important;
+  background-color: var(--board-dark);
+  filter: brightness(0.75);
 }
 
 .square.selected {
