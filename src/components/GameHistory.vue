@@ -137,6 +137,10 @@ h2 {
   border-left-color: var(--warning-color);
 }
 
+.history-item.abandoned {
+  border-left-color: #6b7280; /* gray */
+}
+
 .game-header {
   display: flex;
   justify-content: space-between;
@@ -162,6 +166,10 @@ h2 {
 
 .result-badge.draw {
   background: var(--warning-color);
+}
+
+.result-badge.abandoned {
+  background: #6b7280; /* gray */
 }
 
 .date {

@@ -542,6 +542,26 @@
         </div>
       </div>
     </div>
+    
+    <!-- Game Abandoned Modal -->
+    <div v-if="showAbandonmentModal" class="modal-overlay">
+      <div class="modal info-modal">
+        <h2>Game Abandoned</h2>
+        <p v-if="abandonmentReason === 'initial_move_timeout'">
+          <strong>{{ iAbandoned ? 'Game Abandoned' : 'You Won!' }}</strong><br>
+          {{ iAbandoned ? 'You' : 'Opponent' }} failed to make the first move within the time limit.
+        </p>
+        <p v-else-if="abandonmentReason === 'peer_disconnect'">
+          <strong>{{ iAbandoned ? 'Game Abandoned' : 'You Won!' }}</strong><br>
+          {{ iAbandoned ? 'Your' : 'Opponent\'s' }} connection was lost and could not be re-established.
+        </p>
+        <div class="actions">
+          <button class="primary" @click="showAbandonmentModal = false; abandonmentReason = null; iAbandoned = false">
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -554,7 +574,8 @@ import SettingsModal from './components/SettingsModal.vue'
 import GameHistory from './components/GameHistory.vue'
 import { useChessGame } from './composables/useChessGame'
 import { useSettings } from './composables/useSettings'
-import type { ChessMessage } from './types'
+import type { ChessMessage, GameHistoryEntry } from './types'
+import { saveToLocalStorage } from './utils/helpers'
 
 // Settings
 const { settings, boardThemes, pieceThemes, addSignalingUrl, removeSignalingUrl, resetToDefaults, setBoardTheme, setCustomColors, setPieceColors, setPieceOutlines, setPieceTheme, toggleSound } = useSettings()
@@ -704,8 +725,10 @@ const handleMatchmakingMessage = async (senderPeerId: string, timeControl: strin
         // I am white (lower peer ID), opponent is black
         startNewGame(myPeerId.value, senderPeerId, 'white')
         opponentId.value = senderPeerId
+        hasGameStarted.value = false // Reset for new game
         startTimer()
         startTimerSyncBroadcast()
+        startInitialMoveTimer() // Start abandonment timer
         broadcastSearchStatus() // Stop broadcasting search
       } catch (err) {
         console.error('Failed to send game start message:', err)
@@ -833,6 +856,9 @@ const {
 
 // Set up the game end callback to play win/lose sounds
 setOnGameEndCallback((result) => {
+  // Clear abandonment timers when game ends
+  clearAbandonmentTimers()
+  
   if (result === 'win') {
     playWinSound()
   } else if (result === 'loss') {
@@ -948,6 +974,14 @@ let lowTimeWarningPlayed = ref(false)
 // Vector clock for timer sync
 const vectorClock = ref<Record<string, number>>({})
 let timerSyncInterval: ReturnType<typeof setInterval> | null = null
+
+// Abandonment timer state
+let initialMoveTimer: ReturnType<typeof setTimeout> | null = null
+let peerDisconnectTimer: ReturnType<typeof setTimeout> | null = null
+const hasGameStarted = ref(false) // Tracks if first move has been made
+const abandonmentReason = ref<'initial_move_timeout' | 'peer_disconnect' | null>(null)
+const showAbandonmentModal = ref(false)
+const iAbandoned = ref(false) // Track if I was the one who abandoned
 
 const ensureClockHas = (peerId: string) => {
   if (!vectorClock.value[peerId]) vectorClock.value[peerId] = 0
@@ -1185,6 +1219,145 @@ const resetTimers = () => {
   }
 }
 
+// Abandonment timer functions
+const clearAbandonmentTimers = () => {
+  if (initialMoveTimer) {
+    clearTimeout(initialMoveTimer)
+    initialMoveTimer = null
+  }
+  if (peerDisconnectTimer) {
+    clearTimeout(peerDisconnectTimer)
+    peerDisconnectTimer = null
+  }
+}
+
+const startInitialMoveTimer = () => {
+  // Clear any existing timer
+  if (initialMoveTimer) clearTimeout(initialMoveTimer)
+  
+  // Skip for casual games (no time control)
+  if (!currentGameTimeControl.value || currentGameTimeControl.value.minutes === 0) {
+    return
+  }
+  
+  // Determine abandonment threshold based on time control category
+  const timeControlMinutes = currentGameTimeControl.value.minutes
+  let abandonmentThreshold: number
+  
+  if (timeControlMinutes <= 5) {
+    // Bullet/Blitz (up to and including 5 minutes)
+    abandonmentThreshold = 20 // 20 seconds
+  } else if (timeControlMinutes <= 15) {
+    // Rapid (6-15 minutes)
+    abandonmentThreshold = 60 // 1 minute
+  } else {
+    // Classical (> 15 minutes)
+    abandonmentThreshold = 180 // 3 minutes
+  }
+  
+  const abandonmentMs = abandonmentThreshold * 1000
+  
+  console.log(`Starting initial move timer: ${abandonmentThreshold}s for ${timeControlMinutes}-minute game`)
+  
+  initialMoveTimer = setTimeout(() => {
+    console.log('Initial move timer fired. hasGameStarted:', hasGameStarted.value, 'isGameActive:', isGameActive.value)
+    if (!hasGameStarted.value && isGameActive.value) {
+      console.log('Initial move timeout - abandoning game')
+      abandonGame('initial_move_timeout')
+    } else {
+      console.log('Not abandoning - game has started or is not active')
+    }
+  }, abandonmentMs)
+}
+
+const abandonGame = async (reason: 'initial_move_timeout' | 'peer_disconnect') => {
+  if (!currentGame.value || !myPlayer.value) return
+  
+  console.log('Abandoning game due to:', reason)
+  
+  // Clear all timers
+  clearAbandonmentTimers()
+  if (timerInterval) clearInterval(timerInterval)
+  
+  // Set abandonment info
+  abandonmentReason.value = reason
+  showAbandonmentModal.value = true
+  iAbandoned.value = true // I am the one abandoning
+  
+  // Update game state
+  currentGame.value.status = 'finished'
+  // Opponent wins by abandonment
+  currentGame.value.result = myPlayer.value.color === 'white' ? 'black' : 'white'
+  currentGame.value.finishedAt = Date.now()
+  
+  // Play lose sound
+  playLoseSound()
+  
+  // Save to history
+  if (opponentId.value && currentGame.value && myPlayer.value) {
+    const historyEntry: GameHistoryEntry = {
+      gameId: currentGame.value.id,
+      whitePlayer: currentGame.value.playerWhite || '',
+      blackPlayer: currentGame.value.playerBlack || '',
+      myPeerId: myPlayer.value.id,
+      opponent: opponentId.value,
+      myColor: myPlayer.value.color,
+      result: 'abandoned',
+      moves: currentGame.value.moves,
+      date: Date.now()
+    }
+    
+    gameHistory.value.unshift(historyEntry)
+    if (gameHistory.value.length > 50) {
+      gameHistory.value = gameHistory.value.slice(0, 50)
+    }
+    saveToLocalStorage('chess-game-history', gameHistory.value)
+  }
+  
+  // Send abandon message to opponent
+  if (opponentId.value) {
+    try {
+      const message: ChessMessage = {
+        type: 'abandon',
+        gameId: currentGame.value.id,
+        reason: reason
+      }
+      await sendMessage(opponentId.value, JSON.stringify(message))
+    } catch (err) {
+      console.error('Failed to send abandon message:', err)
+    }
+  }
+}
+
+const handleOpponentDisconnect = (disconnectedPeerId: string) => {
+  // Only start timer if this is our opponent and game is active
+  if (disconnectedPeerId === opponentId.value && isGameActive.value) {
+    console.log('Opponent disconnected during active game, starting disconnect timer')
+    
+    // Clear any existing timer
+    if (peerDisconnectTimer) clearTimeout(peerDisconnectTimer)
+    
+    // Wait 30 seconds for reconnection
+    const disconnectThreshold = 30000 // 30 seconds
+    
+    peerDisconnectTimer = setTimeout(() => {
+      if (isGameActive.value && opponentId.value === disconnectedPeerId) {
+        console.log('Opponent still disconnected after timeout - abandoning game')
+        abandonGame('peer_disconnect')
+      }
+    }, disconnectThreshold)
+  }
+}
+
+const handleOpponentReconnect = (reconnectedPeerId: string) => {
+  // Clear disconnect timer if opponent reconnects
+  if (reconnectedPeerId === opponentId.value && peerDisconnectTimer) {
+    console.log('Opponent reconnected, clearing disconnect timer')
+    clearTimeout(peerDisconnectTimer)
+    peerDisconnectTimer = null
+  }
+}
+
 const statusClass = computed(() => {
   if (!isInitialized.value) return 'status-disconnected'
   if (!isConnected.value) return 'status-connecting'
@@ -1307,6 +1480,20 @@ const groupedCapturedPieces = computed(() => {
 
 const isConnecting = ref(false)
 
+// Exponential backoff retry state
+const retryAttempts = ref(0)
+const maxRetryAttempts = 10
+const baseRetryDelay = 1000 // 1 second
+let retryTimeout: ReturnType<typeof setTimeout> | null = null
+
+const calculateRetryDelay = (attempt: number): number => {
+  // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s, 64s... capped at 60s
+  const delay = Math.min(baseRetryDelay * Math.pow(2, attempt), 60000)
+  // Add jitter (±20%) to prevent thundering herd
+  const jitter = delay * 0.2 * (Math.random() * 2 - 1)
+  return Math.floor(delay + jitter)
+}
+
 const initializeAndConnect = async () => {
   if (isConnecting.value) return
   
@@ -1334,16 +1521,45 @@ const initializeAndConnect = async () => {
     
     if (connectedCount === 0) {
       console.error('Failed to connect to any signaling server')
+      // Schedule retry with exponential backoff
+      scheduleRetry()
     } else {
       console.log(`Connected to ${connectedCount} signaling server(s)`)
+      // Reset retry count on successful connection
+      retryAttempts.value = 0
       // Start broadcasting presence when connected
       startPresenceBroadcast()
     }
   } catch (err) {
     console.error('Failed to initialize or connect:', err)
+    // Schedule retry on error
+    scheduleRetry()
   } finally {
     isConnecting.value = false
   }
+}
+
+const scheduleRetry = () => {
+  if (retryAttempts.value >= maxRetryAttempts) {
+    console.error('Max retry attempts reached. Please check your connection.')
+    return
+  }
+  
+  const delay = calculateRetryDelay(retryAttempts.value)
+  console.log(`Scheduling reconnection attempt ${retryAttempts.value + 1}/${maxRetryAttempts} in ${delay}ms`)
+  
+  retryAttempts.value++
+  
+  if (retryTimeout) clearTimeout(retryTimeout)
+  retryTimeout = setTimeout(() => {
+    console.log('Retrying connection...')
+    initializeAndConnect()
+  }, delay)
+}
+
+const handleNetworkDisconnect = () => {
+  console.log('Network disconnected, scheduling reconnection...')
+  scheduleRetry()
 }
 
 const formatPeerId = (peerId: string): string => {
@@ -1390,6 +1606,16 @@ const handleMove = async (from: string, to: string) => {
   const success = makeMove({ from, to })
   
   if (success && opponentId.value && currentGame.value) {
+    // Mark that the game has started (first move made)
+    if (!hasGameStarted.value) {
+      hasGameStarted.value = true
+      // Clear the initial move timer since a move was made
+      if (initialMoveTimer) {
+        clearTimeout(initialMoveTimer)
+        initialMoveTimer = null
+      }
+    }
+    
     // Add increment to my time
     if (currentGameTimeControl.value) {
       myTime.value += currentGameTimeControl.value.increment
@@ -1550,6 +1776,9 @@ const getResultText = (): string => {
   
   if (currentGame.value.result === 'draw') return 'Draw'
   
+  // Check if game was abandoned
+  if (abandonmentReason.value) return 'Game Abandoned'
+  
   const iWon = currentGame.value.result === myPlayer.value?.color
   return iWon ? 'You Win!' : 'You Lose'
 }
@@ -1670,8 +1899,10 @@ const handleMessage = async (event: any) => {
           // Start the game with the assigned colors
           startNewGame(myPeerId.value, opponent, myColor)
           opponentId.value = opponent
+          hasGameStarted.value = false // Reset for new game
           startTimer()
           startTimerSyncBroadcast()
+          startInitialMoveTimer() // Start abandonment timer
           broadcastSearchStatus() // Stop broadcasting search
           break
         }
@@ -1697,9 +1928,11 @@ const handleMessage = async (event: any) => {
             myColor === 'white' ? fromPeer : myPeerId.value
           )
           
+          hasGameStarted.value = false // Reset for new game
           // Start timer
           startTimer()
           startTimerSyncBroadcast()
+          startInitialMoveTimer() // Start abandonment timer
           
           // No need to send response - both sides start the game
         } else {
@@ -1720,6 +1953,16 @@ const handleMessage = async (event: any) => {
         
       case 'move':
         if (chessMessage.data) {
+          // Mark that the game has started (first move received)
+          if (!hasGameStarted.value) {
+            hasGameStarted.value = true
+            // Clear the initial move timer since a move was received
+            if (initialMoveTimer) {
+              clearTimeout(initialMoveTimer)
+              initialMoveTimer = null
+            }
+          }
+          
           receiveMove(`${chessMessage.data.from}${chessMessage.data.to}`)
           // Process incoming timer sync if present
           if (chessMessage.timer && chessMessage.vectorClock) {
@@ -1772,6 +2015,28 @@ const handleMessage = async (event: any) => {
         }
         console.log('Takeback accepted by opponent')
         break
+      
+      case 'abandon':
+        // Opponent abandoned the game
+        if (currentGame.value) {
+          console.log('Opponent abandoned game, reason:', chessMessage.reason)
+          clearAbandonmentTimers()
+          if (timerInterval) clearInterval(timerInterval)
+          
+          currentGame.value.status = 'finished'
+          // We win by opponent abandonment
+          currentGame.value.result = myPlayer.value?.color || 'white'
+          currentGame.value.finishedAt = Date.now()
+          
+          // Set the reason for display
+          abandonmentReason.value = chessMessage.reason || null
+          showAbandonmentModal.value = true
+          iAbandoned.value = false // Opponent abandoned, not me
+          
+          // Play lose sound for abandoned games (both players lose)
+          playLoseSound()
+        }
+        break
     }
   } catch (err) {
     console.error('Failed to parse message:', err)
@@ -1809,10 +2074,27 @@ onMounted(async () => {
   if (mesh.value) {
     mesh.value.addEventListener('peerConnected', (e: any) => {
       console.log('Peer connected:', e.peerId)
+      handleOpponentReconnect(e.peerId)
     })
     
     mesh.value.addEventListener('peerDisconnected', (e: any) => {
       console.log('Peer disconnected:', e.peerId)
+      handleOpponentDisconnect(e.peerId)
+    })
+    
+    mesh.value.addEventListener('disconnected', () => {
+      console.log('Mesh network disconnected')
+      handleNetworkDisconnect()
+    })
+    
+    mesh.value.addEventListener('connected', () => {
+      console.log('Mesh network connected')
+      // Reset retry count on successful connection
+      retryAttempts.value = 0
+      if (retryTimeout) {
+        clearTimeout(retryTimeout)
+        retryTimeout = null
+      }
     })
     
     mesh.value.addEventListener('cryptoReady', () => {
@@ -1836,6 +2118,11 @@ onUnmounted(() => {
   if (timerInterval) {
     clearInterval(timerInterval)
   }
+  if (retryTimeout) {
+    clearTimeout(retryTimeout)
+    retryTimeout = null
+  }
+  clearAbandonmentTimers()
   stopTimerSyncBroadcast()
   stopPresenceBroadcast()
 })
