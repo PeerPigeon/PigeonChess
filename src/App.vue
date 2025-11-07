@@ -1200,9 +1200,10 @@ const cleanupStalePeers = () => {
   const staleThreshold = 15000 // 15 seconds
   
   for (const [peerId, lastSeen] of peerLastSeen.value.entries()) {
-    if (now - lastSeen > staleThreshold) {
+    if (peerId && now - lastSeen > staleThreshold) {
       allKnownPeers.value.delete(peerId)
       peerLastSeen.value.delete(peerId)
+      peerSearchStatus.value.delete(peerId)
       console.log('Removed stale peer:', peerId)
     }
   }
@@ -2269,7 +2270,7 @@ const handleMessage = async (event: any) => {
     
     // Handle peer presence messages
     if (message.type === 'peer_presence') {
-      if (message.peerId && message.peerId !== myPeerId.value) {
+      if (message.peerId && message.peerId !== myPeerId.value && typeof message.peerId === 'string' && message.peerId.length > 0) {
         allKnownPeers.value.add(message.peerId)
         peerLastSeen.value.set(message.peerId, Date.now())
       }
