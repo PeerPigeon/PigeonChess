@@ -91,6 +91,38 @@
                   <button class="secondary" @click="stopSearching">Cancel</button>
                 </div>
               </div>
+              
+              <!-- AI Opponent Button -->
+              <div class="ai-section">
+                <h4>AI Difficulty</h4>
+                <div class="ai-difficulty-slider">
+                  <div class="difficulty-labels">
+                    <span>Random</span>
+                    <span>Easy</span>
+                    <span>Medium</span>
+                    <span>Hard</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="3" 
+                    step="1"
+                    v-model.number="aiDifficulty"
+                    class="slider"
+                  />
+                  <div class="difficulty-description">
+                    {{ difficultyDescriptions[aiDifficulty] }}
+                  </div>
+                </div>
+                
+                <button 
+                  v-if="!isSearching"
+                  class="secondary ai-btn"
+                  @click="startAIGame"
+                >
+                  🤖 Play vs AI ({{ ['Random', 'Easy', 'Medium', 'Hard'][aiDifficulty] }})
+                </button>
+              </div>
             </div>
           </div>
           
@@ -108,6 +140,7 @@
               :chess="chess"
               :flipped="myPlayer?.color === 'black'"
               :interactive="isMyTurn && isGameActive && viewingMoveIndex === null"
+              :last-move="lastMove"
               :piece-colors="{
                 whiteFill: settings.customWhitePieceColor,
                 blackFill: settings.customBlackPieceColor,
@@ -301,8 +334,8 @@
               </div>
               <div class="opponent-display">
                 <span class="opponent-icon">{{ myPlayer?.color === 'white' ? '♚' : '♔' }}</span>
-                <span class="opponent-name">Opp</span>
-                <span class="opponent-name-detail">{{ formatPeerId(opponentId || 'Unknown') }}</span>
+                <span class="opponent-name">{{ isAIGame ? 'AI' : 'Opp' }}</span>
+                <span class="opponent-name-detail">{{ isAIGame ? 'Computer' : formatPeerId(opponentId || 'Unknown') }}</span>
               </div>
             </div>
             <div v-if="currentGameTimeControl && currentGameTimeControl.minutes === 0" class="casual-mode-badge">
@@ -574,6 +607,7 @@ import SettingsModal from './components/SettingsModal.vue'
 import GameHistory from './components/GameHistory.vue'
 import { useChessGame } from './composables/useChessGame'
 import { useSettings } from './composables/useSettings'
+import { useSounds } from './composables/useSounds'
 import type { ChessMessage, GameHistoryEntry } from './types'
 import { saveToLocalStorage } from './utils/helpers'
 
@@ -747,6 +781,382 @@ const stopSearching = () => {
   isSearching.value = false
   broadcastSearchStatus()
 }
+
+// AI opponent
+const isAIGame = ref(false)
+const aiDifficulty = ref(1) // 0=Random, 1=Easy, 2=Medium, 3=Hard
+const { playMoveSound, playCaptureSound, playCastleSound } = useSounds()
+const lastMove = ref<{ from: string; to: string } | null>(null)
+
+const difficultyDescriptions: Record<number, string> = {
+  0: '🎲 Completely random moves',
+  1: '😊 Makes some basic captures and checks',
+  2: '🤔 Considers material and piece development',
+  3: '🧠 Strong tactical play with lookahead and positional evaluation'
+}
+
+const startAIGame = () => {
+  if (isGameActive.value) return
+  
+  // Clear last move highlight
+  lastMove.value = null
+  
+  // Set time control for AI game
+  const timeControlObj = timeControls.find(tc => tc.id === selectedTimeControl.value)!
+  currentGameTimeControl.value = {
+    minutes: timeControlObj.minutes,
+    increment: timeControlObj.increment
+  }
+  resetTimers()
+  
+  // Set AI flag
+  isAIGame.value = true
+  
+  // Randomly assign player color
+  const playerColor = Math.random() < 0.5 ? 'white' : 'black'
+  
+  // Start game with random color
+  startNewGame(myPeerId.value, 'AI-Opponent', playerColor)
+  
+  // If player is black, AI makes first move
+  if (playerColor === 'black') {
+    setTimeout(() => {
+      makeAIMove()
+    }, 500)
+  }
+}
+
+// AI move selection functions
+const selectEasyMove = (moves: any[], currentFen: string) => {
+  // Prefer captures and checks, otherwise random
+  const captureMoves = moves.filter(m => m.captured)
+  const checkMoves = moves.filter(m => {
+    const testChess = new Chess(currentFen)
+    testChess.move(m)
+    return testChess.inCheck()
+  })
+  
+  if (captureMoves.length > 0 && Math.random() > 0.3) {
+    return captureMoves[Math.floor(Math.random() * captureMoves.length)]
+  }
+  if (checkMoves.length > 0 && Math.random() > 0.5) {
+    return checkMoves[Math.floor(Math.random() * checkMoves.length)]
+  }
+  return moves[Math.floor(Math.random() * moves.length)]
+}
+
+const selectMediumMove = (moves: any[], currentFen: string) => {
+  // Score moves based on captures, checks, and center control
+  const scoredMoves = moves.map(move => {
+    let score = 0
+    const testChess = new Chess(currentFen)
+    testChess.move(move)
+    
+    // Prioritize captures by piece value
+    if (move.captured) {
+      score += pieceValues[move.captured] * 10
+    }
+    
+    // Bonus for checks
+    if (testChess.inCheck()) {
+      score += 15
+    }
+    
+    // Bonus for center control (e4, d4, e5, d5)
+    const centerSquares = ['e4', 'd4', 'e5', 'd5']
+    if (centerSquares.includes(move.to)) {
+      score += 5
+    }
+    
+    // Bonus for developing pieces (knights and bishops)
+    if ((move.piece === 'n' || move.piece === 'b') && 
+        (move.from[1] === '8' || move.from[1] === '7')) {
+      score += 3
+    }
+    
+    return { move, score }
+  })
+  
+  // Sort by score and pick from top 3 with some randomness
+  scoredMoves.sort((a, b) => b.score - a.score)
+  const topMoves = scoredMoves.slice(0, Math.min(3, scoredMoves.length))
+  return topMoves[Math.floor(Math.random() * topMoves.length)].move
+}
+
+const selectHardMove = (moves: any[], currentFen: string) => {
+  // Advanced evaluation with deeper lookahead - simplified to avoid reactivity
+  const scoredMoves = moves.map(move => {
+    // Create isolated chess instance
+    const testChess = new Chess(currentFen)
+    testChess.move(move)
+    
+    let score = 0
+    
+    // Immediate checkmate - highest priority
+    if (testChess.isCheckmate()) {
+      return { move, score: 100000 }
+    }
+    
+    // Material evaluation
+    if (move.captured) {
+      score += pieceValues[move.captured] * 50
+      // Good trade bonus
+      if (pieceValues[move.piece] < pieceValues[move.captured]) {
+        score += 40
+      }
+      // Bad trade penalty  
+      if (pieceValues[move.piece] > pieceValues[move.captured]) {
+        score -= 30
+      }
+    }
+    
+    // Check evaluation
+    if (testChess.inCheck()) {
+      score += 50
+      
+      // Forcing check - opponent has limited options
+      const opponentResponses = testChess.moves()
+      if (opponentResponses.length < 3) {
+        score += 60
+      }
+      if (opponentResponses.length === 1) {
+        score += 100 // Only one legal move
+      }
+    }
+    
+    // Look ahead - evaluate opponent's best counter
+    const opponentMoves = testChess.moves({ verbose: true })
+    let worstCaseScore = 0
+    let opponentBestCapture = 0
+    
+    // Check first 12 opponent moves for performance
+    for (let i = 0; i < Math.min(12, opponentMoves.length); i++) {
+      const oppMove = opponentMoves[i]
+      if (oppMove.captured) {
+        const captureValue = pieceValues[oppMove.captured]
+        if (captureValue > opponentBestCapture) {
+          opponentBestCapture = captureValue
+        }
+      }
+    }
+    
+    // Heavily penalize if we're hanging a piece
+    if (opponentBestCapture > 0) {
+      score -= opponentBestCapture * 45
+    }
+    
+    // Mobility bonus
+    score += opponentMoves.length * 0.5
+    
+    // Castling bonus
+    if (move.flags.includes('k') || move.flags.includes('q')) {
+      score += 50
+    }
+    
+    // Piece-specific evaluation
+    const toRank = parseInt(move.to[1])
+    const toFile = move.to[0]
+    const fromRank = parseInt(move.from[1])
+    
+    if (move.piece === 'n' || move.piece === 'b') {
+      // Development from back rank
+      if (fromRank === 8 || fromRank === 7) {
+        score += 20
+      }
+      
+      // Center squares for knights and bishops
+      const centerFiles = ['c', 'd', 'e', 'f']
+      const centerRanks = [4, 5, 6]
+      if (centerFiles.includes(toFile) && centerRanks.includes(toRank)) {
+        score += 25
+      }
+    }
+    
+    if (move.piece === 'r') {
+      // Rook on 7th rank
+      if (toRank === 2) {
+        score += 35
+      }
+      
+      // Rook on open/semi-open files (simplified check)
+      if (toFile === 'c' || toFile === 'd' || toFile === 'e') {
+        score += 12
+      }
+    }
+    
+    if (move.piece === 'q') {
+      const moveNum = testChess.moveNumber()
+      if (moveNum < 8) {
+        score -= 35 // Penalize early queen moves
+      } else {
+        score += 15 // Queen is powerful in midgame
+      }
+    }
+    
+    if (move.piece === 'p') {
+      // Advancing pawns
+      score += (8 - toRank) * 8
+      
+      // Center pawns
+      if (toFile === 'd' || toFile === 'e') {
+        score += 15
+      }
+      
+      // Advanced pawns near promotion
+      if (toRank <= 3) {
+        score += (8 - toRank) * 20
+      }
+      if (toRank === 2) {
+        score += 80 // Almost promoting
+      }
+    }
+    
+    if (move.piece === 'k') {
+      const moveNum = testChess.moveNumber()
+      // Penalize moving king in opening (unless castling)
+      if (moveNum < 15 && !move.flags.includes('k') && !move.flags.includes('q')) {
+        score -= 40
+      }
+      // Keep king on back rank early
+      if (moveNum < 20 && toRank < 7) {
+        score -= 25
+      }
+    }
+    
+    // Center control bonus
+    const centerSquares = ['d4', 'e4', 'd5', 'e5']
+    if (centerSquares.includes(move.to)) {
+      score += 18
+    }
+    
+    return { move, score }
+  })
+  
+  // Sort and pick best move
+  scoredMoves.sort((a, b) => b.score - a.score)
+  
+  // Always pick the best move (deterministic)
+  return scoredMoves[0].move
+}
+
+const makeAIMove = () => {
+  if (!isAIGame.value || !isGameActive.value) return
+  
+  // AI plays the opposite color of the player
+  const aiColor = myPlayer.value?.color === 'white' ? 'b' : 'w'
+  if (chess.value.turn() !== aiColor) return
+  
+  // Get all legal moves
+  const moves = chess.value.moves({ verbose: true })
+  
+  if (moves.length === 0) return
+  
+  // Get current position once to avoid reactivity issues
+  const currentFen = chess.value.fen()
+  
+  // Select move based on difficulty
+  let selectedMove
+  
+  switch (aiDifficulty.value) {
+    case 0: // Random
+      selectedMove = moves[Math.floor(Math.random() * moves.length)]
+      break
+    case 1: // Easy - prefer captures and checks
+      selectedMove = selectEasyMove(moves, currentFen)
+      break
+    case 2: // Medium - consider material and development
+      selectedMove = selectMediumMove(moves, currentFen)
+      break
+    case 3: // Hard - tactical awareness
+      selectedMove = selectHardMove(moves, currentFen)
+      break
+    default:
+      selectedMove = moves[Math.floor(Math.random() * moves.length)]
+  }
+  
+  // Delay AI move slightly for realism (300-800ms)
+  const delay = 300 + Math.random() * 500
+  
+  setTimeout(() => {
+    if (!isAIGame.value || !isGameActive.value) return
+    
+    // AI plays the opposite color of the player
+    const aiColor = myPlayer.value?.color === 'white' ? 'b' : 'w'
+    if (chess.value.turn() !== aiColor) return
+    
+    try {
+      // Make the move
+      const moveResult = chess.value.move({
+        from: selectedMove.from,
+        to: selectedMove.to,
+        promotion: selectedMove.promotion || 'q'
+      })
+      
+      if (moveResult) {
+        // Track the last move for highlighting
+        lastMove.value = { from: selectedMove.from, to: selectedMove.to }
+        
+        // Play appropriate sound
+        if (moveResult.captured) {
+          playCaptureSound()
+        } else if (moveResult.flags.includes('k') || moveResult.flags.includes('q')) {
+          playCastleSound()
+        } else {
+          playMoveSound()
+        }
+        
+        // Update captured pieces
+        if (moveResult.captured) {
+          // AI captures player's piece
+          if (myPlayer.value?.color === 'white') {
+            capturedPieces.value.black.push(moveResult.captured)
+          } else {
+            capturedPieces.value.white.push(moveResult.captured)
+          }
+        }
+        
+        // Record move
+        if (currentGame.value) {
+          currentGame.value.moves.push(moveResult.san)
+          currentGame.value.fen = chess.value.fen()
+          currentGame.value.currentTurn = chess.value.turn() === 'w' ? 'white' : 'black'
+          
+          // Start timer for player
+          if (currentGameTimeControl.value && currentGameTimeControl.value.minutes > 0) {
+            // Add increment to AI's time (black)
+            opponentTime.value += currentGameTimeControl.value.increment
+            startTimer()
+          }
+        }
+        
+        // Check for game end conditions
+        if (chess.value.isCheckmate()) {
+          // Player lost (AI won)
+          if (currentGame.value && myPlayer.value) {
+            currentGame.value.status = 'finished'
+            // Set result to AI's color (opposite of player)
+            currentGame.value.result = myPlayer.value.color === 'white' ? 'black' : 'white'
+            currentGame.value.finishedAt = Date.now()
+            isAIGame.value = false
+            playLoseSound()
+          }
+        } else if (chess.value.isDraw()) {
+          // Draw
+          if (currentGame.value) {
+            currentGame.value.status = 'finished'
+            currentGame.value.result = 'draw'
+            currentGame.value.finishedAt = Date.now()
+            isAIGame.value = false
+            playDrawSound()
+          }
+        }
+      }
+    } catch (err) {
+      console.error('AI move error:', err)
+    }
+  }, delay)
+}
+
 
 const broadcastSearchStatus = async () => {
   const message = {
@@ -1602,10 +2012,13 @@ const declineChallenge = () => {
   incomingChallenge.value = null
 }
 
-const handleMove = async (from: string, to: string) => {
-  const success = makeMove({ from, to })
+const handleMove = async (from: string, to: string, promotion?: 'q' | 'r' | 'b' | 'n') => {
+  const success = makeMove({ from, to, promotion })
   
   if (success && opponentId.value && currentGame.value) {
+    // Track the last move for highlighting
+    lastMove.value = { from, to }
+    
     // Mark that the game has started (first move made)
     if (!hasGameStarted.value) {
       hasGameStarted.value = true
@@ -1623,6 +2036,32 @@ const handleMove = async (from: string, to: string) => {
       if (myTime.value > 20) {
         lowTimeWarningPlayed.value = false
       }
+    }
+    
+    // Check for checkmate after player's move
+    if (chess.value.isCheckmate() && currentGame.value && myPlayer.value) {
+      currentGame.value.status = 'finished'
+      currentGame.value.result = 'white' // Player won
+      currentGame.value.finishedAt = Date.now()
+      isAIGame.value = false
+      playWinSound()
+      return // Exit early, don't send message or trigger AI
+    }
+    
+    // Check for draw after player's move
+    if (chess.value.isDraw() && currentGame.value) {
+      currentGame.value.status = 'finished'
+      currentGame.value.result = 'draw'
+      currentGame.value.finishedAt = Date.now()
+      isAIGame.value = false
+      playDrawSound()
+      return // Exit early
+    }
+    
+    // If playing against AI, trigger AI move
+    if (isAIGame.value) {
+      makeAIMove()
+      return // Don't send network message for AI games
     }
     
     // Advance vector clock for this causal event (move)
@@ -1768,6 +2207,7 @@ const declineTakebackRequest = () => {
 const returnToLobby = () => {
   if (timerInterval) clearInterval(timerInterval)
   stopTimerSyncBroadcast()
+  lastMove.value = null
   resetGame()
 }
 
@@ -1953,6 +2393,9 @@ const handleMessage = async (event: any) => {
         
       case 'move':
         if (chessMessage.data) {
+          // Track the last move for highlighting
+          lastMove.value = { from: chessMessage.data.from, to: chessMessage.data.to }
+          
           // Mark that the game has started (first move received)
           if (!hasGameStarted.value) {
             hasGameStarted.value = true
@@ -2762,6 +3205,137 @@ button.large {
   max-width: 100%;
   margin-top: 1.5rem;
   box-sizing: border-box;
+}
+
+.ai-section {
+  width: 100%;
+  max-width: 100%;
+  margin-top: 1rem;
+  box-sizing: border-box;
+}
+
+.ai-section h4 {
+  font-size: 1rem;
+  margin: 0 0 0.75rem 0;
+  color: #1e293b;
+  text-align: center;
+}
+
+.ai-difficulty-slider {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.difficulty-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.slider {
+  width: 100%;
+  height: 6px;
+  border-radius: 5px;
+  background: #e2e8f0;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  margin-bottom: 0.75rem;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #6366f1;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.slider::-webkit-slider-thumb:hover {
+  background: #4f46e5;
+  transform: scale(1.1);
+}
+
+.slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #6366f1;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+}
+
+.slider::-moz-range-thumb:hover {
+  background: #4f46e5;
+  transform: scale(1.1);
+}
+
+.difficulty-description {
+  font-size: 0.85rem;
+  color: #475569;
+  text-align: center;
+  min-height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-color-selection {
+  margin: 1.5rem 0 1rem 0;
+}
+
+.ai-color-selection h4 {
+  font-size: 0.95rem;
+  margin-bottom: 0.75rem;
+  color: #334155;
+  font-weight: 600;
+}
+
+.color-buttons {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.color-btn {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: 2px solid #e2e8f0;
+  background: white;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #475569;
+  transition: all 0.2s ease;
+}
+
+.color-btn:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.color-btn.active {
+  border-color: #6366f1;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-weight: 600;
+}
+
+.ai-btn {
+  width: 100%;
+  padding: 1rem 1.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
 }
 
 .search-btn {

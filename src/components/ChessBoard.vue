@@ -17,7 +17,8 @@
             highlight: isSquareHighlighted(rowIndex, colIndex),
             'legal-move': isLegalMoveSquare(rowIndex, colIndex),
             'drag-over': isDragOver(rowIndex, colIndex),
-            'king-in-check': isKingInCheck(rowIndex, colIndex)
+            'king-in-check': isKingInCheck(rowIndex, colIndex),
+            'last-move': isLastMoveSquare(rowIndex, colIndex)
           }"
           @click="handleSquareClick(rowIndex, colIndex)"
           @dragover.prevent="handleDragOver(rowIndex, colIndex)"
@@ -45,6 +46,43 @@
         </div>
       </div>
     </div>
+    
+    <!-- Promotion Dialog -->
+    <div v-if="showPromotionDialog" class="promotion-overlay" @click="showPromotionDialog = false">
+      <div class="promotion-dialog" @click.stop>
+        <h3>Choose promotion piece:</h3>
+        <div class="promotion-pieces">
+          <button 
+            class="promotion-piece" 
+            @click="handlePromotion('q')"
+            title="Queen"
+          >
+            <img :src="`/pieces/${promotingColor}q.svg`" alt="Queen" />
+          </button>
+          <button 
+            class="promotion-piece" 
+            @click="handlePromotion('r')"
+            title="Rook"
+          >
+            <img :src="`/pieces/${promotingColor}r.svg`" alt="Rook" />
+          </button>
+          <button 
+            class="promotion-piece" 
+            @click="handlePromotion('b')"
+            title="Bishop"
+          >
+            <img :src="`/pieces/${promotingColor}b.svg`" alt="Bishop" />
+          </button>
+          <button 
+            class="promotion-piece" 
+            @click="handlePromotion('n')"
+            title="Knight"
+          >
+            <img :src="`/pieces/${promotingColor}n.svg`" alt="Knight" />
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -57,6 +95,7 @@ interface Props {
   flipped?: boolean
   interactive?: boolean
   showCoordinates?: boolean
+  lastMove?: { from: string; to: string } | null
   pieceColors?: {
     whiteFill?: string
     blackFill?: string
@@ -68,11 +107,12 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   flipped: false,
   interactive: true,
-  showCoordinates: true
+  showCoordinates: true,
+  lastMove: null
 })
 
 const emit = defineEmits<{
-  move: [from: string, to: string]
+  move: [from: string, to: string, promotion?: 'q' | 'r' | 'b' | 'n']
 }>()
 
 const { playMoveSound, playCaptureSound, playCastleSound } = useSounds()
@@ -82,6 +122,9 @@ const selectedSquare = ref<string | null>(null)
 const legalMoves = ref<any[]>([])
 const draggedSquare = ref<string | null>(null)
 const dragOverSquare = ref<string | null>(null)
+const showPromotionDialog = ref(false)
+const promotionMove = ref<{ from: string; to: string } | null>(null)
+const promotingColor = ref<'w' | 'b'>('w') // Store color to avoid reactivity issues
 
 const PIECE_SYMBOLS: Record<string, string> = {
   'wp': '♙', 'wn': '♘', 'wb': '♗', 'wr': '♖', 'wq': '♕', 'wk': '♔',
@@ -208,6 +251,12 @@ const isSquareHighlighted = (row: number, col: number): boolean => {
   return legalMoves.value.some(move => move.to === getSquareName(row, col))
 }
 
+const isLastMoveSquare = (row: number, col: number): boolean => {
+  if (!props.lastMove) return false
+  const squareName = getSquareName(row, col)
+  return squareName === props.lastMove.from || squareName === props.lastMove.to
+}
+
 const isKingInCheck = (row: number, col: number): boolean => {
   const piece = getPiece(row, col)
   if (!piece || piece.type !== 'k') return false
@@ -239,6 +288,24 @@ const handleSquareClick = (row: number, col: number) => {
     const move = legalMoves.value.find(m => m.to === square)
     
     if (move) {
+      // Check if this is a pawn promotion
+      const fromPiece = getPiece(
+        8 - parseInt(selectedSquare.value[1]),
+        selectedSquare.value.charCodeAt(0) - 97
+      )
+      
+      const isPromotion = fromPiece?.type === 'p' && 
+                          (square[1] === '8' || square[1] === '1')
+      
+      if (isPromotion) {
+        // Store the promoting color before showing dialog
+        promotingColor.value = props.chess.turn()
+        // Show promotion dialog
+        promotionMove.value = { from: selectedSquare.value, to: square }
+        showPromotionDialog.value = true
+        return
+      }
+      
       // Check if it's a capture move using chess.js flags
       const isCapture = move.captured !== undefined
       const isCastle = move.flags.includes('k') || move.flags.includes('q')
@@ -270,6 +337,22 @@ const handleSquareClick = (row: number, col: number) => {
     selectedSquare.value = square
     legalMoves.value = props.chess.moves({ square: square as any, verbose: true })
   }
+}
+
+const handlePromotion = (piece: 'q' | 'r' | 'b' | 'n') => {
+  if (!promotionMove.value) return
+  
+  // Emit move with promotion
+  emit('move', promotionMove.value.from, promotionMove.value.to, piece)
+  
+  // Reset
+  showPromotionDialog.value = false
+  promotionMove.value = null
+  selectedSquare.value = null
+  legalMoves.value = []
+  
+  // Play sound (will be played after the move is made)
+  playMoveSound()
 }
 
 // Drag and drop handlers
@@ -315,6 +398,27 @@ const handleDrop = (row: number, col: number) => {
   const move = legalMoves.value.find(m => m.to === targetSquare)
   
   if (move) {
+    // Check if this is a pawn promotion
+    const fromPiece = getPiece(
+      8 - parseInt(draggedSquare.value[1]),
+      draggedSquare.value.charCodeAt(0) - 97
+    )
+    
+    const isPromotion = fromPiece?.type === 'p' && 
+                        (targetSquare[1] === '8' || targetSquare[1] === '1')
+    
+    if (isPromotion) {
+      // Store the promoting color before showing dialog
+      promotingColor.value = props.chess.turn()
+      // Show promotion dialog
+      promotionMove.value = { from: draggedSquare.value, to: targetSquare }
+      showPromotionDialog.value = true
+      // Reset drag state but keep promotion state
+      draggedSquare.value = null
+      dragOverSquare.value = null
+      return
+    }
+    
     // Check if it's a capture move using chess.js flags
     const isCapture = move.captured !== undefined
     const isCastle = move.flags.includes('k') || move.flags.includes('q')
@@ -395,6 +499,29 @@ const handleTouchEnd = (event: TouchEvent) => {
       const move = legalMoves.value.find(m => m.to === targetSquare)
       
       if (move) {
+        // Check if this is a pawn promotion
+        const fromPiece = getPiece(
+          8 - parseInt(draggedSquare.value[1]),
+          draggedSquare.value.charCodeAt(0) - 97
+        )
+        
+        const isPromotion = fromPiece?.type === 'p' && 
+                            (targetSquare[1] === '8' || targetSquare[1] === '1')
+        
+        if (isPromotion) {
+          // Store the promoting color before showing dialog
+          promotingColor.value = props.chess.turn()
+          // Show promotion dialog
+          promotionMove.value = { from: draggedSquare.value, to: targetSquare }
+          showPromotionDialog.value = true
+          // Reset drag state but keep promotion state
+          draggedSquare.value = null
+          dragOverSquare.value = null
+          selectedSquare.value = null
+          legalMoves.value = []
+          return
+        }
+        
         const isCapture = move.captured !== undefined
         const isCastle = move.flags.includes('k') || move.flags.includes('q')
         
@@ -575,6 +702,11 @@ watch(() => props.chess.fen(), () => {
   background-color: var(--board-dark);
 }
 
+.square.last-move {
+  background-color: rgba(255, 206, 86, 0.4) !important;
+  box-shadow: inset 0 0 0 2px rgba(234, 179, 8, 0.5);
+}
+
 .square.selected {
   background-color: var(--board-selected) !important;
   box-shadow: inset 0 0 0 3px rgba(99, 102, 241, 0.6);
@@ -680,5 +812,65 @@ watch(() => props.chess.fen(), () => {
 .square.dark .rank-label,
 .square.dark .file-label {
   color: rgba(255, 255, 255, 0.7);
+}
+
+.promotion-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  border-radius: 8px;
+}
+
+.promotion-dialog {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  text-align: center;
+}
+
+.promotion-dialog h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+  color: #1e293b;
+}
+
+.promotion-pieces {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.promotion-piece {
+  background: #f1f5f9;
+  border: 2px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.promotion-piece:hover {
+  background: #e0e7ff;
+  border-color: #6366f1;
+  transform: scale(1.1);
+}
+
+.promotion-piece img {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 </style>
