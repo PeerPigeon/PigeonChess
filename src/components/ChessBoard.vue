@@ -758,6 +758,8 @@ watch(() => props.chess.fen(), () => {
   pointer-events: none;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
   transition: transform 0.1s ease;
+  position: relative;
+  z-index: 10;
 }
 
 .piece[draggable="true"] {
