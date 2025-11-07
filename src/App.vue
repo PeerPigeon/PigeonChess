@@ -2210,8 +2210,16 @@ const acceptTakebackRequest = async () => {
   }
   
   // Undo the last move
-  if (chess.value) {
+  if (chess.value && currentGame.value) {
     chess.value.undo()
+    
+    // Update game state
+    currentGame.value.fen = chess.value.fen()
+    currentGame.value.currentTurn = chess.value.turn() === 'w' ? 'white' : 'black'
+    currentGame.value.moves.pop() // Remove last move from history
+    
+    // Clear last move highlight
+    lastMove.value = null
     
     // Play move sound for takeback
     const audio = new Audio('/sounds/move.mp3')
@@ -2475,8 +2483,16 @@ const handleMessage = async (event: any) => {
         
       case 'takeback_accept':
         // Takeback was accepted
-        if (chess.value) {
+        if (chess.value && currentGame.value) {
           chess.value.undo()
+          
+          // Update game state
+          currentGame.value.fen = chess.value.fen()
+          currentGame.value.currentTurn = chess.value.turn() === 'w' ? 'white' : 'black'
+          currentGame.value.moves.pop() // Remove last move from history
+          
+          // Clear last move highlight
+          lastMove.value = null
         }
         console.log('Takeback accepted by opponent')
         break
