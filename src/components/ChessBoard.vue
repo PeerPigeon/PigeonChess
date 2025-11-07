@@ -702,9 +702,12 @@ watch(() => props.chess.fen(), () => {
   background-color: var(--board-dark);
 }
 
-.square.last-move {
-  background-color: rgba(255, 206, 86, 0.4) !important;
-  box-shadow: inset 0 0 0 2px rgba(234, 179, 8, 0.5);
+.square.last-move.light {
+  background-color: rgba(240, 217, 181, 0.8) !important;
+}
+
+.square.last-move.dark {
+  background-color: rgba(181, 136, 99, 0.8) !important;
 }
 
 .square.selected {
