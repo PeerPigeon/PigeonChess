@@ -702,14 +702,22 @@ watch(() => props.chess.fen(), () => {
   background-color: var(--board-dark);
 }
 
-.square.last-move.light {
-  background-color: var(--board-light);
-  filter: brightness(0.85);
+.square.last-move.light::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.15);
+  pointer-events: none;
+  z-index: 1;
 }
 
-.square.last-move.dark {
-  background-color: var(--board-dark);
-  filter: brightness(0.75);
+.square.last-move.dark::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.25);
+  pointer-events: none;
+  z-index: 1;
 }
 
 .square.selected {
