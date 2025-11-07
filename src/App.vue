@@ -648,7 +648,11 @@ const {
 
 // Get the actual peer ID from the mesh after initialization
 const myPeerId = computed(() => {
-  return mesh.value?.peerId || 'Not connected'
+  const peerId = mesh.value?.peerId
+  if (!peerId) {
+    return isInitialized.value ? 'Connecting...' : 'Initializing...'
+  }
+  return peerId
 })
 
 // Time controls
@@ -1159,9 +1163,15 @@ const makeAIMove = () => {
 
 
 const broadcastSearchStatus = async () => {
+  const actualPeerId = mesh.value?.peerId
+  if (!actualPeerId) {
+    console.log('Skipping broadcast - peer ID not ready')
+    return
+  }
+  
   const message = {
     type: 'matchmaking',
-    peerId: myPeerId.value,
+    peerId: actualPeerId,
     searching: isSearching.value,
     timeControl: isSearching.value ? selectedTimeControl.value : null
   }
@@ -1213,11 +1223,12 @@ const cleanupStalePeers = () => {
 let presenceInterval: ReturnType<typeof setInterval> | null = null
 
 const broadcastPresence = async () => {
-  if (!myPeerId.value || !mesh.value) return
+  const actualPeerId = mesh.value?.peerId
+  if (!actualPeerId || !mesh.value) return
   
   const message = {
     type: 'peer_presence',
-    peerId: myPeerId.value,
+    peerId: actualPeerId,
     timestamp: Date.now()
   }
   
@@ -1231,9 +1242,10 @@ const broadcastPresence = async () => {
 
 const startPresenceBroadcast = () => {
   // Add self to known peers immediately
-  if (myPeerId.value) {
-    allKnownPeers.value.add(myPeerId.value)
-    peerLastSeen.value.set(myPeerId.value, Date.now())
+  const actualPeerId = mesh.value?.peerId
+  if (actualPeerId) {
+    allKnownPeers.value.add(actualPeerId)
+    peerLastSeen.value.set(actualPeerId, Date.now())
   }
   
   // Broadcast immediately
@@ -2503,6 +2515,13 @@ onMounted(async () => {
   // Set up peer connect listener - broadcast search status when new peer connects
   unsubscribePeerConnect = onPeerConnect(async (peerId: string) => {
     console.log('New peer connected:', peerId)
+    
+    // Wait for our own peer ID to be ready
+    if (!mesh.value?.peerId) {
+      console.log('Skipping message to new peer - our peer ID not ready yet')
+      return
+    }
+    
     // If we're currently searching, broadcast our search status to the new peer
     if (isSearching.value) {
       // Small delay to ensure peer is ready to receive messages
@@ -2510,7 +2529,7 @@ onMounted(async () => {
       
       const message = {
         type: 'matchmaking',
-        peerId: myPeerId.value,
+        peerId: mesh.value.peerId,
         searching: true,
         timeControl: selectedTimeControl.value
       }
