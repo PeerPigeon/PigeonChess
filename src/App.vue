@@ -926,6 +926,11 @@ const initStockfish = async () => {
       stockfish.onmessage = (event: MessageEvent) => {
         const message = event.data
         
+        // Log ALL messages from Stockfish when in Very Hard mode
+        if (aiDifficulty.value === 3 && !message.includes('multipv')) {
+          console.log('SF msg:', message)
+        }
+        
         if (message === 'uciok') {
           stockfish?.postMessage('isready')
         } else if (message === 'readyok') {
@@ -1248,35 +1253,11 @@ const makeAIMove = () => {
   
   // Try to use Stockfish if available
   if (stockfish && stockfishReady) {
-    // Map difficulty to Stockfish settings
-    // 0 = Easy: Skill Level 0, depth 1 (~800-1000 Elo)
-    // 1 = Medium: Skill Level 5, depth 5 (~1200-1400 Elo)
-    // 2 = Hard: Skill Level 10, depth 10 (~1800-2000 Elo)
-    // 3 = Very Hard: Skill Level 20, time-based for faster response (~2500+ Elo)
-    const skillLevel = aiDifficulty.value === 0 ? 0 :
-                       aiDifficulty.value === 1 ? 5 :
-                       aiDifficulty.value === 2 ? 10 : 20
+    console.log('Using Stockfish for AI move, difficulty:', aiDifficulty.value)
     
-    // Use time-based search for Very Hard (faster), depth for others
-    const useTimeSearch = aiDifficulty.value === 3
-    const depth = aiDifficulty.value === 0 ? 1 : 
-                  aiDifficulty.value === 1 ? 5 :
-                  aiDifficulty.value === 2 ? 10 : 15
-    const moveTime = 2000 // 2 seconds for Very Hard
-    
-    // Configure Stockfish for this move
-    stockfish.postMessage('ucinewgame')
-    stockfish.postMessage('setoption name Skill Level value ' + skillLevel)
-    stockfish.postMessage('position fen ' + currentFen)
-    
-    // Use movetime for Very Hard (max strength, time-limited), depth for others
-    if (useTimeSearch) {
-      stockfish.postMessage('go movetime ' + moveTime)
-    } else {
-      stockfish.postMessage('go depth ' + depth)
-    }
-    
+    // Set the callback first
     stockfishCallback = (bestMove: string) => {
+      console.log('Stockfish returned best move:', bestMove, 'for position:', currentFen)
       const delay = 300 + Math.random() * 500
       setTimeout(() => {
         if (!isAIGame.value || !isGameActive.value) {
@@ -1345,12 +1326,42 @@ const makeAIMove = () => {
               }
             }
           }
-        } catch (err) {
-          console.error('Error making Stockfish move:', err)
+        } catch (error) {
+          console.error('Error making AI move:', error)
           aiThinking.value = false
         }
       }, delay)
     }
+    
+    // Map difficulty to Stockfish settings
+    if (aiDifficulty.value === 3) {
+      // Very Hard: Full strength - set options BEFORE ucinewgame
+      console.log('Very Hard mode: Configuring Stockfish for maximum strength')
+      stockfish.postMessage('setoption name Skill Level value 20')
+      stockfish.postMessage('setoption name UCI_LimitStrength value false')
+      stockfish.postMessage('isready')
+      // Wait a moment for options to be set
+      setTimeout(() => {
+        if (!stockfish) return
+        console.log('Starting analysis at depth 18 for position:', currentFen)
+        stockfish.postMessage('ucinewgame')
+        stockfish.postMessage('position fen ' + currentFen)
+        stockfish.postMessage('go depth 18')
+      }, 50)
+      return
+    }
+    
+    // For other difficulties
+    const skillLevel = aiDifficulty.value === 0 ? 0 :
+                       aiDifficulty.value === 1 ? 5 : 10
+    const depth = aiDifficulty.value === 0 ? 1 : 
+                  aiDifficulty.value === 1 ? 5 : 10
+    
+    console.log(`Difficulty ${aiDifficulty.value}: Skill Level ${skillLevel}, Depth ${depth}`)
+    stockfish.postMessage('setoption name Skill Level value ' + skillLevel)
+    stockfish.postMessage('ucinewgame')
+    stockfish.postMessage('position fen ' + currentFen)
+    stockfish.postMessage('go depth ' + depth)
     return
   }
   
