@@ -1237,6 +1237,10 @@ const makeAIMove = () => {
   const aiColor = myPlayer.value?.color === 'white' ? 'b' : 'w'
   if (chess.value.turn() !== aiColor) return
   
+  // Clear analysis arrows when AI starts thinking
+  analysisArrows.value = []
+  analysisTopMoves.value = []
+  
   // Set thinking indicator
   aiThinking.value = true
   
@@ -1275,6 +1279,10 @@ const makeAIMove = () => {
           if (moveResult) {
             aiThinking.value = false
             lastMove.value = { from: moveResult.from, to: moveResult.to }
+            
+            // Clear any analysis arrows after AI moves
+            analysisArrows.value = []
+            analysisTopMoves.value = []
             
             if (moveResult.captured) {
               playCaptureSound()
@@ -1735,16 +1743,21 @@ watch([showBestMoves, () => chess.value?.fen(), aiThinking, isMyTurn], () => {
     fen: chess.value?.fen()
   })
   
-  // Only show best moves when it's the human player's turn
-  if (showBestMoves.value && isAIGame.value && isGameActive.value && !aiThinking.value && isMyTurn.value) {
-    analyzePosition()
-  } else {
+  // Only show best moves when it's the human player's turn AND not AI thinking
+  // Clear arrows immediately if any condition is not met
+  if (!showBestMoves.value || !isAIGame.value || !isGameActive.value || aiThinking.value || !isMyTurn.value) {
+    console.log('Clearing analysis arrows')
     analysisArrows.value = []
     analysisTopMoves.value = []
     if (stockfish) {
       stockfish.postMessage('stop')
     }
+    return
   }
+  
+  // All conditions met - analyze position for human player
+  console.log('Analyzing position for human player')
+  analyzePosition()
 })
 
 // Check state
