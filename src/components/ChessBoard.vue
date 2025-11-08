@@ -53,20 +53,53 @@
           >
             <path d="M 0 0 L 10 5 L 0 10 z" :fill="neutralArrowColor || '#888888'" />
           </marker>
+          <!-- Analysis arrow markers with specific colors -->
+          <marker
+            id="arrowhead-green"
+            viewBox="0 0 10 10"
+            refX="0"
+            refY="5"
+            markerWidth="2.5"
+            markerHeight="2.5"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#4ade80" />
+          </marker>
+          <marker
+            id="arrowhead-yellow"
+            viewBox="0 0 10 10"
+            refX="0"
+            refY="5"
+            markerWidth="2.5"
+            markerHeight="2.5"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#fbbf24" />
+          </marker>
+          <marker
+            id="arrowhead-red"
+            viewBox="0 0 10 10"
+            refX="0"
+            refY="5"
+            markerWidth="2.5"
+            markerHeight="2.5"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#f87171" />
+          </marker>
         </defs>
-        <!-- Permanent arrows -->
-        <g v-for="(arrow, index) in arrows" :key="index">
+        <!-- Permanent arrows (user arrows first, then analysis arrows for correct layering) -->
+        <g v-for="(arrow, index) in allArrows" :key="index">
           <line
             :x1="arrow.x1"
             :y1="arrow.y1"
             :x2="arrow.x2"
             :y2="arrow.y2"
-            :stroke="getColorFromType(arrow.type)"
+            :stroke="arrow.color || getColorFromType(arrow.type)"
             stroke-width="0.15"
             stroke-linecap="round"
-            :marker-end="getMarkerUrl(arrow.type)"
-            :opacity="arrow.removing ? 0 : 0.85"
-            style="transition: opacity 0.3s ease-out"
+            :marker-end="arrow.color ? getAnalysisMarkerUrl(arrow.color) : getMarkerUrl(arrow.type)"
+            :style="arrow.color ? `opacity: 0.85` : `opacity: ${(arrow as any).removing ? 0 : 0.85}; transition: opacity 0.3s ease-out`"
           />
         </g>
         <!-- Temporary arrow being drawn -->
@@ -192,6 +225,7 @@ interface Props {
   interactive?: boolean
   showCoordinates?: boolean
   lastMove?: { from: string; to: string } | null
+  analysisArrows?: Array<{ from: string; to: string; color: string }>
   pieceColors?: {
     whiteFill?: string
     blackFill?: string
@@ -208,7 +242,8 @@ const props = withDefaults(defineProps<Props>(), {
   flipped: false,
   interactive: true,
   showCoordinates: true,
-  lastMove: null
+  lastMove: null,
+  analysisArrows: () => []
 })
 
 const emit = defineEmits<{
@@ -235,12 +270,43 @@ interface Arrow {
   y2: number
   type: 'white' | 'black' | 'empty' | 'neutral' // Store type instead of color
   removing?: boolean
+  color?: string // Custom color for analysis arrows
 }
 
 const arrows = ref<Arrow[]>([])
 const drawingArrow = ref<Arrow | null>(null)
 const arrowStartSquare = ref<{ row: number; col: number } | null>(null)
 const arrowDragMoved = ref(false) // Track if mouse moved during arrow drag
+
+// Convert analysis arrows to Arrow format and combine with user arrows
+const allArrows = computed(() => {
+  const userArrows = arrows.value
+  const analysisArrowsConverted = (props.analysisArrows || []).map(arrow => {
+    const fromSquare = squareToCoords(arrow.from)
+    const toSquare = squareToCoords(arrow.to)
+    return {
+      x1: fromSquare.col + 0.5,
+      y1: fromSquare.row + 0.5,
+      x2: toSquare.col + 0.5,
+      y2: toSquare.row + 0.5,
+      type: 'neutral' as const,
+      color: arrow.color,
+      isAnalysis: true // Mark as analysis arrow
+    }
+  })
+  // Put user arrows first, analysis arrows last (so they render on top)
+  return [...userArrows, ...analysisArrowsConverted]
+})
+
+// Helper to convert square name to coordinates
+const squareToCoords = (square: string): { row: number; col: number } => {
+  const file = square.charCodeAt(0) - 97 // a=0, b=1, etc.
+  const rank = parseInt(square[1])
+  return {
+    row: 8 - rank, // Convert rank to row (rank 8 = row 0)
+    col: file
+  }
+}
 
 // Get arrow type based on piece at start square
 const getArrowType = (row: number, col: number): 'white' | 'black' | 'empty' | 'neutral' => {
@@ -271,6 +337,18 @@ const getMarkerUrl = (type: 'white' | 'black' | 'empty' | 'neutral'): string => 
   } else {
     return 'url(#arrowhead-empty)'
   }
+}
+
+// Get marker URL for analysis arrows based on color
+const getAnalysisMarkerUrl = (color: string): string => {
+  if (color === '#4ade80') {
+    return 'url(#arrowhead-green)'
+  } else if (color === '#fbbf24') {
+    return 'url(#arrowhead-yellow)'
+  } else if (color === '#f87171') {
+    return 'url(#arrowhead-red)'
+  }
+  return 'url(#arrowhead-neutral)'
 }
 
 const PIECE_SYMBOLS: Record<string, string> = {
@@ -370,7 +448,16 @@ const getPieceImageWithColors = async (row: number, col: number): Promise<string
 const pieceImages = ref<Map<string, string>>(new Map())
 
 // Update piece images when colors or board changes
-watch([() => props.chess.fen(), customColorsKey], async () => {
+let lastPieceImageFen = ref('')
+let lastCustomColorsKey = ref('')
+watch([() => props.chess.fen(), customColorsKey], async (newVals) => {
+  const newFen = newVals[0]
+  const newKey = newVals[1]
+  // Prevent infinite loops
+  if (newFen === lastPieceImageFen.value && newKey === lastCustomColorsKey.value) return
+  lastPieceImageFen.value = newFen
+  lastCustomColorsKey.value = newKey
+  
   pieceImages.value.clear()
   for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
@@ -941,7 +1028,12 @@ const handleRightMouseUp = (event: MouseEvent) => {
 }
 
 // Reset selection when chess state changes
-watch(() => props.chess.fen(), () => {
+let lastFen = ref('')
+watch(() => props.chess.fen(), (newFen) => {
+  // Prevent infinite loops by checking if FEN actually changed
+  if (newFen === lastFen.value) return
+  lastFen.value = newFen
+  
   selectedSquare.value = null
   legalMoves.value = []
   // Clear arrows when a move is made

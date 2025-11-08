@@ -97,10 +97,10 @@
                 <h4>AI Difficulty</h4>
                 <div class="ai-difficulty-slider">
                   <div class="difficulty-labels">
-                    <span>Random</span>
                     <span>Easy</span>
                     <span>Medium</span>
                     <span>Hard</span>
+                    <span>Very Hard</span>
                   </div>
                   <input 
                     type="range" 
@@ -120,7 +120,7 @@
                   class="secondary ai-btn"
                   @click="startAIGame"
                 >
-                  🤖 Play vs AI ({{ ['Random', 'Easy', 'Medium', 'Hard'][aiDifficulty] }})
+                  🤖 Play vs AI ({{ ['Easy', 'Medium', 'Hard', 'Very Hard'][aiDifficulty] }})
                 </button>
               </div>
             </div>
@@ -141,6 +141,7 @@
               :flipped="myPlayer?.color === 'black'"
               :interactive="isMyTurn && isGameActive && viewingMoveIndex === null"
               :last-move="lastMove"
+              :analysis-arrows="analysisArrows"
               :piece-colors="{
                 whiteFill: settings.customWhitePieceColor,
                 blackFill: settings.customBlackPieceColor,
@@ -203,6 +204,15 @@
             <button class="action-icon" @click="offerTakeback" title="Request Takeback">
               ↩️
             </button>
+            <button 
+              v-if="isAIGame" 
+              class="action-icon analysis-toggle" 
+              :class="{ active: showBestMoves }"
+              @click="showBestMoves = !showBestMoves" 
+              :title="showBestMoves ? 'Hide Best Moves' : 'Show Best Moves'"
+            >
+              💡
+            </button>
             <button class="action-icon danger" @click="handleResign" title="Resign">
               🏳️
             </button>
@@ -211,7 +221,18 @@
           <!-- Turn Indicator -->
           <div v-if="currentGame?.status !== 'finished'" class="turn-indicator">
             <span v-if="isMyTurn" class="your-turn">Your Turn</span>
+            <span v-else-if="aiThinking" class="ai-thinking">🤔 AI is thinking...</span>
             <span v-else class="opponent-turn">Opponent's Turn</span>
+          </div>
+          
+          <!-- Analysis Mode Indicator -->
+          <div v-if="showBestMoves && isAIGame" class="analysis-info">
+            <div class="analysis-header">
+              � Best Moves Shown
+            </div>
+            <div class="analysis-hint">
+              🟢 Best &nbsp;&nbsp; 🟡 Second best &nbsp;&nbsp; 🔴 Third best
+            </div>
           </div>
           
           <!-- Timers on one line -->
@@ -252,10 +273,10 @@
               </div>
             </div>
             
-            <div class="timer-section opponent-timer" :class="{ active: !isMyTurn, 'in-check': isOpponentKingInCheck }">
+            <div class="timer-section opponent-timer" :class="{ active: !isMyTurn, 'in-check': isOpponentKingInCheck, 'thinking': aiThinking }">
               <div class="timer-display">
                 <span class="timer-icon">{{ myPlayer?.color === 'black' ? '♔' : '♚' }}</span>
-                <span class="timer-label-inline">Opp:</span>
+                <span class="timer-label-inline">{{ aiThinking ? '🤔 Thinking...' : 'Opp:' }}</span>
                 <span class="timer-time">{{ formatTime(opponentTime) }}</span>
               </div>
               <div class="timer-material">
@@ -666,7 +687,8 @@ const timeControls = [
   { id: 'any', name: 'Any', display: 'Any Time', minutes: 5, increment: 0 }, // Default to 5+0 if matched
   { id: 'casual', name: 'Casual', display: 'No Time', minutes: 0, increment: 0 },
   { id: 'bullet1', name: 'Bullet', display: '1+0', minutes: 1, increment: 0 },
-  { id: 'bullet2', name: 'Bullet', display: '2+1', minutes: 2, increment: 1 },
+  { id: 'bullet2', name: 'Bullet', display: '2+0', minutes: 2, increment: 0 },
+  { id: 'bullet2-1', name: 'Bullet', display: '2+1', minutes: 2, increment: 1 },
   { id: 'blitz3', name: 'Blitz', display: '3+0', minutes: 3, increment: 0 },
   { id: 'blitz3-1', name: 'Blitz', display: '3+1', minutes: 3, increment: 1 },
   { id: 'blitz5', name: 'Blitz', display: '5+0', minutes: 5, increment: 0 },
@@ -832,15 +854,20 @@ watch(isMatchReady, async (ready) => {
 
 // AI opponent
 const isAIGame = ref(false)
-const aiDifficulty = ref(1) // 0=Random, 1=Easy, 2=Medium, 3=Hard
+const aiDifficulty = ref(1) // 0=Easy, 1=Medium, 2=Hard, 3=Very Hard
+const aiThinking = ref(false)
+const showBestMoves = ref(false) // Toggle for showing best move arrows
+const analysisArrows = ref<Array<{ from: string; to: string; color: string }>>([])
+const analysisTopMoves = ref<string[]>([])
+const lastAIMoveEval = ref<{ bestMove: string; playerMove: string; evaluation: string } | null>(null)
 const { playMoveSound, playCaptureSound, playCastleSound } = useSounds()
 const lastMove = ref<{ from: string; to: string } | null>(null)
 
 const difficultyDescriptions: Record<number, string> = {
-  0: '🎲 Completely random moves',
-  1: '😊 Makes some basic captures and checks',
-  2: '🤔 Considers material and piece development',
-  3: '🧠 Strong tactical play with lookahead and positional evaluation'
+  0: '😊 Easy - Beginner level (~800-1000 Elo)',
+  1: '🤔 Medium - Intermediate player (~1200-1400 Elo)',
+  2: '� Hard - Advanced player (~1800-2000 Elo)',
+  3: '🏆 Very Hard - Master level (~2500-2800+ Elo)'
 }
 
 const startAIGame = () => {
@@ -849,11 +876,10 @@ const startAIGame = () => {
   // Clear last move highlight
   lastMove.value = null
   
-  // Set time control for AI game
-  const timeControlObj = timeControls.find(tc => tc.id === selectedTimeControl.value)!
+  // AI games should not have timers - set to casual mode (0 minutes)
   currentGameTimeControl.value = {
-    minutes: timeControlObj.minutes,
-    increment: timeControlObj.increment
+    minutes: 0,
+    increment: 0
   }
   resetTimers()
   
@@ -862,19 +888,131 @@ const startAIGame = () => {
   
   // Randomly assign player color
   const playerColor = Math.random() < 0.5 ? 'white' : 'black'
+  console.log('Starting AI game - Player color:', playerColor)
   
   // Start game with random color
   startNewGame(myPeerId.value, 'AI-Opponent', playerColor)
   
   // If player is black, AI makes first move
   if (playerColor === 'black') {
+    console.log('Player is black, AI will move first')
     setTimeout(() => {
       makeAIMove()
     }, 500)
+  } else {
+    console.log('Player is white, waiting for player move')
   }
 }
 
-// AI move selection functions
+// Stockfish AI integration
+let stockfish: Worker | null = null
+let stockfishReady = false
+let stockfishCallback: ((bestMove: string) => void) | null = null
+let stockfishAnalysisCallback: ((moves: string[]) => void) | null = null
+
+const initStockfish = async () => {
+  if (stockfish) return
+  
+  try {
+    // Load Stockfish from CDN using Web Worker
+    const workerBlob = new Blob([`
+      importScripts('https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js');
+    `], { type: 'application/javascript' })
+    
+    const workerUrl = URL.createObjectURL(workerBlob)
+    stockfish = new Worker(workerUrl)
+    
+    if (stockfish) {
+      stockfish.onmessage = (event: MessageEvent) => {
+        const message = event.data
+        
+        if (message === 'uciok') {
+          stockfish?.postMessage('isready')
+        } else if (message === 'readyok') {
+          stockfishReady = true
+          console.log('Stockfish ready!')
+        } else if (message.startsWith('bestmove')) {
+          const match = message.match(/bestmove ([a-h][1-8][a-h][1-8][qrbn]?)/)
+          if (match && stockfishCallback) {
+            stockfishCallback(match[1])
+            stockfishCallback = null
+          }
+        } else if (message.startsWith('info') && message.includes('multipv')) {
+          // Parse multi-PV analysis for top moves
+          console.log('Received multi-PV message:', message)
+          // Extract everything after "pv " 
+          const pvIndex = message.indexOf(' pv ')
+          if (pvIndex !== -1 && stockfishAnalysisCallback) {
+            const pvString = message.substring(pvIndex + 4) // +4 to skip " pv "
+            const moves = pvString.trim().split(/\s+/).filter((m: string) => m.match(/^[a-h][1-8][a-h][1-8][qrbn]?$/))
+            console.log('All moves in PV:', moves)
+            // Only pass the first move (the human player's move) from each variation
+            if (moves.length > 0 && !message.includes('upperbound') && !message.includes('lowerbound')) {
+              console.log('First move (human player):', moves[0])
+              stockfishAnalysisCallback([moves[0]])
+            }
+          }
+        }
+      }
+      
+      stockfish.onerror = (error) => {
+        console.error('Stockfish worker error:', error)
+      }
+      
+      stockfish.postMessage('uci')
+    }
+  } catch (err) {
+    console.error('Stockfish not available:', err)
+  }
+}
+
+// Initialize Stockfish on mount
+onMounted(() => {
+  initStockfish()
+})
+
+// Analysis function
+const analyzePosition = () => {
+  if (!stockfish || !stockfishReady || !chess.value) {
+    console.log('Analysis skipped:', { stockfish: !!stockfish, stockfishReady, hasChess: !!chess.value })
+    return
+  }
+  
+  const currentFen = chess.value.fen()
+  console.log('Starting analysis for position:', currentFen)
+  
+  // Reset analysis state
+  analysisTopMoves.value = []
+  analysisArrows.value = []
+  
+  stockfish.postMessage('stop')
+  stockfish.postMessage('ucinewgame')
+  stockfish.postMessage('setoption name MultiPV value 3')
+  stockfish.postMessage('position fen ' + currentFen)
+  stockfish.postMessage('go depth 12')
+  
+  // Set up callback to handle analysis results
+  stockfishAnalysisCallback = (moves: string[]) => {
+    console.log('Analysis callback received moves:', moves)
+    if (moves.length > 0 && !analysisTopMoves.value.includes(moves[0])) {
+      analysisTopMoves.value.push(moves[0])
+      
+      // Update arrows with top 3 moves (reverse order so best move renders on top)
+      const arrows = analysisTopMoves.value.slice(0, 3).map((move, index) => ({
+        from: move.substring(0, 2),
+        to: move.substring(2, 4),
+        color: index === 0 ? '#4ade80' : index === 1 ? '#fbbf24' : '#f87171'
+      }))
+      
+      // Reverse so best move (green) is last and renders on top
+      analysisArrows.value = arrows.reverse()
+      
+      console.log('Updated analysis arrows:', analysisArrows.value)
+    }
+  }
+}
+
+// AI move selection functions (fallback for when Stockfish not available)
 const selectEasyMove = (moves: any[], currentFen: string) => {
   // Prefer captures and checks, otherwise random
   const captureMoves = moves.filter(m => m.captured)
@@ -1094,28 +1232,141 @@ const makeAIMove = () => {
   const aiColor = myPlayer.value?.color === 'white' ? 'b' : 'w'
   if (chess.value.turn() !== aiColor) return
   
+  // Set thinking indicator
+  aiThinking.value = true
+  
   // Get all legal moves
   const moves = chess.value.moves({ verbose: true })
   
-  if (moves.length === 0) return
+  if (moves.length === 0) {
+    aiThinking.value = false
+    return
+  }
   
   // Get current position once to avoid reactivity issues
   const currentFen = chess.value.fen()
   
+  // Try to use Stockfish if available
+  if (stockfish && stockfishReady) {
+    // Map difficulty to Stockfish settings
+    // 0 = Easy: Skill Level 0, depth 1 (~800-1000 Elo)
+    // 1 = Medium: Skill Level 5, depth 5 (~1200-1400 Elo)
+    // 2 = Hard: Skill Level 10, depth 10 (~1800-2000 Elo)
+    // 3 = Very Hard: Skill Level 20, time-based for faster response (~2500+ Elo)
+    const skillLevel = aiDifficulty.value === 0 ? 0 :
+                       aiDifficulty.value === 1 ? 5 :
+                       aiDifficulty.value === 2 ? 10 : 20
+    
+    // Use time-based search for Very Hard (faster), depth for others
+    const useTimeSearch = aiDifficulty.value === 3
+    const depth = aiDifficulty.value === 0 ? 1 : 
+                  aiDifficulty.value === 1 ? 5 :
+                  aiDifficulty.value === 2 ? 10 : 15
+    const moveTime = 2000 // 2 seconds for Very Hard
+    
+    // Configure Stockfish for this move
+    stockfish.postMessage('ucinewgame')
+    stockfish.postMessage('setoption name Skill Level value ' + skillLevel)
+    stockfish.postMessage('position fen ' + currentFen)
+    
+    // Use movetime for Very Hard (max strength, time-limited), depth for others
+    if (useTimeSearch) {
+      stockfish.postMessage('go movetime ' + moveTime)
+    } else {
+      stockfish.postMessage('go depth ' + depth)
+    }
+    
+    stockfishCallback = (bestMove: string) => {
+      const delay = 300 + Math.random() * 500
+      setTimeout(() => {
+        if (!isAIGame.value || !isGameActive.value) {
+          aiThinking.value = false
+          return
+        }
+        
+        try {
+          const moveResult = chess.value.move({
+            from: bestMove.substring(0, 2),
+            to: bestMove.substring(2, 4),
+            promotion: bestMove.length > 4 ? bestMove[4] : 'q'
+          })
+          
+          if (moveResult) {
+            aiThinking.value = false
+            lastMove.value = { from: moveResult.from, to: moveResult.to }
+            
+            if (moveResult.captured) {
+              playCaptureSound()
+            } else if (moveResult.flags.includes('k') || moveResult.flags.includes('q')) {
+              playCastleSound()
+            } else {
+              playMoveSound()
+            }
+            
+            // Update captured pieces
+            if (moveResult.captured) {
+              if (myPlayer.value?.color === 'white') {
+                capturedPieces.value.black.push(moveResult.captured)
+              } else {
+                capturedPieces.value.white.push(moveResult.captured)
+              }
+            }
+            
+            // Record move
+            if (currentGame.value) {
+              currentGame.value.moves.push(moveResult.san)
+              currentGame.value.fen = chess.value.fen()
+              currentGame.value.currentTurn = chess.value.turn() === 'w' ? 'white' : 'black'
+            }
+            
+            // Check for game end
+            if (chess.value.isGameOver()) {
+              if (chess.value.isCheckmate()) {
+                const winner = chess.value.turn() === 'w' ? 'black' : 'white'
+                if (currentGame.value && myPlayer.value) {
+                  currentGame.value.status = 'finished'
+                  currentGame.value.result = winner
+                  currentGame.value.finishedAt = Date.now()
+                  isAIGame.value = false
+                  if (winner === myPlayer.value.color) {
+                    playWinSound()
+                  } else {
+                    playLoseSound()
+                  }
+                }
+              } else if (chess.value.isDraw()) {
+                if (currentGame.value) {
+                  currentGame.value.status = 'finished'
+                  currentGame.value.result = 'draw'
+                  currentGame.value.finishedAt = Date.now()
+                  isAIGame.value = false
+                  playDrawSound()
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error making Stockfish move:', err)
+          aiThinking.value = false
+        }
+      }, delay)
+    }
+    return
+  }
+  
+  // Fallback to old AI if Stockfish not available
   // Select move based on difficulty
   let selectedMove
   
   switch (aiDifficulty.value) {
-    case 0: // Random
-      selectedMove = moves[Math.floor(Math.random() * moves.length)]
-      break
-    case 1: // Easy - prefer captures and checks
+    case 0: // Easy
       selectedMove = selectEasyMove(moves, currentFen)
       break
-    case 2: // Medium - consider material and development
+    case 1: // Medium
       selectedMove = selectMediumMove(moves, currentFen)
       break
-    case 3: // Hard - tactical awareness
+    case 2: // Hard
+    case 3: // Very Hard
       selectedMove = selectHardMove(moves, currentFen)
       break
     default:
@@ -1126,11 +1377,17 @@ const makeAIMove = () => {
   const delay = 300 + Math.random() * 500
   
   setTimeout(() => {
-    if (!isAIGame.value || !isGameActive.value) return
+    if (!isAIGame.value || !isGameActive.value) {
+      aiThinking.value = false
+      return
+    }
     
     // AI plays the opposite color of the player
     const aiColor = myPlayer.value?.color === 'white' ? 'b' : 'w'
-    if (chess.value.turn() !== aiColor) return
+    if (chess.value.turn() !== aiColor) {
+      aiThinking.value = false
+      return
+    }
     
     try {
       // Make the move
@@ -1141,6 +1398,7 @@ const makeAIMove = () => {
       })
       
       if (moveResult) {
+        aiThinking.value = false
         // Track the last move for highlighting
         lastMove.value = { from: selectedMove.from, to: selectedMove.to }
         
@@ -1201,6 +1459,7 @@ const makeAIMove = () => {
       }
     } catch (err) {
       console.error('AI move error:', err)
+      aiThinking.value = false
     }
   }, delay)
 }
@@ -1454,6 +1713,29 @@ watch(() => currentGame.value?.moves.length, () => {
   }
 })
 
+// Watch for best moves toggle and position changes
+watch([showBestMoves, () => chess.value?.fen(), aiThinking, isMyTurn], () => {
+  console.log('Best moves watcher triggered:', {
+    showBestMoves: showBestMoves.value,
+    isAIGame: isAIGame.value,
+    isGameActive: isGameActive.value,
+    aiThinking: aiThinking.value,
+    isMyTurn: isMyTurn.value,
+    fen: chess.value?.fen()
+  })
+  
+  // Only show best moves when it's the human player's turn
+  if (showBestMoves.value && isAIGame.value && isGameActive.value && !aiThinking.value && isMyTurn.value) {
+    analyzePosition()
+  } else {
+    analysisArrows.value = []
+    analysisTopMoves.value = []
+    if (stockfish) {
+      stockfish.postMessage('stop')
+    }
+  }
+})
+
 // Check state
 const isInCheck = computed(() => {
   if (!currentGame.value) return { white: false, black: false }
@@ -1552,6 +1834,9 @@ const sendTimerSync = async (toPeer?: string) => {
     },
     vectorClock: vectorClock.value
   }
+
+  // Skip sending for AI games
+  if (isAIGame.value) return
 
   try {
     if (toPeer && opponentId.value === toPeer) {
@@ -1839,8 +2124,8 @@ const abandonGame = async (reason: 'initial_move_timeout' | 'peer_disconnect') =
     saveToLocalStorage('chess-game-history', gameHistory.value)
   }
   
-  // Send abandon message to opponent
-  if (opponentId.value) {
+  // Send abandon message to opponent (skip for AI games)
+  if (opponentId.value && !isAIGame.value) {
     try {
       const message: ChessMessage = {
         type: 'abandon',
@@ -2226,7 +2511,8 @@ const handleResign = async () => {
 const confirmResign = async () => {
   resign()
   
-  if (opponentId.value) {
+  // Only send message for human opponents, not AI
+  if (opponentId.value && !isAIGame.value) {
     const message: ChessMessage = {
       type: 'resign',
       gameId: currentGame.value!.id
@@ -2244,6 +2530,19 @@ const confirmResign = async () => {
 
 const offerDraw = async () => {
   if (!opponentId.value) return
+  
+  // For AI games, immediately accept the draw
+  if (isAIGame.value) {
+    if (currentGame.value) {
+      currentGame.value.result = 'draw'
+      currentGame.value.status = 'finished'
+      currentGame.value.finishedAt = Date.now()
+      isAIGame.value = false
+      playDrawSound()
+      console.log('Draw accepted (AI game)')
+    }
+    return
+  }
   
   const message: ChessMessage = {
     type: 'draw_offer',
@@ -2289,6 +2588,30 @@ const declineDrawOffer = () => {
 const offerTakeback = async () => {
   if (!opponentId.value) return
   
+  // For AI games, immediately take back the move without sending a message
+  if (isAIGame.value) {
+    if (chess.value && currentGame.value && currentGame.value.moves.length >= 2) {
+      // Undo last two moves (AI's move and player's move)
+      chess.value.undo() // Undo AI's move
+      chess.value.undo() // Undo player's move
+      
+      // Update game state
+      currentGame.value.fen = chess.value.fen()
+      currentGame.value.currentTurn = chess.value.turn() === 'w' ? 'white' : 'black'
+      currentGame.value.moves.pop() // Remove AI's move
+      currentGame.value.moves.pop() // Remove player's move
+      
+      // Clear last move highlight
+      lastMove.value = null
+      
+      // Play move sound
+      playMoveSound()
+      
+      console.log('Takeback completed (AI game)')
+    }
+    return
+  }
+  
   const message: ChessMessage = {
     type: 'takeback_request',
     gameId: currentGame.value!.id
@@ -2329,9 +2652,7 @@ const acceptTakebackRequest = async () => {
     lastMove.value = null
     
     // Play move sound for takeback
-    const audio = new Audio('/sounds/move.mp3')
-    audio.volume = 0.6
-    audio.play().catch((err) => console.error('Move sound error:', err))
+    playMoveSound()
   }
   
   incomingTakebackRequest.value = null
@@ -3730,6 +4051,21 @@ button.large {
   transform: scale(1.02);
 }
 
+.timer-section.thinking {
+  background: #fef3c7;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.3);
+  animation: thinkingPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes thinkingPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.5);
+  }
+}
+
 .timer-section.in-check {
   background: #fee2e2;
   box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.4);
@@ -3806,6 +4142,7 @@ button.large {
   justify-content: center;
   overflow: hidden;
   box-shadow: var(--shadow-md);
+  position: relative;
 }
 
 .game-controls {
@@ -4326,6 +4663,52 @@ button.large {
   border-color: #fca5a5;
 }
 
+.action-icon.active {
+  background: #dbeafe;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.action-icon.analysis-toggle {
+  font-size: 1.3rem;
+}
+
+.action-icon.analysis-toggle.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3);
+  animation: pulse-analysis 2s ease-in-out infinite;
+}
+
+@keyframes pulse-analysis {
+  0%, 100% {
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.5);
+  }
+}
+
+.analysis-info {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 0.75rem 1rem;
+  border-radius: 10px;
+  text-align: center;
+  margin-top: 0.5rem;
+}
+
+.analysis-header {
+  font-weight: 600;
+  font-size: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.analysis-hint {
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
 .casual-mode-badge {
   margin-top: 1rem;
   padding: 0.75rem 1rem;
@@ -4489,6 +4872,16 @@ button.large {
 
 .opponent-turn {
   color: #64748b;
+}
+
+.ai-thinking {
+  color: #f59e0b;
+  animation: pulse-thinking 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-thinking {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 .moves-history {
