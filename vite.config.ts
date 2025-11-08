@@ -12,5 +12,18 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true
+  },
+  build: {
+    // Increase chunk size warning limit to 1MB (PigeonIdP + Chess.js are large)
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        // Manual chunk splitting for better caching and smaller initial load
+        manualChunks: {
+          'chess-engine': ['chess.js'],
+          'vue-core': ['vue']
+        }
+      }
+    }
   }
 })

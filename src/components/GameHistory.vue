@@ -26,21 +26,19 @@
               <span class="label">Color:</span>
               <span class="value">{{ game.myColor === 'white' ? '♔ White' : '♚ Black' }}</span>
             </div>
+            <div class="info-row">
+              <span class="label">{{ game.myColor === 'white' ? 'White' : 'Black' }}:</span>
+              <span v-if="game.myUsername && game.myUsername.trim()" class="value username">{{ game.myUsername }}</span>
+              <span v-else class="value opponent-id">{{ formatPeerId(game.myPeerId || 'Unknown') }}</span>
+            </div>
             <div v-if="game.isAI" class="info-row">
               <span class="label">Opponent:</span>
               <span class="value ai-indicator">🤖 AI - {{ formatDifficulty(game.aiDifficulty) }}</span>
             </div>
-            <div v-else-if="game.whitePlayer" class="info-row">
-              <span class="label">White:</span>
-              <span class="value opponent-id">{{ formatPeerId(game.whitePlayer) }}</span>
-            </div>
-            <div v-else-if="game.blackPlayer" class="info-row">
-              <span class="label">Black:</span>
-              <span class="value opponent-id">{{ formatPeerId(game.blackPlayer) }}</span>
-            </div>
             <div v-else class="info-row">
-              <span class="label">Opponent:</span>
-              <span class="value opponent-id">{{ formatPeerId(game.opponent) }}</span>
+              <span class="label">{{ game.myColor === 'white' ? 'Black' : 'White' }}:</span>
+              <span v-if="game.opponentUsername && game.opponentUsername.trim()" class="value username">{{ game.opponentUsername }}</span>
+              <span v-else class="value opponent-id">{{ formatPeerId(game.opponent) }}</span>
             </div>
             <div class="info-row">
               <span class="label">Moves:</span>
@@ -217,6 +215,11 @@ h2 {
 .opponent-id {
   font-family: monospace;
   font-size: 0.85rem;
+}
+
+.username {
+  font-weight: 600;
+  color: var(--primary-color);
 }
 
 .ai-indicator {

@@ -7,6 +7,7 @@ export interface ChessGameOptions {
   dhtPut?: (key: string, value: any, options?: any) => Promise<boolean>
   dhtGet?: (key: string, options?: any) => Promise<any>
   peerId?: string
+  username?: () => string | undefined  // Function to get current user's username if logged in
 }
 
 export function useChessGame(options: ChessGameOptions = {}) {
@@ -176,6 +177,7 @@ export function useChessGame(options: ChessGameOptions = {}) {
     
     // Save to history
     if (opponentId.value && currentGame.value && myPlayer.value) {
+      const username = options.username?.()
       const historyEntry: GameHistoryEntry = {
         gameId: currentGame.value.id,
         whitePlayer: currentGame.value.playerWhite || '',
@@ -187,7 +189,8 @@ export function useChessGame(options: ChessGameOptions = {}) {
         moves: currentGame.value.moves,
         date: Date.now(),
         isAI: isAIOpponent.value,
-        aiDifficulty: aiDifficultyLevel.value
+        aiDifficulty: aiDifficultyLevel.value,
+        myUsername: (username && username.trim()) ? username : undefined // Only save if not empty
       }
       
       gameHistory.value.unshift(historyEntry)
@@ -220,6 +223,7 @@ export function useChessGame(options: ChessGameOptions = {}) {
     
     // Save to history
     if (opponentId.value && currentGame.value && myPlayer.value) {
+      const username = options.username?.()
       const historyEntry: GameHistoryEntry = {
         gameId: currentGame.value.id,
         whitePlayer: currentGame.value.playerWhite || '',
@@ -231,7 +235,8 @@ export function useChessGame(options: ChessGameOptions = {}) {
         moves: currentGame.value.moves,
         date: Date.now(),
         isAI: isAIOpponent.value,
-        aiDifficulty: aiDifficultyLevel.value
+        aiDifficulty: aiDifficultyLevel.value,
+        myUsername: (username && username.trim()) ? username : undefined // Only save if not empty
       }
       
       gameHistory.value.unshift(historyEntry)

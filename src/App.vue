@@ -7,11 +7,22 @@
         PigeonChess
         <span class="pawn-icon">♟️</span>
       </h1>
-      <button class="hamburger-menu" @click="showMenu = !showMenu" :class="{ active: showMenu }">
-        <span class="hamburger-line"></span>
-        <span class="hamburger-line"></span>
-        <span class="hamburger-line"></span>
-      </button>
+      
+      <div class="header-right">
+        <div v-if="isAuthenticated" class="user-info">
+          <span class="username">👤 {{ identityUsername }}</span>
+          <button class="btn-logout" @click="handleLogout" title="Logout">🚪</button>
+        </div>
+        <button v-else class="btn-login" @click="showLoginModal = true">
+          🔑 Login
+        </button>
+        
+        <button class="hamburger-menu" @click="showMenu = !showMenu" :class="{ active: showMenu }">
+          <span class="hamburger-line"></span>
+          <span class="hamburger-line"></span>
+          <span class="hamburger-line"></span>
+        </button>
+      </div>
       
       <!-- Dropdown Menu -->
       <div v-if="showMenu" class="dropdown-menu">
@@ -113,11 +124,11 @@
                 <span class="replay-result" :class="replayGame.result">{{ replayGame.result.toUpperCase() }}</span>
                 <div class="replay-players">
                   <span class="replay-player">
-                    ⚪ {{ replayGame.whitePlayer === replayGame.myPeerId ? 'You' : (replayGame.isAI && replayGame.myColor !== 'white' ? '🤖 AI - ' + ['Easy', 'Medium', 'Hard', 'Very Hard'][replayGame.aiDifficulty || 0] : '👤 Opponent') }}
+                    ⚪ {{ replayGame.myColor === 'white' ? ((replayGame.myUsername?.trim()) || formatPeerId(replayGame.myPeerId || 'Unknown')) : (replayGame.isAI ? '🤖 AI - ' + ['Easy', 'Medium', 'Hard', 'Very Hard'][replayGame.aiDifficulty || 0] : ((replayGame.opponentUsername?.trim()) || formatPeerId(replayGame.opponent))) }}
                   </span>
                   <span class="vs-text">vs</span>
                   <span class="replay-player">
-                    ⚫ {{ replayGame.blackPlayer === replayGame.myPeerId ? 'You' : (replayGame.isAI && replayGame.myColor !== 'black' ? '🤖 AI - ' + ['Easy', 'Medium', 'Hard', 'Very Hard'][replayGame.aiDifficulty || 0] : '👤 Opponent') }}
+                    ⚫ {{ replayGame.myColor === 'black' ? ((replayGame.myUsername?.trim()) || formatPeerId(replayGame.myPeerId || 'Unknown')) : (replayGame.isAI ? '🤖 AI - ' + ['Easy', 'Medium', 'Hard', 'Very Hard'][replayGame.aiDifficulty || 0] : ((replayGame.opponentUsername?.trim()) || formatPeerId(replayGame.opponent))) }}
                   </span>
                 </div>
                 <span class="replay-date">{{ new Date(replayGame.date).toLocaleDateString() }}</span>
@@ -189,14 +200,14 @@
             <div class="player-section">
               <div class="player-info">
                 <div class="player-display">
-                  <span class="player-display-icon">{{ myPlayer?.color === 'white' ? '♔' : '♚' }}</span>
-                  <span class="player-display-color">You</span>
-                  <span class="player-display-color-detail">({{ myPlayer?.color }})</span>
+                  <span class="player-display-icon">{{ replayGame.myColor === 'white' ? '♔' : '♚' }}</span>
+                  <span class="player-display-color">{{ (replayGame.myUsername?.trim()) || formatPeerId(replayGame.myPeerId || 'Unknown') }}</span>
+                  <span class="player-display-color-detail">({{ replayGame.myColor }})</span>
                 </div>
                 <div class="opponent-display">
-                  <span class="opponent-icon">{{ myPlayer?.color === 'white' ? '♚' : '♔' }}</span>
-                  <span class="opponent-name">{{ replayGame.isAI ? 'AI' : 'Opp' }}</span>
-                  <span class="opponent-name-detail">{{ replayGame.isAI ? 'Computer' : formatPeerId(replayGame.opponent || 'Unknown') }}</span>
+                  <span class="opponent-icon">{{ replayGame.myColor === 'white' ? '♚' : '♔' }}</span>
+                  <span class="opponent-name">{{ replayGame.isAI ? 'AI' : ((replayGame.opponentUsername?.trim()) || formatPeerId(replayGame.opponent)) }}</span>
+                  <span class="opponent-name-detail">{{ replayGame.isAI ? 'Computer' : ((replayGame.opponentUsername?.trim()) ? formatPeerId(replayGame.opponent || 'Unknown') : '') }}</span>
                 </div>
               </div>
               <div class="casual-mode-badge">
@@ -208,33 +219,33 @@
             <div v-if="capturedPieces.white.length > 0 || capturedPieces.black.length > 0" class="material-section">
               <h4 class="material-heading">Material</h4>
               <div class="material-display">
-                <div v-if="capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black'].length > 0" class="captured-pieces">
-                  <div class="captured-label">You captured:</div>
+                <div v-if="capturedPieces[replayGame.myColor === 'white' ? 'white' : 'black'].length > 0" class="captured-pieces">
+                  <div class="captured-label">{{ replayGame.myUsername?.trim() || formatPeerId(replayGame.myPeerId || 'Unknown') }} captured:</div>
                   <div class="pieces-row">
                     <img 
-                      v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black']"
+                      v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'white' : 'black']"
                       :key="`my-${idx}`"
-                      :src="`/pieces/${myPlayer?.color === 'white' ? 'b' : 'w'}${piece}.svg`" 
+                      :src="`/pieces/${replayGame.myColor === 'white' ? 'b' : 'w'}${piece}.svg`" 
                       :alt="piece"
                       class="captured-piece"
                     />
-                    <span v-if="materialAdvantage[myPlayer?.color || 'white'] > 0" class="advantage-score">
-                      +{{ materialAdvantage[myPlayer?.color || 'white'] }}
+                    <span v-if="materialAdvantage[replayGame.myColor] > 0" class="advantage-score">
+                      +{{ materialAdvantage[replayGame.myColor] }}
                     </span>
                   </div>
                 </div>
-                <div v-if="capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white'].length > 0" class="captured-pieces">
-                  <div class="captured-label">Opponent captured:</div>
+                <div v-if="capturedPieces[replayGame.myColor === 'white' ? 'black' : 'white'].length > 0" class="captured-pieces">
+                  <div class="captured-label">{{ replayGame.isAI ? 'AI' : (replayGame.opponentUsername?.trim() || formatPeerId(replayGame.opponent)) }} captured:</div>
                   <div class="pieces-row">
                     <img 
-                      v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']"
+                      v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'black' : 'white']"
                       :key="`opp-${idx}`"
-                      :src="`/pieces/${myPlayer?.color === 'white' ? 'w' : 'b'}${piece}.svg`" 
+                      :src="`/pieces/${replayGame.myColor === 'white' ? 'w' : 'b'}${piece}.svg`" 
                       :alt="piece"
                       class="captured-piece"
                     />
-                    <span v-if="materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] > 0" class="advantage-score">
-                      +{{ materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] }}
+                    <span v-if="materialAdvantage[replayGame.myColor === 'white' ? 'black' : 'white'] > 0" class="advantage-score">
+                      +{{ materialAdvantage[replayGame.myColor === 'white' ? 'black' : 'white'] }}
                     </span>
                   </div>
                 </div>
@@ -771,6 +782,59 @@
       @watch="startReplayMode"
     />
     
+    <!-- Login/Register Modal -->
+    <div v-if="showLoginModal" class="modal-overlay">
+      <div class="modal login-modal">
+        <h3>{{ loginMode === 'login' ? '🔑 Login' : '✨ Create Account' }}</h3>
+        <p v-if="loginMode === 'login'">
+          Log in with your PigeonIdP identity to sync your game history across devices.
+        </p>
+        <p v-else>
+          Create a new identity to sync your game history and play with a unique username.
+        </p>
+        
+        <div class="login-form">
+          <div class="form-group">
+            <label>Username</label>
+            <input 
+              v-model="loginUsername" 
+              type="text" 
+              placeholder="Enter username"
+              @keyup.enter="handleLogin"
+            />
+          </div>
+          
+          <div class="form-group">
+            <label>Password</label>
+            <input 
+              v-model="loginPassword" 
+              type="password" 
+              placeholder="Enter password"
+              @keyup.enter="handleLogin"
+            />
+          </div>
+          
+          <p v-if="loginError" class="error-message">{{ loginError }}</p>
+          
+          <div class="modal-buttons">
+            <button class="primary" @click="handleLogin" :disabled="loginLoading || !loginUsername || !loginPassword">
+              {{ loginLoading ? '⏳ Please wait...' : (loginMode === 'login' ? 'Login' : 'Create Account') }}
+            </button>
+            <button class="secondary" @click="showLoginModal = false; loginError = ''">
+              Cancel
+            </button>
+          </div>
+          
+          <p class="toggle-mode">
+            {{ loginMode === 'login' ? "Don't have an account?" : "Already have an account?" }}
+            <a href="#" @click.prevent="toggleLoginMode">
+              {{ loginMode === 'login' ? 'Create one' : 'Log in' }}
+            </a>
+          </p>
+        </div>
+      </div>
+    </div>
+    
     <!-- Challenge Modal -->
     <div v-if="incomingChallenge" class="modal-overlay">
       <div class="modal challenge-modal">
@@ -895,8 +959,26 @@ import MatchmakingLobby from './components/MatchmakingLobby.vue'
 import { useChessGame } from './composables/useChessGame'
 import { useSettings } from './composables/useSettings'
 import { useSounds } from './composables/useSounds'
+import { useIdentity } from './composables/useIdentity'
 import type { ChessMessage, GameHistoryEntry } from './types'
 import { saveToLocalStorage, loadFromLocalStorage } from './utils/helpers'
+
+// Identity
+const {
+  isAuthenticated,
+  username: identityUsername,
+  initializeIdP,
+  createIdentity,
+  loadIdentity,
+  logout: logoutIdentity
+} = useIdentity()
+
+const showLoginModal = ref(false)
+const loginMode = ref<'login' | 'register'>('login')
+const loginUsername = ref('')
+const loginPassword = ref('')
+const loginError = ref('')
+const loginLoading = ref(false)
 
 // Settings
 const { settings, boardThemes, pieceThemes, addSignalingUrl, removeSignalingUrl, resetToDefaults, setBoardTheme, setCustomColors, setPieceColors, setPieceOutlines, setArrowColors, setPieceTheme, toggleSound } = useSettings()
@@ -1890,7 +1972,8 @@ const {
 } = useChessGame({
   dhtPut,
   dhtGet,
-  peerId: computed(() => mesh.value?.peerId).value
+  peerId: computed(() => mesh.value?.peerId).value,
+  username: () => identityUsername.value
 })
 
 // Set up the game end callback to play win/lose sounds
@@ -2381,34 +2464,11 @@ const abandonGame = async (reason: 'initial_move_timeout' | 'peer_disconnect') =
   showAbandonmentModal.value = true
   iAbandoned.value = true // I am the one abandoning
   
-  // Update game state
-  currentGame.value.status = 'finished'
-  // Opponent wins by abandonment
-  currentGame.value.result = myPlayer.value.color === 'white' ? 'black' : 'white'
-  currentGame.value.finishedAt = Date.now()
-  
-  // Play lose sound
-  playLoseSound()
-  
-  // Save to history
-  if (opponentId.value && currentGame.value && myPlayer.value) {
-    const historyEntry: GameHistoryEntry = {
-      gameId: currentGame.value.id,
-      whitePlayer: currentGame.value.playerWhite || '',
-      blackPlayer: currentGame.value.playerBlack || '',
-      myPeerId: myPlayer.value.id,
-      opponent: opponentId.value,
-      myColor: myPlayer.value.color,
-      result: 'abandoned',
-      moves: currentGame.value.moves,
-      date: Date.now()
-    }
-    
-    gameHistory.value.unshift(historyEntry)
-    if (gameHistory.value.length > 50) {
-      gameHistory.value = gameHistory.value.slice(0, 50)
-    }
-    saveToLocalStorage('chess-game-history', gameHistory.value)
+  // Update game state - opponent wins by abandonment
+  if (currentGame.value && myPlayer.value) {
+    currentGame.value.result = myPlayer.value.color === 'white' ? 'black' : 'white'
+    console.log('I abandoned the game, calling endGame()')
+    endGame()
   }
   
   // Send abandon message to opponent (skip for AI games)
@@ -2597,6 +2657,51 @@ const calculateRetryDelay = (attempt: number): number => {
   // Add jitter (±20%) to prevent thundering herd
   const jitter = delay * 0.2 * (Math.random() * 2 - 1)
   return Math.floor(delay + jitter)
+}
+
+// Identity/Login handlers
+const toggleLoginMode = () => {
+  loginMode.value = loginMode.value === 'login' ? 'register' : 'login'
+  loginError.value = ''
+}
+
+const handleLogin = async () => {
+  if (!loginUsername.value || !loginPassword.value) return
+  
+  loginLoading.value = true
+  loginError.value = ''
+  
+  try {
+    if (loginMode.value === 'register') {
+      // Create new identity with DHT registration
+      await createIdentity(loginUsername.value, loginPassword.value, dhtPut)
+      showLoginModal.value = false
+      loginUsername.value = ''
+      loginPassword.value = ''
+      console.log('Identity created successfully!')
+    } else {
+      // Load existing identity
+      await loadIdentity(loginUsername.value, loginPassword.value)
+      showLoginModal.value = false
+      loginUsername.value = ''
+      loginPassword.value = ''
+      console.log('Logged in successfully!')
+    }
+  } catch (error: any) {
+    console.error('Login/Register error:', error)
+    if (loginMode.value === 'register') {
+      loginError.value = 'Failed to create account. Username may already exist.'
+    } else {
+      loginError.value = 'Invalid username or password.'
+    }
+  } finally {
+    loginLoading.value = false
+  }
+}
+
+const handleLogout = async () => {
+  await logoutIdentity()
+  console.log('Logged out')
 }
 
 const initializeAndConnect = async () => {
@@ -2854,10 +2959,10 @@ const acceptDrawOffer = async () => {
   }
   
   // End game as draw
+  console.log('Accepting draw offer, calling endGame()')
   if (currentGame.value) {
     currentGame.value.result = 'draw'
-    currentGame.value.status = 'finished'
-    currentGame.value.finishedAt = Date.now()
+    endGame()
   }
   
   incomingDrawOffer.value = null
@@ -2954,6 +3059,13 @@ const returnToLobby = () => {
 // Replay mode functions
 const startReplayMode = (game: GameHistoryEntry) => {
   console.log('Starting replay mode for game:', game.gameId)
+  console.log('Game data:', {
+    myUsername: game.myUsername,
+    myPeerId: game.myPeerId,
+    opponentUsername: game.opponentUsername,
+    opponent: game.opponent,
+    myColor: game.myColor
+  })
   
   // Close the history modal
   showHistory.value = false
@@ -3222,10 +3334,11 @@ const handleMessage = async (event: any) => {
         
       case 'resign':
         // Opponent resigned
-        if (currentGame.value) {
-          currentGame.value.status = 'finished'
-          currentGame.value.result = myPlayer.value?.color || 'white'
-          playWinSound() // Play win sound when opponent resigns
+        console.log('Opponent resigned, calling endGame()')
+        if (currentGame.value && myPlayer.value) {
+          // Set the result before calling endGame so it knows we won
+          currentGame.value.result = myPlayer.value.color
+          endGame()
         }
         break
         
@@ -3236,13 +3349,11 @@ const handleMessage = async (event: any) => {
         
       case 'draw_accept':
         // Draw was accepted
+        console.log('Draw accepted by opponent, calling endGame()')
         if (currentGame.value) {
           currentGame.value.result = 'draw'
-          currentGame.value.status = 'finished'
-          currentGame.value.finishedAt = Date.now()
-          playDrawSound() // Play draw sound when draw is accepted
+          endGame()
         }
-        console.log('Draw accepted by opponent')
         break
         
       case 'takeback_request':
@@ -3268,23 +3379,21 @@ const handleMessage = async (event: any) => {
       
       case 'abandon':
         // Opponent abandoned the game
-        if (currentGame.value) {
+        if (currentGame.value && myPlayer.value) {
           console.log('Opponent abandoned game, reason:', chessMessage.reason)
           clearAbandonmentTimers()
           if (timerInterval) clearInterval(timerInterval)
           
-          currentGame.value.status = 'finished'
           // We win by opponent abandonment
-          currentGame.value.result = myPlayer.value?.color || 'white'
-          currentGame.value.finishedAt = Date.now()
+          currentGame.value.result = myPlayer.value.color
           
           // Set the reason for display
           abandonmentReason.value = chessMessage.reason || null
           showAbandonmentModal.value = true
           iAbandoned.value = false // Opponent abandoned, not me
           
-          // Play lose sound for abandoned games (both players lose)
-          playLoseSound()
+          console.log('Opponent abandoned, calling endGame()')
+          endGame()
         }
         break
     }
@@ -3374,6 +3483,22 @@ onMounted(async () => {
   // Auto-initialize and connect on mount
   await initializeAndConnect()
   
+  // Initialize PigeonIdP
+  try {
+    await initializeIdP()
+    console.log('PigeonIdP initialized')
+    
+    // If a username was found, pre-fill the login form
+    if (identityUsername.value && !isAuthenticated.value) {
+      loginUsername.value = identityUsername.value
+      loginMode.value = 'login'
+      showLoginModal.value = true
+      console.log('Found stored username, please login with your password')
+    }
+  } catch (error) {
+    console.error('Failed to initialize PigeonIdP:', error)
+  }
+  
   // Load game history from DHT after mesh is initialized
   setTimeout(async () => {
     try {
@@ -3448,9 +3573,64 @@ onUnmounted(() => {
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
 }
 
-.hamburger-menu {
+.header-right {
   position: absolute;
   right: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--primary-color);
+  color: white;
+  border-radius: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.username {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.btn-logout, .btn-login {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+}
+
+.btn-logout {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger-color);
+}
+
+.btn-logout:hover {
+  background: var(--danger-color);
+  color: white;
+}
+
+.btn-login {
+  background: var(--primary-color);
+  color: white;
+}
+
+.btn-login:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.hamburger-menu {
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -5549,6 +5729,67 @@ button.large {
   text-align: center;
 }
 
+.login-modal {
+  max-width: 400px;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  text-align: left;
+}
+
+.form-group label {
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.form-group input {
+  padding: 0.75rem;
+  border: 2px solid #e5e7eb;
+  border-radius: 0.5rem;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.error-message {
+  color: var(--danger-color);
+  font-size: 0.9rem;
+  margin: 0;
+  padding: 0.5rem;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: 0.5rem;
+}
+
+.toggle-mode {
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--secondary-color);
+  margin-top: 0.5rem;
+}
+
+.toggle-mode a {
+  color: var(--primary-color);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.toggle-mode a:hover {
+  text-decoration: underline;
+}
+
 @media (max-width: 768px) {
   .game-screen {
     flex-direction: column;
@@ -5558,5 +5799,16 @@ button.large {
     width: 100%;
     max-height: 200px;
   }
+  
+  .header-right {
+    position: static;
+    margin-left: auto;
+  }
+  
+  .user-info {
+    font-size: 0.8rem;
+    padding: 0.4rem 0.8rem;
+  }
 }
 </style>
+

@@ -21,6 +21,7 @@
   "dependencies": {
     "chess.js": "^1.4.0",
     "peerpigeon": "^1.0.6",
+    "pigeonidp": "github:PeerPigeon/PigeonIdP",
     "pigeonmatch": "github:PeerPigeon/PigeonMatch",
     "vue": "^3.5.22"
   },
