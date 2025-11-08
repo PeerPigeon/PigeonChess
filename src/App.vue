@@ -1200,6 +1200,7 @@ watch(isMatchReady, async (ready) => {
       
       // Start the game locally
       resetTimers()
+      isAIGame.value = false // Ensure AI mode is disabled for peer games
       startNewGame(myPeerId.value, opponentPeerId, isWhite ? 'white' : 'black')
       opponentId.value = opponentPeerId
       hasGameStarted.value = false
@@ -3303,6 +3304,7 @@ const handleMessage = async (event: any) => {
           const myColor = amIWhite ? 'white' : 'black'
           
           // Start the game with the assigned colors
+          isAIGame.value = false // Ensure AI mode is disabled for peer games
           startNewGame(myPeerId.value, opponent, myColor)
           opponentId.value = opponent
           hasGameStarted.value = false // Reset for new game
@@ -3329,6 +3331,7 @@ const handleMessage = async (event: any) => {
           resetTimers()
           
           const myColor = chessMessage.data?.opponentColor || 'black'
+          isAIGame.value = false // Ensure AI mode is disabled for peer games
           startNewGame(
             myColor === 'white' ? myPeerId.value : fromPeer,
             myColor === 'white' ? fromPeer : myPeerId.value
