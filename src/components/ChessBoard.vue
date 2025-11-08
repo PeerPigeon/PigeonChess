@@ -42,6 +42,17 @@
           >
             <path d="M 0 0 L 10 5 L 0 10 z" :fill="emptyArrowColor || '#ffaa00'" />
           </marker>
+          <marker
+            id="arrowhead-neutral"
+            viewBox="0 0 10 10"
+            refX="0"
+            refY="5"
+            markerWidth="2.5"
+            markerHeight="2.5"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" :fill="neutralArrowColor || '#888888'" />
+          </marker>
         </defs>
         <!-- Permanent arrows -->
         <g v-for="(arrow, index) in arrows" :key="index">
@@ -190,6 +201,7 @@ interface Props {
   whiteArrowColor?: string
   blackArrowColor?: string
   emptyArrowColor?: string
+  neutralArrowColor?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -221,7 +233,7 @@ interface Arrow {
   y1: number
   x2: number
   y2: number
-  type: 'white' | 'black' | 'empty' // Store type instead of color
+  type: 'white' | 'black' | 'empty' | 'neutral' // Store type instead of color
   removing?: boolean
 }
 
@@ -231,27 +243,31 @@ const arrowStartSquare = ref<{ row: number; col: number } | null>(null)
 const arrowDragMoved = ref(false) // Track if mouse moved during arrow drag
 
 // Get arrow type based on piece at start square
-const getArrowType = (row: number, col: number): 'white' | 'black' | 'empty' => {
+const getArrowType = (row: number, col: number): 'white' | 'black' | 'empty' | 'neutral' => {
   return getArrowTypeAtSquare(row, col)
 }
 
 // Get arrow color from type
-const getColorFromType = (type: 'white' | 'black' | 'empty'): string => {
+const getColorFromType = (type: 'white' | 'black' | 'empty' | 'neutral'): string => {
   if (type === 'white') {
     return props.whiteArrowColor || '#ffaa00'
   } else if (type === 'black') {
     return props.blackArrowColor || '#ffaa00'
+  } else if (type === 'neutral') {
+    return props.neutralArrowColor || '#888888'
   } else {
     return props.emptyArrowColor || '#ffaa00'
   }
 }
 
 // Get marker URL based on type
-const getMarkerUrl = (type: 'white' | 'black' | 'empty'): string => {
+const getMarkerUrl = (type: 'white' | 'black' | 'empty' | 'neutral'): string => {
   if (type === 'white') {
     return 'url(#arrowhead-white)'
   } else if (type === 'black') {
     return 'url(#arrowhead-black)'
+  } else if (type === 'neutral') {
+    return 'url(#arrowhead-neutral)'
   } else {
     return 'url(#arrowhead-empty)'
   }
@@ -753,7 +769,7 @@ const getSquareCenterCoordinates = (row: number, col: number): { x: number; y: n
 }
 
 // Get arrow type - check for existing arrow destination first, then piece color
-const getArrowTypeAtSquare = (row: number, col: number): 'white' | 'black' | 'empty' => {
+const getArrowTypeAtSquare = (row: number, col: number): 'white' | 'black' | 'empty' | 'neutral' => {
   const center = getSquareCenterCoordinates(row, col)
   
   // Check if this square is NEAR the destination of an existing arrow
@@ -890,12 +906,16 @@ const handleRightMouseUp = (event: MouseEvent) => {
       const adjustedX2 = startCenter.x + dx * shortenFactor
       const adjustedY2 = startCenter.y + dy * shortenFactor
       
+      // Get the arrow type that was determined when drawing started
+      // This uses the piece color at the start square
+      const arrowType = drawingArrow.value.type
+      
       const newArrow = {
         x1: startCenter.x,
         y1: startCenter.y,
         x2: adjustedX2,
         y2: adjustedY2,
-        type: drawingArrow.value.type
+        type: arrowType
       }
       
       // Check if an arrow already exists in this location (for toggling)

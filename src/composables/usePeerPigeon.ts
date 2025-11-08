@@ -62,8 +62,14 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
         maxPeers: options.maxPeers !== undefined ? options.maxPeers : 10,
         minPeers: options.minPeers !== undefined ? options.minPeers : 1,
         enableWebDHT: true,
-        enableCrypto: options.enableCrypto !== false
+        enableCrypto: options.enableCrypto !== false,
+        // Add DHT bootstrap configuration for serverless discovery
+        dhtBootstrap: true,
+        // Enable local network discovery
+        enableLocalDiscovery: true
       }
+      
+      console.log('Initializing PeerPigeonMesh with options:', meshOptions)
       
       const instance = new window.PeerPigeonMesh(meshOptions)
       mesh.value = instance
