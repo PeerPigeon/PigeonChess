@@ -2680,8 +2680,8 @@ const handleLogin = async () => {
       loginPassword.value = ''
       console.log('Identity created successfully!')
     } else {
-      // Load existing identity
-      await loadIdentity(loginUsername.value, loginPassword.value)
+      // Load existing identity (with DHT fallback for cross-device login)
+      await loadIdentity(loginUsername.value, loginPassword.value, dhtGet, dhtPut)
       showLoginModal.value = false
       loginUsername.value = ''
       loginPassword.value = ''
@@ -3488,12 +3488,11 @@ onMounted(async () => {
     await initializeIdP()
     console.log('PigeonIdP initialized')
     
-    // If a username was found, pre-fill the login form
+    // Pre-fill username if found, but don't auto-show modal
     if (identityUsername.value && !isAuthenticated.value) {
       loginUsername.value = identityUsername.value
       loginMode.value = 'login'
-      showLoginModal.value = true
-      console.log('Found stored username, please login with your password')
+      console.log('Found stored username, ready for login')
     }
   } catch (error) {
     console.error('Failed to initialize PigeonIdP:', error)

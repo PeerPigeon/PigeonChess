@@ -29,11 +29,19 @@ export function useChessGame(options: ChessGameOptions = {}) {
   
   // Sync game history to DHT
   const syncHistoryToDHT = async () => {
-    if (options.dhtPut && options.peerId) {
+    if (options.dhtPut) {
       try {
-        const historyKey = `chess-history-${options.peerId}`
-        await options.dhtPut(historyKey, gameHistory.value, { ttl: 86400 * 365 }) // 1 year TTL
-        console.log('Game history synced to DHT')
+        // Use username if logged in, otherwise use peer ID
+        const username = options.username?.()
+        const storageKey = username ? `chess-history-user-${username}` : `chess-history-${options.peerId}`
+        
+        if (!storageKey) {
+          console.log('No storage key available for DHT sync')
+          return
+        }
+        
+        await options.dhtPut(storageKey, gameHistory.value, { ttl: 86400 * 365 }) // 1 year TTL
+        console.log('Game history synced to DHT with key:', storageKey)
       } catch (error) {
         console.error('Failed to sync history to DHT:', error)
       }
@@ -42,10 +50,18 @@ export function useChessGame(options: ChessGameOptions = {}) {
 
   // Load game history from DHT
   const loadHistoryFromDHT = async () => {
-    if (options.dhtGet && options.peerId) {
+    if (options.dhtGet) {
       try {
-        const historyKey = `chess-history-${options.peerId}`
-        const dhtHistory = await options.dhtGet(historyKey)
+        // Use username if logged in, otherwise use peer ID
+        const username = options.username?.()
+        const storageKey = username ? `chess-history-user-${username}` : `chess-history-${options.peerId}`
+        
+        if (!storageKey) {
+          console.log('No storage key available for DHT load')
+          return
+        }
+        
+        const dhtHistory = await options.dhtGet(storageKey)
         if (dhtHistory && Array.isArray(dhtHistory)) {
           // Merge DHT history with local history (DHT takes precedence if newer)
           gameHistory.value = dhtHistory
