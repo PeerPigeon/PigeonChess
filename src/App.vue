@@ -1342,34 +1342,27 @@ const makeAIMove = () => {
     }
     
     // Map difficulty to Stockfish settings
-    if (aiDifficulty.value === 3) {
-      // Very Hard: Full strength - set options BEFORE ucinewgame
-      console.log('Very Hard mode: Configuring Stockfish for maximum strength')
-      stockfish.postMessage('setoption name Skill Level value 20')
-      stockfish.postMessage('setoption name UCI_LimitStrength value false')
-      stockfish.postMessage('isready')
-      // Wait a moment for options to be set
-      setTimeout(() => {
-        if (!stockfish) return
-        console.log('Starting analysis at depth 18 for position:', currentFen)
-        stockfish.postMessage('ucinewgame')
-        stockfish.postMessage('position fen ' + currentFen)
-        stockfish.postMessage('go depth 18')
-      }, 50)
-      return
-    }
-    
-    // For other difficulties
     const skillLevel = aiDifficulty.value === 0 ? 0 :
-                       aiDifficulty.value === 1 ? 5 : 10
+                       aiDifficulty.value === 1 ? 5 :
+                       aiDifficulty.value === 2 ? 10 : 20
     const depth = aiDifficulty.value === 0 ? 1 : 
-                  aiDifficulty.value === 1 ? 5 : 10
+                  aiDifficulty.value === 1 ? 5 :
+                  aiDifficulty.value === 2 ? 10 : 18
     
-    console.log(`Difficulty ${aiDifficulty.value}: Skill Level ${skillLevel}, Depth ${depth}`)
+    // Apply same logic for all difficulties - set options BEFORE ucinewgame
+    console.log(`Difficulty ${aiDifficulty.value}: Configuring Stockfish with Skill Level ${skillLevel}`)
     stockfish.postMessage('setoption name Skill Level value ' + skillLevel)
-    stockfish.postMessage('ucinewgame')
-    stockfish.postMessage('position fen ' + currentFen)
-    stockfish.postMessage('go depth ' + depth)
+    stockfish.postMessage('setoption name UCI_LimitStrength value false')
+    stockfish.postMessage('isready')
+    
+    // Wait a moment for options to be set
+    setTimeout(() => {
+      if (!stockfish) return
+      console.log(`Starting analysis at depth ${depth} for position:`, currentFen)
+      stockfish.postMessage('ucinewgame')
+      stockfish.postMessage('position fen ' + currentFen)
+      stockfish.postMessage('go depth ' + depth)
+    }, 50)
     return
   }
   
