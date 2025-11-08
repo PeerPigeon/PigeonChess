@@ -26,15 +26,19 @@
               <span class="label">Color:</span>
               <span class="value">{{ game.myColor === 'white' ? '♔ White' : '♚ Black' }}</span>
             </div>
-            <div v-if="game.whitePlayer" class="info-row">
+            <div v-if="game.isAI" class="info-row">
+              <span class="label">Opponent:</span>
+              <span class="value ai-indicator">🤖 AI - {{ formatDifficulty(game.aiDifficulty) }}</span>
+            </div>
+            <div v-else-if="game.whitePlayer" class="info-row">
               <span class="label">White:</span>
               <span class="value opponent-id">{{ formatPeerId(game.whitePlayer) }}</span>
             </div>
-            <div v-if="game.blackPlayer" class="info-row">
+            <div v-else-if="game.blackPlayer" class="info-row">
               <span class="label">Black:</span>
               <span class="value opponent-id">{{ formatPeerId(game.blackPlayer) }}</span>
             </div>
-            <div v-if="!game.whitePlayer && !game.blackPlayer" class="info-row">
+            <div v-else class="info-row">
               <span class="label">Opponent:</span>
               <span class="value opponent-id">{{ formatPeerId(game.opponent) }}</span>
             </div>
@@ -57,6 +61,10 @@
               </div>
             </div>
           </details>
+          
+          <button class="watch-btn" @click="emit('watch', game)">
+            🔍 Analyze Game
+          </button>
         </div>
       </div>
       
@@ -75,8 +83,9 @@ interface Props {
 }
 
 defineProps<Props>()
-defineEmits<{
+const emit = defineEmits<{
   close: []
+  watch: [game: GameHistoryEntry]
 }>()
 
 const formatDate = (timestamp: number): string => {
@@ -90,6 +99,12 @@ const formatPeerId = (peerId: string | undefined): string => {
     return peerId.substring(0, 10) + '...' + peerId.substring(peerId.length - 8)
   }
   return peerId
+}
+
+const formatDifficulty = (difficulty: number | undefined): string => {
+  if (difficulty === undefined || difficulty === null) return 'Computer'
+  const levels = ['Easy', 'Medium', 'Hard', 'Very Hard']
+  return levels[difficulty] || 'Computer'
 }
 </script>
 
@@ -204,6 +219,11 @@ h2 {
   font-size: 0.85rem;
 }
 
+.ai-indicator {
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
 .moves-details {
   margin-top: 0.75rem;
   cursor: pointer;
@@ -238,6 +258,24 @@ h2 {
 .move-san {
   color: var(--dark-color);
   font-weight: bold;
+}
+
+.watch-btn {
+  margin-top: 0.75rem;
+  width: 100%;
+  padding: 0.5rem;
+  background: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+.watch-btn:hover {
+  background: var(--primary-hover);
 }
 
 .actions {

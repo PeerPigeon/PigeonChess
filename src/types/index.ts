@@ -56,6 +56,8 @@ export interface GameHistoryEntry {
   result: 'win' | 'loss' | 'draw' | 'abandoned'
   moves: string[]
   date: number
+  isAI?: boolean        // Optional - indicates if opponent was AI
+  aiDifficulty?: number // Optional - AI difficulty level (0=Easy, 1=Medium, 2=Hard, 3=Very Hard)
 }
 
 export interface Settings {

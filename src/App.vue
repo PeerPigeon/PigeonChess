@@ -40,8 +40,260 @@
 
     <!-- Main Content -->
     <main class="main-content">
+      <!-- Replay Mode Container -->
+      <div v-if="isReplayMode && replayGame" class="replay-container">
+        <!-- Game Screen (reused from below) -->
+        <div class="game-screen">
+          <div class="game-info">
+            <div class="board-container">
+              <ChessBoard 
+                :chess="chess"
+                :flipped="myPlayer?.color === 'black'"
+                :interactive="false"
+                :last-move="lastMove"
+                :analysis-arrows="analysisArrows"
+                :piece-colors="{
+                  whiteFill: settings.customWhitePieceColor,
+                  blackFill: settings.customBlackPieceColor,
+                  whiteStroke: settings.customWhitePieceOutline,
+                  blackStroke: settings.customBlackPieceOutline
+                }"
+                :white-arrow-color="settings.whiteArrowColor"
+                :black-arrow-color="settings.blackArrowColor"
+                :empty-arrow-color="settings.emptyArrowColor"
+                @move="() => {}"
+              />
+              
+              <!-- Move navigation - Portrait mode (below board, small devices) -->
+              <div v-if="replayGame.moves && replayGame.moves.length > 0" class="move-navigation-portrait">
+                <button 
+                  class="nav-btn"
+                  :disabled="viewingMoveIndex === -1"
+                  @click="goToStart"
+                  title="Go to start"
+                >
+                  ⏮
+                </button>
+                <button 
+                  class="nav-btn"
+                  :disabled="viewingMoveIndex === -1"
+                  @click="previousMove"
+                  title="Previous move"
+                >
+                  ◀
+                </button>
+                <span class="move-counter">
+                  {{ viewingMoveIndex === null || viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1 }} / {{ replayGame.moves.length }}
+                </span>
+                <button 
+                  class="nav-btn"
+                  :disabled="viewingMoveIndex === (replayGame.moves.length - 1)"
+                  @click="nextMove"
+                  title="Next move"
+                >
+                  ▶
+                </button>
+                <button 
+                  class="nav-btn"
+                  :disabled="viewingMoveIndex === (replayGame.moves.length - 1)"
+                  @click="goToEnd"
+                  title="Go to final position"
+                >
+                  ⏭
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div class="game-controls">
+            <!-- Replay Header Info -->
+            <div class="replay-info-section">
+              <h3>🔍 Game Analysis</h3>
+              <div class="replay-details">
+                <span class="replay-result" :class="replayGame.result">{{ replayGame.result.toUpperCase() }}</span>
+                <span v-if="replayGame.isAI" class="replay-opponent">🤖 AI Opponent - {{ ['Easy', 'Medium', 'Hard', 'Very Hard'][replayGame.aiDifficulty || 0] }}</span>
+                <span v-else class="replay-opponent">👤 Human Opponent</span>
+                <span class="replay-date">{{ new Date(replayGame.date).toLocaleDateString() }}</span>
+              </div>
+              <button class="primary" @click="exitReplayMode">← Back to Menu</button>
+            </div>
+            
+            <!-- Replay mode controls -->
+            <div class="quick-actions">
+              <button 
+                class="action-icon analysis-toggle" 
+                :class="{ active: replayShowBestMoves }"
+                @click="replayShowBestMoves = !replayShowBestMoves" 
+                :title="replayShowBestMoves ? 'Hide Best Moves' : 'Show Best Moves'"
+              >
+                💡
+              </button>
+            </div>
+            
+            <!-- Analysis Mode Indicator -->
+            <div v-if="replayShowBestMoves" class="analysis-info">
+              <div class="analysis-header">
+                💡 Best Moves Shown
+              </div>
+              <div class="analysis-hint">
+                🟢 Best &nbsp;&nbsp; 🟡 Second best &nbsp;&nbsp; 🔴 Third best
+              </div>
+            </div>
+            
+            <!-- Move navigation - Landscape mode (below timers, iPhone SE and larger) -->
+            <div v-if="replayGame.moves && replayGame.moves.length > 0" class="move-navigation-landscape">
+              <button 
+                class="nav-btn"
+                :disabled="viewingMoveIndex === -1"
+                @click="goToStart"
+                title="Go to start"
+              >
+                ⏮
+              </button>
+              <button 
+                class="nav-btn"
+                :disabled="viewingMoveIndex === -1"
+                @click="previousMove"
+                title="Previous move"
+              >
+                ◀
+              </button>
+              <span class="move-counter">
+                {{ viewingMoveIndex === null || viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1 }} / {{ replayGame.moves.length }}
+              </span>
+              <button 
+                class="nav-btn"
+                :disabled="viewingMoveIndex === (replayGame.moves.length - 1)"
+                @click="nextMove"
+                title="Next move"
+              >
+                ▶
+              </button>
+              <button 
+                class="nav-btn"
+                :disabled="viewingMoveIndex === (replayGame.moves.length - 1)"
+                @click="goToEnd"
+                title="Go to final position"
+              >
+                ⏭
+              </button>
+            </div>
+            
+            <div class="player-section">
+              <div class="player-info">
+                <div class="player-display">
+                  <span class="player-display-icon">{{ myPlayer?.color === 'white' ? '♔' : '♚' }}</span>
+                  <span class="player-display-color">You</span>
+                  <span class="player-display-color-detail">({{ myPlayer?.color }})</span>
+                </div>
+                <div class="opponent-display">
+                  <span class="opponent-icon">{{ myPlayer?.color === 'white' ? '♚' : '♔' }}</span>
+                  <span class="opponent-name">{{ replayGame.isAI ? 'AI' : 'Opp' }}</span>
+                  <span class="opponent-name-detail">{{ replayGame.isAI ? 'Computer' : formatPeerId(replayGame.opponent || 'Unknown') }}</span>
+                </div>
+              </div>
+              <div class="casual-mode-badge">
+                🔍 Analysis Mode
+              </div>
+            </div>
+            
+            <!-- Material Score -->
+            <div v-if="capturedPieces.white.length > 0 || capturedPieces.black.length > 0" class="material-section">
+              <h4 class="material-heading">Material</h4>
+              <div class="material-display">
+                <div v-if="capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black'].length > 0" class="captured-pieces">
+                  <div class="captured-label">You captured:</div>
+                  <div class="pieces-row">
+                    <img 
+                      v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black']"
+                      :key="`my-${idx}`"
+                      :src="`/pieces/${myPlayer?.color === 'white' ? 'b' : 'w'}${piece}.svg`" 
+                      :alt="piece"
+                      class="captured-piece"
+                    />
+                    <span v-if="materialAdvantage[myPlayer?.color || 'white'] > 0" class="advantage-score">
+                      +{{ materialAdvantage[myPlayer?.color || 'white'] }}
+                    </span>
+                  </div>
+                </div>
+                <div v-if="capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white'].length > 0" class="captured-pieces">
+                  <div class="captured-label">Opponent captured:</div>
+                  <div class="pieces-row">
+                    <img 
+                      v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']"
+                      :key="`opp-${idx}`"
+                      :src="`/pieces/${myPlayer?.color === 'white' ? 'w' : 'b'}${piece}.svg`" 
+                      :alt="piece"
+                      class="captured-piece"
+                    />
+                    <span v-if="materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] > 0" class="advantage-score">
+                      +{{ materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="moves-history">
+              <div class="moves-header">
+                <h4>Move History</h4>
+                <div v-if="replayGame.moves && replayGame.moves.length > 0" class="move-navigation">
+                  <button 
+                    class="nav-btn"
+                    :disabled="viewingMoveIndex === -1"
+                    @click="goToStart"
+                    title="Go to start"
+                  >
+                    ⏮
+                  </button>
+                  <button 
+                    class="nav-btn"
+                    :disabled="viewingMoveIndex === -1"
+                    @click="previousMove"
+                    title="Previous move"
+                  >
+                    ◀
+                  </button>
+                  <span class="move-counter">
+                    {{ viewingMoveIndex === null || viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1 }} / {{ replayGame.moves.length }}
+                  </span>
+                  <button 
+                    class="nav-btn"
+                    :disabled="viewingMoveIndex === (replayGame.moves.length - 1)"
+                    @click="nextMove"
+                    title="Next move"
+                  >
+                    ▶
+                  </button>
+                  <button 
+                    class="nav-btn"
+                    :disabled="viewingMoveIndex === (replayGame.moves.length - 1)"
+                    @click="goToEnd"
+                    title="Go to end"
+                  >
+                    ⏭
+                  </button>
+                </div>
+              </div>
+              <div class="moves-list">
+                <div 
+                  v-for="(move, index) in replayGame.moves" 
+                  :key="index"
+                  class="move-item"
+                  :class="{ 'viewing': index === viewingMoveIndex }"
+                  @click="goToMove(index)"
+                >
+                  <span class="move-number">{{ Math.floor(index / 2) + 1 }}{{ index % 2 === 0 ? '.' : '...' }}</span>
+                  <span class="move-san">{{ move }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
       <!-- Waiting/Matchmaking Screen -->
-      <div v-if="!isGameActive && !currentGame" class="welcome-screen">
+      <div v-else-if="!isGameActive && !currentGame" class="welcome-screen">
         <div class="welcome-card card">
           <p>Decentralized peer-to-peer chess powered by PeerPigeon</p>
           
@@ -509,6 +761,7 @@
       v-if="showHistory"
       :game-history="gameHistory"
       @close="showHistory = false"
+      @watch="startReplayMode"
     />
     
     <!-- Challenge Modal -->
@@ -863,6 +1116,11 @@ const lastAIMoveEval = ref<{ bestMove: string; playerMove: string; evaluation: s
 const { playMoveSound, playCaptureSound, playCastleSound } = useSounds()
 const lastMove = ref<{ from: string; to: string } | null>(null)
 
+// Replay mode
+const isReplayMode = ref(false)
+const replayGame = ref<GameHistoryEntry | null>(null)
+const replayShowBestMoves = ref(false)
+
 const difficultyDescriptions: Record<number, string> = {
   0: '😊 Easy - Beginner level (~800-1000 Elo)',
   1: '🤔 Medium - Intermediate player (~1200-1400 Elo)',
@@ -885,6 +1143,8 @@ const startAIGame = () => {
   
   // Set AI flag
   isAIGame.value = true
+  setAIOpponent(true, aiDifficulty.value)
+  console.log('=== startAIGame: setAIOpponent called with difficulty:', aiDifficulty.value)
   
   // Randomly assign player color
   const playerColor = Math.random() < 0.5 ? 'white' : 'black'
@@ -1310,28 +1570,11 @@ const makeAIMove = () => {
             
             // Check for game end
             if (chess.value.isGameOver()) {
-              if (chess.value.isCheckmate()) {
-                const winner = chess.value.turn() === 'w' ? 'black' : 'white'
-                if (currentGame.value && myPlayer.value) {
-                  currentGame.value.status = 'finished'
-                  currentGame.value.result = winner
-                  currentGame.value.finishedAt = Date.now()
-                  isAIGame.value = false
-                  if (winner === myPlayer.value.color) {
-                    playWinSound()
-                  } else {
-                    playLoseSound()
-                  }
-                }
-              } else if (chess.value.isDraw()) {
-                if (currentGame.value) {
-                  currentGame.value.status = 'finished'
-                  currentGame.value.result = 'draw'
-                  currentGame.value.finishedAt = Date.now()
-                  isAIGame.value = false
-                  playDrawSound()
-                }
-              }
+              console.log('=== AI game ended, calling endGame() ===')
+              // Call endGame to properly save the game to history
+              // This will handle setting game status, result, and saving to history with AI info
+              endGame()
+              isAIGame.value = false
             }
           }
         } catch (error) {
@@ -1449,24 +1692,13 @@ const makeAIMove = () => {
         
         // Check for game end conditions
         if (chess.value.isCheckmate()) {
-          // Player lost (AI won)
-          if (currentGame.value && myPlayer.value) {
-            currentGame.value.status = 'finished'
-            // Set result to AI's color (opposite of player)
-            currentGame.value.result = myPlayer.value.color === 'white' ? 'black' : 'white'
-            currentGame.value.finishedAt = Date.now()
-            isAIGame.value = false
-            playLoseSound()
-          }
+          console.log('=== AI caused checkmate (fallback), calling endGame() ===')
+          endGame()
+          isAIGame.value = false
         } else if (chess.value.isDraw()) {
-          // Draw
-          if (currentGame.value) {
-            currentGame.value.status = 'finished'
-            currentGame.value.result = 'draw'
-            currentGame.value.finishedAt = Date.now()
-            isAIGame.value = false
-            playDrawSound()
-          }
+          console.log('=== AI caused draw (fallback), calling endGame() ===')
+          endGame()
+          isAIGame.value = false
         }
       }
     } catch (err) {
@@ -1641,7 +1873,9 @@ const {
   receiveMove,
   resign,
   resetGame,
-  setOnGameEndCallback
+  setOnGameEndCallback,
+  setAIOpponent,
+  endGame
 } = useChessGame()
 
 // Set up the game end callback to play win/lose sounds
@@ -1663,14 +1897,15 @@ const viewingMoveIndex = ref<number | null>(null) // null = viewing current posi
 const viewingChess = ref<Chess | null>(null) // separate chess instance for viewing
 
 const goToMove = (moveIndex: number) => {
-  if (!currentGame.value?.moves) return
+  const moves = isReplayMode.value && replayGame.value ? replayGame.value.moves : currentGame.value?.moves
+  if (!moves) return
   
   // Create a new chess instance for viewing
   viewingChess.value = new Chess()
   
   // Play moves up to the selected index
   for (let i = 0; i <= moveIndex; i++) {
-    viewingChess.value.move(currentGame.value.moves[i])
+    viewingChess.value.move(moves[i])
   }
   
   // Update the main chess ref to show this position
@@ -1679,9 +1914,10 @@ const goToMove = (moveIndex: number) => {
 }
 
 const nextMove = () => {
-  if (!currentGame.value?.moves) return
+  const moves = isReplayMode.value && replayGame.value ? replayGame.value.moves : currentGame.value?.moves
+  if (!moves) return
   const nextIndex = viewingMoveIndex.value === null ? 0 : viewingMoveIndex.value + 1
-  if (nextIndex < currentGame.value.moves.length) {
+  if (nextIndex < moves.length) {
     goToMove(nextIndex)
   }
 }
@@ -1701,18 +1937,17 @@ const goToStart = () => {
 }
 
 const goToEnd = () => {
-  if (!currentGame.value) return
+  const moves = isReplayMode.value && replayGame.value ? replayGame.value.moves : currentGame.value?.moves
+  if (!moves) return
   
   // Restore the actual game position
   viewingChess.value = null
-  viewingMoveIndex.value = null
+  viewingMoveIndex.value = isReplayMode.value && replayGame.value ? replayGame.value.moves.length - 1 : null
   
-  // Recreate the actual chess instance from the game state
+  // Recreate the chess instance from moves
   const tempChess = new Chess()
-  if (currentGame.value.moves) {
-    for (const move of currentGame.value.moves) {
-      tempChess.move(move)
-    }
+  for (const move of moves) {
+    tempChess.move(move)
   }
   chess.value = tempChess
 }
@@ -1726,9 +1961,12 @@ watch(() => currentGame.value?.moves.length, () => {
 })
 
 // Watch for best moves toggle and position changes
-watch([showBestMoves, () => chess.value?.fen(), aiThinking, isMyTurn], () => {
+watch([showBestMoves, replayShowBestMoves, () => chess.value?.fen(), aiThinking, isMyTurn, isReplayMode], () => {
+  const shouldShowBestMoves = isReplayMode.value ? replayShowBestMoves.value : showBestMoves.value
+  
   console.log('Best moves watcher triggered:', {
-    showBestMoves: showBestMoves.value,
+    shouldShowBestMoves,
+    isReplayMode: isReplayMode.value,
     isAIGame: isAIGame.value,
     isGameActive: isGameActive.value,
     aiThinking: aiThinking.value,
@@ -1736,9 +1974,26 @@ watch([showBestMoves, () => chess.value?.fen(), aiThinking, isMyTurn], () => {
     fen: chess.value?.fen()
   })
   
-  // Only show best moves when it's the human player's turn AND not AI thinking
-  // Clear arrows immediately if any condition is not met
-  if (!showBestMoves.value || !isAIGame.value || !isGameActive.value || aiThinking.value || !isMyTurn.value) {
+  // Clear arrows if best moves not enabled
+  if (!shouldShowBestMoves) {
+    console.log('Clearing analysis arrows')
+    analysisArrows.value = []
+    analysisTopMoves.value = []
+    if (stockfish) {
+      stockfish.postMessage('stop')
+    }
+    return
+  }
+  
+  // For replay mode, show best moves for any position
+  if (isReplayMode.value) {
+    console.log('Analyzing position in replay mode')
+    analyzePosition()
+    return
+  }
+  
+  // For AI games, only show best moves when it's the human player's turn AND not AI thinking
+  if (!isAIGame.value || !isGameActive.value || aiThinking.value || !isMyTurn.value) {
     console.log('Clearing analysis arrows')
     analysisArrows.value = []
     analysisTopMoves.value = []
@@ -2470,22 +2725,18 @@ const handleMove = async (from: string, to: string, promotion?: 'q' | 'r' | 'b' 
     }
     
     // Check for checkmate after player's move
-    if (chess.value.isCheckmate() && currentGame.value && myPlayer.value) {
-      currentGame.value.status = 'finished'
-      currentGame.value.result = 'white' // Player won
-      currentGame.value.finishedAt = Date.now()
+    if (chess.value.isCheckmate()) {
+      console.log('=== Player caused checkmate, calling endGame() ===')
+      endGame()
       isAIGame.value = false
-      playWinSound()
       return // Exit early, don't send message or trigger AI
     }
     
     // Check for draw after player's move
-    if (chess.value.isDraw() && currentGame.value) {
-      currentGame.value.status = 'finished'
-      currentGame.value.result = 'draw'
-      currentGame.value.finishedAt = Date.now()
+    if (chess.value.isDraw()) {
+      console.log('=== Player caused draw, calling endGame() ===')
+      endGame()
       isAIGame.value = false
-      playDrawSound()
       return // Exit early
     }
     
@@ -2550,14 +2801,13 @@ const offerDraw = async () => {
   
   // For AI games, immediately accept the draw
   if (isAIGame.value) {
+    console.log('Draw offered in AI game, calling endGame()')
+    // Set result to draw first so endGame knows it's a draw
     if (currentGame.value) {
       currentGame.value.result = 'draw'
-      currentGame.value.status = 'finished'
-      currentGame.value.finishedAt = Date.now()
-      isAIGame.value = false
-      playDrawSound()
-      console.log('Draw accepted (AI game)')
     }
+    endGame()
+    isAIGame.value = false
     return
   }
   
@@ -2684,6 +2934,61 @@ const returnToLobby = () => {
   stopTimerSyncBroadcast()
   lastMove.value = null
   resetGame()
+}
+
+// Replay mode functions
+const startReplayMode = (game: GameHistoryEntry) => {
+  console.log('Starting replay mode for game:', game.gameId)
+  
+  // Close the history modal
+  showHistory.value = false
+  
+  // Set replay mode
+  isReplayMode.value = true
+  replayGame.value = game
+  replayShowBestMoves.value = false
+  
+  // Reset the chess board to starting position
+  chess.value = new Chess()
+  
+  // Create a pseudo game state for display
+  currentGame.value = {
+    id: game.gameId,
+    playerWhite: game.whitePlayer || null,
+    playerBlack: game.blackPlayer || null,
+    currentTurn: 'white',
+    status: 'finished',
+    result: game.result === 'win' || game.result === 'loss' || game.result === 'draw' 
+      ? (game.result === 'draw' ? 'draw' : game.result === 'win' 
+        ? game.myColor : (game.myColor === 'white' ? 'black' : 'white'))
+      : 'draw',
+    moves: [],
+    fen: chess.value.fen(),
+    createdAt: game.date,
+    finishedAt: game.date
+  }
+  
+  // Set player info for proper board orientation
+  myPlayer.value = {
+    id: game.myPeerId || 'replay-viewer',
+    color: game.myColor
+  }
+  
+  // Set viewing to start position
+  viewingMoveIndex.value = -1
+  
+  // Clear any timers/AI state
+  isAIGame.value = false
+  aiThinking.value = false
+  lastMove.value = null
+}
+
+const exitReplayMode = () => {
+  isReplayMode.value = false
+  replayGame.value = null
+  replayShowBestMoves.value = false
+  resetGame()
+  viewingMoveIndex.value = null
 }
 
 const getResultText = (): string => {
@@ -3252,6 +3557,68 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   overflow: hidden;
+}
+
+/* Replay Mode Styles */
+.replay-container {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.replay-info-section {
+  padding: 1rem;
+  background: var(--light-color);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.replay-info-section h3 {
+  margin: 0 0 0.75rem 0;
+  color: var(--primary-color);
+  font-size: 1.25rem;
+}
+
+.replay-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.replay-result {
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 0.9rem;
+  display: inline-block;
+  width: fit-content;
+}
+
+.replay-result.win {
+  background: var(--success-color);
+  color: white;
+}
+
+.replay-result.loss {
+  background: var(--danger-color);
+  color: white;
+}
+
+.replay-result.draw {
+  background: var(--warning-color);
+  color: white;
+}
+
+.replay-opponent {
+  color: var(--secondary-color);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.replay-date {
+  color: var(--secondary-color);
+  font-size: 0.85rem;
 }
 
 .welcome-screen {

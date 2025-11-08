@@ -9,6 +9,8 @@ export function useChessGame() {
   const myPlayer = ref<Player | null>(null)
   const opponentId = ref<string | null>(null)
   const gameHistory = ref<GameHistoryEntry[]>(loadFromLocalStorage('chess-game-history', []))
+  const isAIOpponent = ref<boolean>(false)
+  const aiDifficultyLevel = ref<number | undefined>(undefined)
   
   console.log('useChessGame initialized, gameHistory length:', gameHistory.value.length)
   
@@ -112,6 +114,11 @@ export function useChessGame() {
   const endGame = () => {
     if (!currentGame.value || !myPlayer.value) return
     
+    console.log('=== endGame called ===')
+    console.log('isAIOpponent:', isAIOpponent.value)
+    console.log('aiDifficultyLevel:', aiDifficultyLevel.value)
+    console.log('opponentId:', opponentId.value)
+    
     let result: 'white' | 'black' | 'draw' = 'draw'
     
     if (chess.value.isCheckmate()) {
@@ -141,7 +148,9 @@ export function useChessGame() {
         myColor: myPlayer.value.color,
         result: playerResult,
         moves: currentGame.value.moves,
-        date: Date.now()
+        date: Date.now(),
+        isAI: isAIOpponent.value,
+        aiDifficulty: aiDifficultyLevel.value
       }
       
       gameHistory.value.unshift(historyEntry)
@@ -180,7 +189,9 @@ export function useChessGame() {
         myColor: myPlayer.value.color,
         result: 'loss',
         moves: currentGame.value.moves,
-        date: Date.now()
+        date: Date.now(),
+        isAI: isAIOpponent.value,
+        aiDifficulty: aiDifficultyLevel.value
       }
       
       gameHistory.value.unshift(historyEntry)
@@ -196,6 +207,13 @@ export function useChessGame() {
     currentGame.value = null
     myPlayer.value = null
     opponentId.value = null
+    isAIOpponent.value = false
+    aiDifficultyLevel.value = undefined
+  }
+
+  const setAIOpponent = (isAI: boolean, difficulty?: number) => {
+    isAIOpponent.value = isAI
+    aiDifficultyLevel.value = difficulty
   }
 
   const getLegalMoves = (square: string) => {
@@ -217,6 +235,7 @@ export function useChessGame() {
     resign,
     resetGame,
     getLegalMoves,
-    setOnGameEndCallback
+    setOnGameEndCallback,
+    setAIOpponent
   }
 }
