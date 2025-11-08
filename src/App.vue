@@ -812,6 +812,23 @@
               placeholder="Enter password"
               @keyup.enter="handleLogin"
             />
+            <div v-if="loginMode === 'register' && loginPassword" class="password-requirements">
+              <p style="font-size: 11px; color: #666; margin: 5px 0;">Requirements:</p>
+              <ul style="font-size: 11px; color: #666; margin: 0; padding-left: 20px;">
+                <li :style="{ color: loginPassword.length >= 12 ? '#4CAF50' : '#f44336' }">
+                  {{ loginPassword.length >= 12 ? '✓' : '✗' }} At least 12 characters
+                </li>
+                <li :style="{ color: /[A-Z]/.test(loginPassword) && /[a-z]/.test(loginPassword) ? '#4CAF50' : '#f44336' }">
+                  {{ /[A-Z]/.test(loginPassword) && /[a-z]/.test(loginPassword) ? '✓' : '✗' }} Upper & lowercase letters
+                </li>
+                <li :style="{ color: /\d/.test(loginPassword) ? '#4CAF50' : '#f44336' }">
+                  {{ /\d/.test(loginPassword) ? '✓' : '✗' }} At least one number
+                </li>
+                <li :style="{ color: /[!@#$%^&*()_+\-=\[\]{};':&quot;\\|,.<>\/?]/.test(loginPassword) ? '#4CAF50' : '#f44336' }">
+                  {{ /[!@#$%^&*()_+\-=\[\]{};':&quot;\\|,.<>\/?]/.test(loginPassword) ? '✓' : '✗' }} Special character
+                </li>
+              </ul>
+            </div>
           </div>
           
           <p v-if="loginError" class="error-message">{{ loginError }}</p>
@@ -2659,6 +2676,35 @@ const calculateRetryDelay = (attempt: number): number => {
   return Math.floor(delay + jitter)
 }
 
+// Password strength validation
+const validatePasswordStrength = (password: string): { valid: boolean; error: string } => {
+  if (password.length < 12) {
+    return { valid: false, error: 'Password must be at least 12 characters' }
+  }
+  
+  const hasUpperCase = /[A-Z]/.test(password)
+  const hasLowerCase = /[a-z]/.test(password)
+  const hasNumbers = /\d/.test(password)
+  const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
+  
+  const criteriaMet = [hasUpperCase, hasLowerCase, hasNumbers, hasSpecialChar].filter(Boolean).length
+  
+  if (criteriaMet < 3) {
+    return { 
+      valid: false, 
+      error: 'Password must include at least 3 of: uppercase, lowercase, numbers, special characters' 
+    }
+  }
+  
+  // Check for common weak passwords
+  const commonPasswords = ['password', '12345678', 'qwerty', 'admin', 'letmein', 'welcome']
+  if (commonPasswords.some(weak => password.toLowerCase().includes(weak))) {
+    return { valid: false, error: 'Password is too common or weak' }
+  }
+  
+  return { valid: true, error: '' }
+}
+
 // Identity/Login handlers
 const toggleLoginMode = () => {
   loginMode.value = loginMode.value === 'login' ? 'register' : 'login'
@@ -2667,6 +2713,15 @@ const toggleLoginMode = () => {
 
 const handleLogin = async () => {
   if (!loginUsername.value || !loginPassword.value) return
+  
+  // Validate password strength on registration
+  if (loginMode.value === 'register') {
+    const validation = validatePasswordStrength(loginPassword.value)
+    if (!validation.valid) {
+      loginError.value = validation.error
+      return
+    }
+  }
   
   loginLoading.value = true
   loginError.value = ''
