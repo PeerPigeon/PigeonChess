@@ -175,12 +175,19 @@ export function useChessGame(options: ChessGameOptions = {}) {
     
     let result: 'white' | 'black' | 'draw' = 'draw'
     
-    if (chess.value.isCheckmate()) {
+    // Only calculate result if not already set (e.g., from resignation or timeout)
+    if (currentGame.value.result) {
+      result = currentGame.value.result as 'white' | 'black' | 'draw'
+      console.log('Result already set:', result)
+    } else if (chess.value.isCheckmate()) {
       result = chess.value.turn() === 'w' ? 'black' : 'white'
+      currentGame.value.result = result
+    } else {
+      // Draw by stalemate, insufficient material, etc.
+      currentGame.value.result = 'draw'
     }
     
     currentGame.value.status = 'finished'
-    currentGame.value.result = result
     currentGame.value.finishedAt = Date.now()
     
     // Determine if it's a win, loss, or draw for this player
