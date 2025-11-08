@@ -13,6 +13,7 @@ export interface PeerPigeonOptions {
   maxPeers?: number
   minPeers?: number
   enableCrypto?: boolean
+  enableWebDHT?: boolean
 }
 
 export function usePeerPigeon(options: PeerPigeonOptions = {}) {
@@ -61,7 +62,7 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
         networkName: options.networkName || 'global',
         maxPeers: options.maxPeers !== undefined ? options.maxPeers : 10,
         minPeers: options.minPeers !== undefined ? options.minPeers : 1,
-        enableWebDHT: true,
+        enableWebDHT: options.enableWebDHT !== false,
         enableCrypto: options.enableCrypto !== false,
         // Add DHT bootstrap configuration for serverless discovery
         dhtBootstrap: true,
@@ -177,6 +178,16 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     disconnect()
   })
 
+  const dhtPut = async (key: string, value: any, options: any = {}) => {
+    if (!mesh.value) throw new Error('Mesh not initialized')
+    return mesh.value.dhtPut(key, value, options)
+  }
+
+  const dhtGet = async (key: string, options: any = {}) => {
+    if (!mesh.value) throw new Error('Mesh not initialized')
+    return mesh.value.dhtGet(key, options)
+  }
+
   return {
     mesh,
     isConnected,
@@ -191,6 +202,8 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     broadcast,
     onMessage,
     onPeerConnect,
-    refreshStatus
+    refreshStatus,
+    dhtPut,
+    dhtGet
   }
 }

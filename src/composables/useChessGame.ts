@@ -3,7 +3,13 @@ import { Chess } from 'chess.js'
 import type { GameState, Player, Move, GameHistoryEntry } from '@/types'
 import { generateGameId, saveToLocalStorage, loadFromLocalStorage } from '@/utils/helpers'
 
-export function useChessGame() {
+export interface ChessGameOptions {
+  dhtPut?: (key: string, value: any, options?: any) => Promise<boolean>
+  dhtGet?: (key: string, options?: any) => Promise<any>
+  peerId?: string
+}
+
+export function useChessGame(options: ChessGameOptions = {}) {
   const chess = ref<Chess>(new Chess())
   const currentGame = ref<GameState | null>(null)
   const myPlayer = ref<Player | null>(null)
@@ -18,6 +24,37 @@ export function useChessGame() {
   
   const setOnGameEndCallback = (callback: (result: 'win' | 'loss' | 'draw') => void) => {
     onGameEndCallback = callback
+  }
+  
+  // Sync game history to DHT
+  const syncHistoryToDHT = async () => {
+    if (options.dhtPut && options.peerId) {
+      try {
+        const historyKey = `chess-history-${options.peerId}`
+        await options.dhtPut(historyKey, gameHistory.value, { ttl: 86400 * 365 }) // 1 year TTL
+        console.log('Game history synced to DHT')
+      } catch (error) {
+        console.error('Failed to sync history to DHT:', error)
+      }
+    }
+  }
+
+  // Load game history from DHT
+  const loadHistoryFromDHT = async () => {
+    if (options.dhtGet && options.peerId) {
+      try {
+        const historyKey = `chess-history-${options.peerId}`
+        const dhtHistory = await options.dhtGet(historyKey)
+        if (dhtHistory && Array.isArray(dhtHistory)) {
+          // Merge DHT history with local history (DHT takes precedence if newer)
+          gameHistory.value = dhtHistory
+          saveToLocalStorage('chess-game-history', dhtHistory)
+          console.log('Game history loaded from DHT:', dhtHistory.length, 'games')
+        }
+      } catch (error) {
+        console.error('Failed to load history from DHT:', error)
+      }
+    }
   }
   
   const isMyTurn = computed(() => {
@@ -161,6 +198,9 @@ export function useChessGame() {
       console.log('Saving game to history. Total games:', gameHistory.value.length)
       saveToLocalStorage('chess-game-history', gameHistory.value)
       console.log('Game saved to localStorage')
+      
+      // Sync to DHT
+      syncHistoryToDHT()
     } else {
       console.log('NOT saving game to history. opponentId:', opponentId.value, 'currentGame:', !!currentGame.value, 'myPlayer:', !!myPlayer.value)
     }
@@ -199,6 +239,9 @@ export function useChessGame() {
         gameHistory.value = gameHistory.value.slice(0, 50)
       }
       saveToLocalStorage('chess-game-history', gameHistory.value)
+      
+      // Sync to DHT
+      syncHistoryToDHT()
     }
   }
 
@@ -236,6 +279,7 @@ export function useChessGame() {
     resetGame,
     getLegalMoves,
     setOnGameEndCallback,
-    setAIOpponent
+    setAIOpponent,
+    loadHistoryFromDHT
   }
 }

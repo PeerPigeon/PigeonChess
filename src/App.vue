@@ -111,8 +111,15 @@
               <h3>🔍 Game Analysis</h3>
               <div class="replay-details">
                 <span class="replay-result" :class="replayGame.result">{{ replayGame.result.toUpperCase() }}</span>
-                <span v-if="replayGame.isAI" class="replay-opponent">🤖 AI Opponent - {{ ['Easy', 'Medium', 'Hard', 'Very Hard'][replayGame.aiDifficulty || 0] }}</span>
-                <span v-else class="replay-opponent">👤 Human Opponent</span>
+                <div class="replay-players">
+                  <span class="replay-player">
+                    ⚪ {{ replayGame.whitePlayer === replayGame.myPeerId ? 'You' : (replayGame.isAI && replayGame.myColor !== 'white' ? '🤖 AI - ' + ['Easy', 'Medium', 'Hard', 'Very Hard'][replayGame.aiDifficulty || 0] : '👤 Opponent') }}
+                  </span>
+                  <span class="vs-text">vs</span>
+                  <span class="replay-player">
+                    ⚫ {{ replayGame.blackPlayer === replayGame.myPeerId ? 'You' : (replayGame.isAI && replayGame.myColor !== 'black' ? '🤖 AI - ' + ['Easy', 'Medium', 'Hard', 'Very Hard'][replayGame.aiDifficulty || 0] : '👤 Opponent') }}
+                  </span>
+                </div>
                 <span class="replay-date">{{ new Date(replayGame.date).toLocaleDateString() }}</span>
               </div>
               <button class="primary" @click="exitReplayMode">← Back to Menu</button>
@@ -917,13 +924,16 @@ const {
   sendMessage,
   broadcast,
   onMessage,
-  onPeerConnect
+  onPeerConnect,
+  dhtPut,
+  dhtGet
 } = usePeerPigeon({
   // Don't provide a custom peerId - let PeerPigeon generate its own
   networkName: settings.value.networkName,
   maxPeers: 10,
   minPeers: 1,
-  enableCrypto: true
+  enableCrypto: true,
+  enableWebDHT: true
 })
 
 // Get the actual peer ID from the mesh after initialization
@@ -1875,8 +1885,13 @@ const {
   resetGame,
   setOnGameEndCallback,
   setAIOpponent,
-  endGame
-} = useChessGame()
+  endGame,
+  loadHistoryFromDHT
+} = useChessGame({
+  dhtPut,
+  dhtGet,
+  peerId: computed(() => mesh.value?.peerId).value
+})
 
 // Set up the game end callback to play win/lose sounds
 setOnGameEndCallback((result) => {
@@ -3358,6 +3373,15 @@ onMounted(async () => {
   
   // Auto-initialize and connect on mount
   await initializeAndConnect()
+  
+  // Load game history from DHT after mesh is initialized
+  setTimeout(async () => {
+    try {
+      await loadHistoryFromDHT()
+    } catch (error) {
+      console.error('Failed to load history from DHT on mount:', error)
+    }
+  }, 2000) // Wait 2 seconds for DHT to be ready
 })
 
 onUnmounted(() => {
@@ -3614,6 +3638,26 @@ onUnmounted(() => {
   color: var(--secondary-color);
   font-weight: 600;
   font-size: 0.95rem;
+}
+
+.replay-players {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  align-items: flex-start;
+}
+
+.replay-player {
+  color: var(--secondary-color);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.vs-text {
+  color: var(--secondary-color);
+  font-size: 0.75rem;
+  opacity: 0.7;
+  margin-left: 0.5rem;
 }
 
 .replay-date {
