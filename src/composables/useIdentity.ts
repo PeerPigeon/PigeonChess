@@ -13,6 +13,10 @@ export function useIdentity() {
   const username = ref<string>('')
   const publicKeys = ref<any>(null)
 
+  // Session management constants
+  const SESSION_KEY = 'chess-session'
+  const SESSION_TIMEOUT = 24 * 60 * 60 * 1000 // 24 hours
+
   const initializeIdP = async () => {
     try {
       // Check if UnSEA is available from the browser bundle
@@ -21,6 +25,33 @@ export function useIdentity() {
       }
       
       console.log('Identity system initialized with UnSEA')
+      
+      // Try to restore session from sessionStorage
+      const sessionData = sessionStorage.getItem(SESSION_KEY)
+      if (sessionData) {
+        try {
+          const session = JSON.parse(sessionData)
+          const now = Date.now()
+          
+          // Check if session is still valid (within 24 hours)
+          if (session.timestamp && (now - session.timestamp) < SESSION_TIMEOUT) {
+            console.log('Restoring session for:', session.alias)
+            currentIdentity.value = session.keys
+            username.value = session.alias
+            publicKeys.value = { pub: session.keys.pub, epub: session.keys.epub }
+            isAuthenticated.value = true
+            localStorage.setItem('chess-username', session.alias)
+            console.log('Session restored successfully')
+            return true
+          } else {
+            console.log('Session expired, clearing')
+            sessionStorage.removeItem(SESSION_KEY)
+          }
+        } catch (sessionError) {
+          console.warn('Failed to restore session:', sessionError)
+          sessionStorage.removeItem(SESSION_KEY)
+        }
+      }
       
       // Check if there's a stored username (but don't auto-load encrypted keys)
       const storedUsername = localStorage.getItem('chess-username')
@@ -35,6 +66,25 @@ export function useIdentity() {
       console.error('Failed to initialize identity system:', error)
       return false
     }
+  }
+
+  const saveSession = (alias: string, keys: any) => {
+    try {
+      const session = {
+        alias,
+        keys,
+        timestamp: Date.now()
+      }
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
+      console.log('Session saved for:', alias)
+    } catch (error) {
+      console.warn('Failed to save session:', error)
+    }
+  }
+
+  const clearSession = () => {
+    sessionStorage.removeItem(SESSION_KEY)
+    console.log('Session cleared')
   }
 
   const createIdentity = async (alias: string, password: string, dhtPut?: (key: string, value: any) => Promise<void>) => {
@@ -103,6 +153,9 @@ export function useIdentity() {
       
       // Save username to localStorage
       localStorage.setItem('chess-username', alias)
+      
+      // Save session for auto-login
+      saveSession(alias, keys)
       
       // Store encrypted keys in DHT for cross-device access
       await dhtPut(`identity-keys:${alias}:pigeon-chess`, encryptedKeys)
@@ -303,6 +356,9 @@ export function useIdentity() {
       // Save username to localStorage
       localStorage.setItem('chess-username', alias)
       
+      // Save session for auto-login on reload
+      saveSession(alias, keys)
+      
       console.log('Identity loaded successfully:', alias)
       return keys
     } catch (error) {
@@ -317,6 +373,7 @@ export function useIdentity() {
     publicKeys.value = null
     isAuthenticated.value = false
     localStorage.removeItem('chess-username')
+    clearSession()
   }
 
   const lookupPlayer = async (publicKey: string, dhtGet?: (key: string) => Promise<any>) => {
