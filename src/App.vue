@@ -1664,7 +1664,7 @@ const makeAIMove = () => {
     // Stop EVERYTHING - both AI moves and analysis
     stockfishCallback = null
     stockfishAnalysisCallback = null
-    expectingAiMove = true // Mark that we're expecting an AI bestmove
+    expectingAiMove = false // Don't accept any bestmove yet (let stale messages be rejected)
     stockfish.postMessage('stop')
     
     console.log('🤖 AI Move Analysis ID:', thisAnalysisId)
@@ -1837,6 +1837,7 @@ const makeAIMove = () => {
     
     setTimeout(() => {
       if (!stockfish) return
+      expectingAiMove = true // NOW we're expecting an AI bestmove (after delay to clear stale messages)
       stockfish.postMessage('ucinewgame')
       stockfish.postMessage('position fen ' + currentFen)
       stockfish.postMessage('go depth ' + depth)
@@ -2293,7 +2294,7 @@ watch(() => currentGame.value?.moves.length, () => {
 })
 
 // Watch for best moves toggle and position changes
-watch([showBestMoves, replayShowBestMoves, () => chess.value?.fen(), aiThinking, isMyTurn, isReplayMode, viewingMoveIndex], () => {
+watch([showBestMoves, replayShowBestMoves, () => currentGame.value?.moves.length, aiThinking, isMyTurn, isReplayMode, viewingMoveIndex], () => {
   const shouldShowBestMoves = isReplayMode.value ? replayShowBestMoves.value : showBestMoves.value
   
   console.log('Best moves watcher triggered:', {
