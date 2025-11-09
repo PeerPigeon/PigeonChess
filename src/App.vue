@@ -1362,9 +1362,10 @@ const analyzePosition = () => {
   
   stockfish.postMessage('stop')
   stockfish.postMessage('ucinewgame')
-  stockfish.postMessage('setoption name MultiPV value 3')
+  stockfish.postMessage('setoption name MultiPV value 5') // Show top 5 moves
+  stockfish.postMessage('setoption name Hash value 256') // Increase hash table for better analysis
   stockfish.postMessage('position fen ' + currentFen)
-  stockfish.postMessage('go depth 12')
+  stockfish.postMessage('go depth 20 movetime 5000') // Depth 20 with 5 second limit
   
   // Set up callback to handle analysis results
   stockfishAnalysisCallback = (moves: string[]) => {
