@@ -284,11 +284,28 @@ const allArrows = computed(() => {
   const analysisArrowsConverted = (props.analysisArrows || []).map(arrow => {
     const fromSquare = squareToCoords(arrow.from)
     const toSquare = squareToCoords(arrow.to)
+    
+    // Calculate arrow from center to center
+    const x1 = fromSquare.col + 0.5
+    const y1 = fromSquare.row + 0.5
+    const x2 = toSquare.col + 0.5
+    const y2 = toSquare.row + 0.5
+    
+    // Calculate direction vector
+    const dx = x2 - x1
+    const dy = y2 - y1
+    const length = Math.sqrt(dx * dx + dy * dy)
+    
+    // Shorten the arrow by the arrowhead size (approximately 0.2 units)
+    const arrowheadSize = 0.2
+    const shortenedX2 = length > 0 ? x2 - (dx / length) * arrowheadSize : x2
+    const shortenedY2 = length > 0 ? y2 - (dy / length) * arrowheadSize : y2
+    
     return {
-      x1: fromSquare.col + 0.5,
-      y1: fromSquare.row + 0.5,
-      x2: toSquare.col + 0.5,
-      y2: toSquare.row + 0.5,
+      x1,
+      y1,
+      x2: shortenedX2,
+      y2: shortenedY2,
       type: 'neutral' as const,
       color: arrow.color,
       isAnalysis: true // Mark as analysis arrow
