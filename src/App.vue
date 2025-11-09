@@ -1638,11 +1638,15 @@ const makeAIMove = () => {
   
   // Try to use Stockfish if available
   if (stockfish && stockfishReady) {
-    console.log('Using Stockfish for AI move, difficulty:', aiDifficulty.value)
+    console.log('Using Stockfish for AI move, difficulty:', aiDifficulty.value, 'Position:', currentFen)
     
-    // Set the callback first
+    // Stop any ongoing analysis first to prevent stale moves
+    stockfishCallback = null // Clear callback BEFORE stopping to ignore stale results
+    stockfish.postMessage('stop')
+    
+    // Set the callback for THIS analysis
     stockfishCallback = (bestMove: string) => {
-      console.log('Stockfish returned best move:', bestMove, 'for position:', currentFen)
+      console.log('Stockfish AI callback - Move:', bestMove, 'Expected position:', currentFen, 'Actual position:', chess.value.fen())
       const delay = 300 + Math.random() * 500
       setTimeout(() => {
         if (!isAIGame.value || !isGameActive.value) {
@@ -2159,6 +2163,7 @@ watch([showBestMoves, replayShowBestMoves, () => chess.value?.fen(), aiThinking,
     analysisArrows.value = []
     analysisTopMoves.value = []
     if (stockfish) {
+      stockfishAnalysisCallback = null // Clear callback before stopping
       stockfish.postMessage('stop')
     }
     return
@@ -2177,6 +2182,7 @@ watch([showBestMoves, replayShowBestMoves, () => chess.value?.fen(), aiThinking,
     analysisArrows.value = []
     analysisTopMoves.value = []
     if (stockfish) {
+      stockfishAnalysisCallback = null // Clear callback before stopping
       stockfish.postMessage('stop')
     }
     return
