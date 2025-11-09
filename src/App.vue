@@ -965,7 +965,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Chess } from 'chess.js'
 import { usePeerPigeon } from './composables/usePeerPigeon'
 import { useMatchmaking } from './composables/useMatchmaking'
@@ -1279,6 +1279,8 @@ let stockfish: Worker | null = null
 let stockfishReady = false
 let stockfishCallback: ((bestMove: string) => void) | null = null
 let stockfishAnalysisCallback: ((moves: string[]) => void) | null = null
+let currentAnalysisId = 0 // Track which analysis request is current
+let expectingAiMove = false // Track if we're expecting an AI move (to filter out stale bestmove from player analysis)
 
 const initStockfish = async () => {
   if (stockfish) return
@@ -1296,34 +1298,29 @@ const initStockfish = async () => {
       stockfish.onmessage = (event: MessageEvent) => {
         const message = event.data
         
-        // Log ALL messages from Stockfish when in Very Hard mode
-        if (aiDifficulty.value === 3 && !message.includes('multipv')) {
-          console.log('SF msg:', message)
-        }
-        
         if (message === 'uciok') {
           stockfish?.postMessage('isready')
         } else if (message === 'readyok') {
           stockfishReady = true
-          console.log('Stockfish ready!')
+          console.log('✅ Stockfish ready')
         } else if (message.startsWith('bestmove')) {
           const match = message.match(/bestmove ([a-h][1-8][a-h][1-8][qrbn]?)/)
-          if (match && stockfishCallback) {
+          if (match && stockfishCallback && expectingAiMove) {
+            console.log('🤖 AI chose:', match[1])
             stockfishCallback(match[1])
             stockfishCallback = null
+            expectingAiMove = false
+          } else if (match && !expectingAiMove) {
+            console.warn('⚠️ Ignoring bestmove (not expecting AI move):', match[1])
           }
         } else if (message.startsWith('info') && message.includes('multipv')) {
           // Parse multi-PV analysis for top moves
-          console.log('Received multi-PV message:', message)
-          // Extract everything after "pv " 
           const pvIndex = message.indexOf(' pv ')
           if (pvIndex !== -1 && stockfishAnalysisCallback) {
             const pvString = message.substring(pvIndex + 4) // +4 to skip " pv "
             const moves = pvString.trim().split(/\s+/).filter((m: string) => m.match(/^[a-h][1-8][a-h][1-8][qrbn]?$/))
-            console.log('All moves in PV:', moves)
             // Only pass the first move (the human player's move) from each variation
             if (moves.length > 0 && !message.includes('upperbound') && !message.includes('lowerbound')) {
-              console.log('First move (human player):', moves[0])
               stockfishAnalysisCallback([moves[0]])
             }
           }
@@ -1356,24 +1353,33 @@ const analyzePosition = () => {
   const currentFen = chess.value.fen()
   console.log('Starting analysis for position:', currentFen)
   
+  // Increment analysis ID to invalidate any pending player analysis
+  currentAnalysisId++
+  const thisAnalysisId = currentAnalysisId
+  console.log('💡 Player Analysis ID:', thisAnalysisId)
+  
   // Reset analysis state
   analysisTopMoves.value = []
   analysisArrows.value = []
   
+  expectingAiMove = false // Player analysis doesn't use bestmove
   stockfish.postMessage('stop')
   stockfish.postMessage('ucinewgame')
   stockfish.postMessage('setoption name MultiPV value 5') // Show top 5 moves
   stockfish.postMessage('setoption name Hash value 256') // Increase hash table for better analysis
   stockfish.postMessage('position fen ' + currentFen)
-  stockfish.postMessage('go depth 20 movetime 5000') // Depth 20 with 5 second limit
+  stockfish.postMessage('go depth 22 movetime 8000') // Depth 22 with 8 second limit for much stronger analysis
   
   // Set up callback to handle analysis results
   stockfishAnalysisCallback = (moves: string[]) => {
-    console.log('Analysis callback received moves:', moves)
+    // Ignore stale responses from old analysis
+    if (thisAnalysisId !== currentAnalysisId) {
+      console.warn('⚠️ Ignoring stale player analysis (ID mismatch)')
+      return
+    }
     
     // Don't show analysis arrows if AI is currently thinking
     if (aiThinking.value) {
-      console.log('Ignoring analysis callback - AI is thinking')
       return
     }
     
@@ -1389,6 +1395,10 @@ const analyzePosition = () => {
       
       // Reverse so best move (green) is last and renders on top
       analysisArrows.value = arrows.reverse()
+      
+      if (analysisTopMoves.value.length === 1) {
+        console.log('💡 Best move:', moves[0])
+      }
       
       console.log('Updated analysis arrows:', analysisArrows.value)
     }
@@ -1635,51 +1645,128 @@ const makeAIMove = () => {
   
   // Get current position once to avoid reactivity issues
   const currentFen = chess.value.fen()
+  const expectedAiColor = aiColor // Capture AI color for this move
+  
+  // Sanity check
+  if (!currentFen || currentFen.length < 10) {
+    console.error('CRITICAL: Invalid FEN at start of makeAIMove:', currentFen)
+    aiThinking.value = false
+    return
+  }
   
   // Try to use Stockfish if available
   if (stockfish && stockfishReady) {
-    console.log('Using Stockfish for AI move, difficulty:', aiDifficulty.value, 'Position:', currentFen)
     
-    // Stop any ongoing analysis first to prevent stale moves
-    stockfishCallback = null // Clear callback BEFORE stopping to ignore stale results
+    // Increment analysis ID FIRST to invalidate any pending responses (including messages in queue)
+    currentAnalysisId++
+    const thisAnalysisId = currentAnalysisId
+    
+    // Stop EVERYTHING - both AI moves and analysis
+    stockfishCallback = null
+    stockfishAnalysisCallback = null
+    expectingAiMove = true // Mark that we're expecting an AI bestmove
     stockfish.postMessage('stop')
+    
+    console.log('🤖 AI Move Analysis ID:', thisAnalysisId)
     
     // Set the callback for THIS analysis
     stockfishCallback = (bestMove: string) => {
-      console.log('Stockfish AI callback - Move:', bestMove, 'Expected position:', currentFen, 'Actual position:', chess.value.fen())
+      // Ignore stale responses from old analysis
+      if (thisAnalysisId !== currentAnalysisId) {
+        console.warn('⚠️ Ignoring stale AI analysis (ID mismatch)')
+        return
+      }
+      
+      // Check if it's still the AI's turn (most important check!)
+      if (chess.value.turn() !== expectedAiColor) {
+        console.warn('⚠️ No longer AI turn, ignoring move')
+        aiThinking.value = false
+        return
+      }
+      
+      // Verify position matches what we analyzed
+      if (chess.value.fen() !== currentFen) {
+        console.warn('⚠️ Position changed, ignoring move')
+        aiThinking.value = false
+        return
+      }
+      
       const delay = 300 + Math.random() * 500
       setTimeout(() => {
+        // Re-check critical conditions after delay
         if (!isAIGame.value || !isGameActive.value) {
           aiThinking.value = false
           return
         }
         
+        // Check if still AI's turn after delay
+        if (chess.value.turn() !== expectedAiColor) {
+          console.warn('No longer AI turn after delay, ignoring move')
+          aiThinking.value = false
+          return
+        }
+        
+        // Check position hasn't changed after delay
+        if (chess.value.fen() !== currentFen) {
+          console.warn('Position changed during AI delay, ignoring move')
+          aiThinking.value = false
+          return
+        }
+        
         try {
-          // Verify the position hasn't changed
-          if (chess.value.fen() !== currentFen) {
-            console.warn('Position changed since AI started thinking, ignoring move')
+          // Sanity check: make sure we have a valid position
+          if (!currentFen || currentFen.length < 10) {
+            console.error('CRITICAL: Invalid FEN captured:', currentFen)
             aiThinking.value = false
             return
           }
           
-          // Validate the move is legal in current position
-          const legalMoves = chess.value.moves({ verbose: true })
+          // Sanity check: make sure move string is valid
+          if (!bestMove || bestMove.length < 4 || !bestMove.match(/^[a-h][1-8][a-h][1-8][qrbn]?$/)) {
+            console.error('CRITICAL: Invalid move format from Stockfish:', bestMove)
+            aiThinking.value = false
+            return
+          }
+          
+          // Validate the move is legal using the CAPTURED position
+          let testChess: Chess
+          let legalMoves: any[]
+          
+          try {
+            testChess = new Chess(currentFen)
+            legalMoves = testChess.moves({ verbose: true })
+          } catch (err) {
+            console.error('CRITICAL: Failed to create Chess instance with FEN:', currentFen, 'Error:', err)
+            aiThinking.value = false
+            return
+          }
+          
+          const moveFrom = bestMove.substring(0, 2)
+          const moveTo = bestMove.substring(2, 4)
+          const movePromo = bestMove.length > 4 ? bestMove[4] : undefined
+          
           const isLegal = legalMoves.some(m => 
-            m.from === bestMove.substring(0, 2) && 
-            m.to === bestMove.substring(2, 4)
+            m.from === moveFrom && 
+            m.to === moveTo &&
+            (!movePromo || m.promotion === movePromo)
           )
           
           if (!isLegal) {
-            console.error('Stockfish returned illegal move:', bestMove, 'for position:', currentFen)
-            console.log('Legal moves:', legalMoves.map(m => `${m.from}${m.to}`).join(', '))
+            console.error('ILLEGAL MOVE DETECTED:')
+            console.error('  Move:', bestMove, '(from:', moveFrom, 'to:', moveTo, 'promo:', movePromo || 'none', ')')
+            console.error('  Expected position FEN:', currentFen)
+            console.error('  Current position FEN:', chess.value.fen())
+            console.error('  Legal moves:', legalMoves.map(m => `${m.from}${m.to}${m.promotion || ''}`).join(', '))
+            console.error('  Position whose turn:', testChess.turn(), '(expected AI color:', expectedAiColor, ')')
             aiThinking.value = false
             return
           }
           
+          // Apply the move to the actual game
           const moveResult = chess.value.move({
-            from: bestMove.substring(0, 2),
-            to: bestMove.substring(2, 4),
-            promotion: bestMove.length > 4 ? bestMove[4] : 'q'
+            from: moveFrom,
+            to: moveTo,
+            promotion: movePromo || 'q'
           })
           
           if (moveResult) {
@@ -1722,33 +1809,34 @@ const makeAIMove = () => {
               endGame()
               isAIGame.value = false
             }
+          } else {
+            console.error('CRITICAL: chess.value.move() returned null for:', moveFrom, 'to', moveTo)
+            aiThinking.value = false
           }
         } catch (error) {
-          console.error('Error making AI move:', error)
+          console.error('EXCEPTION in AI move callback:', error)
+          console.error('Stack:', error instanceof Error ? error.stack : 'no stack')
+          console.error('Context - bestMove:', bestMove, 'currentFen:', currentFen, 'expectedAiColor:', expectedAiColor)
           aiThinking.value = false
         }
       }, delay)
     }
     
-    // Map difficulty to Stockfish settings
-    // Player analysis uses depth 20, so AI should be weaker to give player advantage when following suggestions
+    // Map difficulty to Stockfish settings - BACK TO ORIGINAL
     const skillLevel = aiDifficulty.value === 0 ? 0 :
-                       aiDifficulty.value === 1 ? 3 :
-                       aiDifficulty.value === 2 ? 8 : 15
+                       aiDifficulty.value === 1 ? 5 :
+                       aiDifficulty.value === 2 ? 10 : 15
     const depth = aiDifficulty.value === 0 ? 1 : 
-                  aiDifficulty.value === 1 ? 4 :
-                  aiDifficulty.value === 2 ? 8 : 12
+                  aiDifficulty.value === 1 ? 6 :
+                  aiDifficulty.value === 2 ? 10 : 15
     
-    // Apply same logic for all difficulties - set options BEFORE ucinewgame
-    console.log(`Difficulty ${aiDifficulty.value}: Configuring Stockfish with Skill Level ${skillLevel}`)
+    // Send commands EXACTLY as before
     stockfish.postMessage('setoption name Skill Level value ' + skillLevel)
     stockfish.postMessage('setoption name UCI_LimitStrength value false')
     stockfish.postMessage('isready')
     
-    // Wait a moment for options to be set
     setTimeout(() => {
       if (!stockfish) return
-      console.log(`Starting analysis at depth ${depth} for position:`, currentFen)
       stockfish.postMessage('ucinewgame')
       stockfish.postMessage('position fen ' + currentFen)
       stockfish.postMessage('go depth ' + depth)
@@ -1757,6 +1845,8 @@ const makeAIMove = () => {
   }
   
   // Fallback to old AI if Stockfish not available
+  console.log('⚠️ FALLBACK AI - Stockfish not available. stockfish:', !!stockfish, 'stockfishReady:', stockfishReady)
+  
   // Select move based on difficulty
   let selectedMove
   
@@ -2093,9 +2183,30 @@ const goToMove = (moveIndex: number) => {
 const nextMove = () => {
   const moves = isReplayMode.value && replayGame.value ? replayGame.value.moves : currentGame.value?.moves
   if (!moves) return
+  
   const nextIndex = viewingMoveIndex.value === null ? 0 : viewingMoveIndex.value + 1
+  
   if (nextIndex < moves.length) {
-    goToMove(nextIndex)
+    // Check if this is the last move in an active game
+    if (nextIndex === moves.length - 1 && !isReplayMode.value) {
+      // Last move in active game - go to live position instead
+      goToEnd()
+      
+      // Force reactivity to update by using nextTick
+      nextTick(() => {
+        console.log('After goToEnd (from last move) - viewingMoveIndex:', viewingMoveIndex.value, 'isMyTurn:', isMyTurn.value)
+      })
+    } else {
+      goToMove(nextIndex)
+    }
+  } else if (nextIndex >= moves.length && !isReplayMode.value) {
+    // At the end in active game, return to live position
+    goToEnd()
+    
+    // Force reactivity to update by using nextTick
+    nextTick(() => {
+      console.log('After goToEnd - viewingMoveIndex:', viewingMoveIndex.value, 'isMyTurn:', isMyTurn.value)
+    })
   }
 }
 
@@ -2104,8 +2215,12 @@ const previousMove = () => {
   if (!moves || moves.length === 0) return
   
   if (viewingMoveIndex.value === null) {
-    // Currently viewing live position, go back to last move
-    goToMove(moves.length - 1)
+    // Currently viewing live position, go back one move from the end
+    if (moves.length > 1) {
+      goToMove(moves.length - 2) // Go to second-to-last move
+    } else if (moves.length === 1) {
+      goToStart() // Only one move, go to start
+    }
   } else if (viewingMoveIndex.value <= 0) {
     // At first move or before, go to start
     goToStart()
@@ -2126,8 +2241,42 @@ const goToEnd = () => {
   const moves = isReplayMode.value && replayGame.value ? replayGame.value.moves : currentGame.value?.moves
   if (!moves) return
   
+  console.log('goToEnd called - isReplayMode:', isReplayMode.value, 'moves.length:', moves.length)
+  
   if (moves.length > 0) {
-    goToMove(moves.length - 1) // Use goToMove to get highlighting and sound
+    // In replay mode, go to last move
+    if (isReplayMode.value) {
+      goToMove(moves.length - 1)
+    } else {
+      // In active game, return to live position
+      console.log('Returning to live position')
+      viewingChess.value = null
+      viewingMoveIndex.value = null
+      
+      // Recreate the current game state
+      const tempChess = new Chess()
+      for (const move of moves) {
+        tempChess.move(move)
+      }
+      chess.value = tempChess
+      
+      // Update currentTurn to match the chess state
+      if (currentGame.value) {
+        currentGame.value.currentTurn = chess.value.turn() === 'w' ? 'white' : 'black'
+        console.log('Updated currentTurn to:', currentGame.value.currentTurn, 'isMyTurn should be:', isMyTurn.value)
+      }
+      
+      // Set lastMove for highlighting
+      if (moves.length > 0) {
+        const lastMoveObj = tempChess.history({ verbose: true })[moves.length - 1]
+        if (lastMoveObj) {
+          lastMove.value = {
+            from: lastMoveObj.from,
+            to: lastMoveObj.to
+          }
+        }
+      }
+    }
   } else {
     // No moves yet, stay at starting position
     viewingChess.value = null
@@ -2144,7 +2293,7 @@ watch(() => currentGame.value?.moves.length, () => {
 })
 
 // Watch for best moves toggle and position changes
-watch([showBestMoves, replayShowBestMoves, () => chess.value?.fen(), aiThinking, isMyTurn, isReplayMode], () => {
+watch([showBestMoves, replayShowBestMoves, () => chess.value?.fen(), aiThinking, isMyTurn, isReplayMode, viewingMoveIndex], () => {
   const shouldShowBestMoves = isReplayMode.value ? replayShowBestMoves.value : showBestMoves.value
   
   console.log('Best moves watcher triggered:', {
@@ -2154,6 +2303,7 @@ watch([showBestMoves, replayShowBestMoves, () => chess.value?.fen(), aiThinking,
     isGameActive: isGameActive.value,
     aiThinking: aiThinking.value,
     isMyTurn: isMyTurn.value,
+    viewingMoveIndex: viewingMoveIndex.value,
     fen: chess.value?.fen()
   })
   
@@ -2173,6 +2323,18 @@ watch([showBestMoves, replayShowBestMoves, () => chess.value?.fen(), aiThinking,
   if (isReplayMode.value) {
     console.log('Analyzing position in replay mode')
     analyzePosition()
+    return
+  }
+  
+  // Don't analyze when viewing historical moves in active games
+  if (viewingMoveIndex.value !== null) {
+    console.log('Viewing historical move, clearing arrows')
+    analysisArrows.value = []
+    analysisTopMoves.value = []
+    if (stockfish) {
+      stockfishAnalysisCallback = null // Clear callback before stopping
+      stockfish.postMessage('stop')
+    }
     return
   }
   
