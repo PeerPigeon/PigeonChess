@@ -1651,6 +1651,27 @@ const makeAIMove = () => {
         }
         
         try {
+          // Verify the position hasn't changed
+          if (chess.value.fen() !== currentFen) {
+            console.warn('Position changed since AI started thinking, ignoring move')
+            aiThinking.value = false
+            return
+          }
+          
+          // Validate the move is legal in current position
+          const legalMoves = chess.value.moves({ verbose: true })
+          const isLegal = legalMoves.some(m => 
+            m.from === bestMove.substring(0, 2) && 
+            m.to === bestMove.substring(2, 4)
+          )
+          
+          if (!isLegal) {
+            console.error('Stockfish returned illegal move:', bestMove, 'for position:', currentFen)
+            console.log('Legal moves:', legalMoves.map(m => `${m.from}${m.to}`).join(', '))
+            aiThinking.value = false
+            return
+          }
+          
           const moveResult = chess.value.move({
             from: bestMove.substring(0, 2),
             to: bestMove.substring(2, 4),
