@@ -2040,12 +2040,11 @@ const goToMove = (moveIndex: number) => {
     }
     
     // Play appropriate sound based on move type
-    if (viewingChess.value.isCheckmate()) {
-      playCheckmateSound()
-    } else if (viewingChess.value.inCheck()) {
-      playCheckSound()
-    } else if (lastMoveObj.captured) {
+    if (lastMoveObj.captured) {
       playCaptureSound()
+    } else if (lastMoveObj.flags.includes('k') || lastMoveObj.flags.includes('q')) {
+      // Castling move (kingside or queenside)
+      playCastleSound()
     } else {
       playMoveSound()
     }
@@ -2064,9 +2063,17 @@ const nextMove = () => {
 }
 
 const previousMove = () => {
-  if (viewingMoveIndex.value === null || viewingMoveIndex.value <= 0) {
+  const moves = isReplayMode.value && replayGame.value ? replayGame.value.moves : currentGame.value?.moves
+  if (!moves || moves.length === 0) return
+  
+  if (viewingMoveIndex.value === null) {
+    // Currently viewing live position, go back to last move
+    goToMove(moves.length - 1)
+  } else if (viewingMoveIndex.value <= 0) {
+    // At first move or before, go to start
     goToStart()
   } else {
+    // Go back one move
     goToMove(viewingMoveIndex.value - 1)
   }
 }
