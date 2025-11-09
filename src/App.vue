@@ -1369,6 +1369,13 @@ const analyzePosition = () => {
   // Set up callback to handle analysis results
   stockfishAnalysisCallback = (moves: string[]) => {
     console.log('Analysis callback received moves:', moves)
+    
+    // Don't show analysis arrows if AI is currently thinking
+    if (aiThinking.value) {
+      console.log('Ignoring analysis callback - AI is thinking')
+      return
+    }
+    
     if (moves.length > 0 && !analysisTopMoves.value.includes(moves[0])) {
       analysisTopMoves.value.push(moves[0])
       
@@ -1610,6 +1617,9 @@ const makeAIMove = () => {
   // Clear analysis arrows when AI starts thinking
   analysisArrows.value = []
   analysisTopMoves.value = []
+  
+  // Clear the analysis callback so AI move calculation doesn't trigger analysis arrows
+  stockfishAnalysisCallback = null
   
   // Set thinking indicator
   aiThinking.value = true
