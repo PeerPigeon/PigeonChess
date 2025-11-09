@@ -2020,13 +2020,38 @@ const goToMove = (moveIndex: number) => {
   viewingChess.value = new Chess()
   
   // Play moves up to the selected index
+  let lastMoveObj = null
   for (let i = 0; i <= moveIndex; i++) {
-    viewingChess.value.move(moves[i])
+    const moveResult = viewingChess.value.move(moves[i])
+    if (i === moveIndex) {
+      lastMoveObj = moveResult // Capture the last move for highlighting
+    }
   }
   
   // Update the main chess ref to show this position
   chess.value = viewingChess.value
   viewingMoveIndex.value = moveIndex
+  
+  // Update lastMove for highlighting
+  if (lastMoveObj) {
+    lastMove.value = {
+      from: lastMoveObj.from,
+      to: lastMoveObj.to
+    }
+    
+    // Play appropriate sound based on move type
+    if (viewingChess.value.isCheckmate()) {
+      playCheckmateSound()
+    } else if (viewingChess.value.inCheck()) {
+      playCheckSound()
+    } else if (lastMoveObj.captured) {
+      playCaptureSound()
+    } else {
+      playMoveSound()
+    }
+  } else {
+    lastMove.value = null
+  }
 }
 
 const nextMove = () => {
@@ -2050,22 +2075,20 @@ const goToStart = () => {
   viewingChess.value = new Chess()
   chess.value = viewingChess.value
   viewingMoveIndex.value = -1
+  lastMove.value = null // Clear highlighting at starting position
 }
 
 const goToEnd = () => {
   const moves = isReplayMode.value && replayGame.value ? replayGame.value.moves : currentGame.value?.moves
   if (!moves) return
   
-  // Restore the actual game position
-  viewingChess.value = null
-  viewingMoveIndex.value = isReplayMode.value && replayGame.value ? replayGame.value.moves.length - 1 : null
-  
-  // Recreate the chess instance from moves
-  const tempChess = new Chess()
-  for (const move of moves) {
-    tempChess.move(move)
+  if (moves.length > 0) {
+    goToMove(moves.length - 1) // Use goToMove to get highlighting and sound
+  } else {
+    // No moves yet, stay at starting position
+    viewingChess.value = null
+    viewingMoveIndex.value = null
   }
-  chess.value = tempChess
 }
 
 // Watch for new moves - automatically go to current position when moves are made
