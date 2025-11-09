@@ -60,6 +60,7 @@ export interface GameHistoryEntry {
   aiDifficulty?: number // Optional - AI difficulty level (0=Easy, 1=Medium, 2=Hard, 3=Very Hard)
   myUsername?: string   // Optional - logged in username
   opponentUsername?: string // Optional - opponent's username (from DHT lookup)
+  opening?: string      // Optional - detected opening name
 }
 
 export interface Settings {

@@ -2,6 +2,7 @@ import { ref, computed } from 'vue'
 import { Chess } from 'chess.js'
 import type { GameState, Player, Move, GameHistoryEntry } from '@/types'
 import { generateGameId, saveToLocalStorage, loadFromLocalStorage } from '@/utils/helpers'
+import { getOpeningName } from '@/utils/openings'
 
 export interface ChessGameOptions {
   dhtPut?: (key: string, value: any, options?: any) => Promise<boolean>
@@ -213,7 +214,8 @@ export function useChessGame(options: ChessGameOptions = {}) {
         date: Date.now(),
         isAI: isAIOpponent.value,
         aiDifficulty: aiDifficultyLevel.value,
-        myUsername: (username && username.trim()) ? username : undefined // Only save if not empty
+        myUsername: (username && username.trim()) ? username : undefined, // Only save if not empty
+        opening: getOpeningName(currentGame.value.moves) // Detect and save opening
       }
       
       gameHistory.value.unshift(historyEntry)
@@ -259,7 +261,8 @@ export function useChessGame(options: ChessGameOptions = {}) {
         date: Date.now(),
         isAI: isAIOpponent.value,
         aiDifficulty: aiDifficultyLevel.value,
-        myUsername: (username && username.trim()) ? username : undefined // Only save if not empty
+        myUsername: (username && username.trim()) ? username : undefined, // Only save if not empty
+        opening: getOpeningName(currentGame.value.moves) // Detect and save opening
       }
       
       gameHistory.value.unshift(historyEntry)

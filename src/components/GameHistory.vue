@@ -22,6 +22,10 @@
           </div>
           
           <div class="game-info">
+            <div v-if="game.opening" class="info-row">
+              <span class="label">Opening:</span>
+              <span class="value opening-name">{{ game.opening }}</span>
+            </div>
             <div class="info-row">
               <span class="label">Color:</span>
               <span class="value">{{ game.myColor === 'white' ? '♔ White' : '♚ Black' }}</span>
@@ -225,6 +229,12 @@ h2 {
 .ai-indicator {
   color: var(--primary-color);
   font-weight: 600;
+}
+
+.opening-name {
+  font-weight: 600;
+  color: var(--primary-color);
+  font-style: italic;
 }
 
 .moves-details {

@@ -133,6 +133,9 @@
                 </div>
                 <span class="replay-date">{{ new Date(replayGame.date).toLocaleDateString() }}</span>
               </div>
+              <div v-if="currentOpeningName" class="opening-display">
+                📖 <strong>{{ currentOpeningName }}</strong>
+              </div>
               <button class="primary" @click="exitReplayMode">← Back to Menu</button>
             </div>
             
@@ -493,6 +496,11 @@
             <span v-if="isMyTurn" class="your-turn">Your Turn</span>
             <span v-else-if="aiThinking" class="ai-thinking">🤔 AI is thinking...</span>
             <span v-else class="opponent-turn">Opponent's Turn</span>
+          </div>
+          
+          <!-- Opening Display -->
+          <div v-if="currentOpeningName" class="opening-display">
+            📖 <strong>{{ currentOpeningName }}</strong>
           </div>
           
           <!-- Analysis Mode Indicator -->
@@ -979,6 +987,7 @@ import { useSounds } from './composables/useSounds'
 import { useIdentity } from './composables/useIdentity'
 import type { ChessMessage, GameHistoryEntry } from './types'
 import { saveToLocalStorage, loadFromLocalStorage } from './utils/helpers'
+import { getOpeningName } from './utils/openings'
 
 // Identity
 const {
@@ -1230,6 +1239,29 @@ const lastMove = ref<{ from: string; to: string } | null>(null)
 const isReplayMode = ref(false)
 const replayGame = ref<GameHistoryEntry | null>(null)
 const replayShowBestMoves = ref(false)
+
+// Current opening name
+const currentOpeningName = computed(() => {
+  if (isReplayMode.value && replayGame.value) {
+    // In replay mode, use the saved opening or calculate from moves up to viewing position
+    if (viewingMoveIndex.value !== null && viewingMoveIndex.value >= 0) {
+      const movesUpToHere = replayGame.value.moves.slice(0, viewingMoveIndex.value + 1)
+      return getOpeningName(movesUpToHere)
+    }
+    return replayGame.value.opening || getOpeningName(replayGame.value.moves)
+  }
+  
+  // In active game, calculate from current moves up to viewing position
+  if (currentGame.value && currentGame.value.moves.length > 0) {
+    if (viewingMoveIndex.value !== null && viewingMoveIndex.value >= 0) {
+      const movesUpToHere = currentGame.value.moves.slice(0, viewingMoveIndex.value + 1)
+      return getOpeningName(movesUpToHere)
+    }
+    return getOpeningName(currentGame.value.moves)
+  }
+  
+  return null
+})
 
 const difficultyDescriptions: Record<number, string> = {
   0: '😊 Easy - Beginner level (~800-1000 Elo)',
@@ -4132,6 +4164,21 @@ onUnmounted(() => {
 .replay-date {
   color: var(--secondary-color);
   font-size: 0.85rem;
+}
+
+.opening-display {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 8px;
+  color: white;
+  font-size: 0.9rem;
+  text-align: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.opening-display strong {
+  font-weight: 600;
 }
 
 .welcome-screen {
