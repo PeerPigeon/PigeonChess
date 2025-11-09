@@ -1727,12 +1727,13 @@ const makeAIMove = () => {
     }
     
     // Map difficulty to Stockfish settings
+    // Player analysis uses depth 20, so AI should be weaker to give player advantage when following suggestions
     const skillLevel = aiDifficulty.value === 0 ? 0 :
-                       aiDifficulty.value === 1 ? 5 :
-                       aiDifficulty.value === 2 ? 10 : 20
+                       aiDifficulty.value === 1 ? 3 :
+                       aiDifficulty.value === 2 ? 8 : 15
     const depth = aiDifficulty.value === 0 ? 1 : 
-                  aiDifficulty.value === 1 ? 5 :
-                  aiDifficulty.value === 2 ? 10 : 18
+                  aiDifficulty.value === 1 ? 4 :
+                  aiDifficulty.value === 2 ? 8 : 12
     
     // Apply same logic for all difficulties - set options BEFORE ucinewgame
     console.log(`Difficulty ${aiDifficulty.value}: Configuring Stockfish with Skill Level ${skillLevel}`)
