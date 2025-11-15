@@ -87,6 +87,17 @@
           >
             <path d="M 0 0 L 10 5 L 0 10 z" fill="#f87171" />
           </marker>
+          <marker
+            id="arrowhead-blue"
+            viewBox="0 0 10 10"
+            refX="0"
+            refY="5"
+            markerWidth="2.5"
+            markerHeight="2.5"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#3b82f6" />
+          </marker>
         </defs>
         <!-- Permanent arrows (user arrows first, then analysis arrows for correct layering) -->
         <g v-for="(arrow, index) in allArrows" :key="index">
@@ -95,7 +106,7 @@
             :y1="arrow.y1"
             :x2="arrow.x2"
             :y2="arrow.y2"
-            :stroke="arrow.color || getColorFromType(arrow.type)"
+            :stroke="arrow.color ? getAnalysisColor(arrow.color) : getColorFromType(arrow.type)"
             stroke-width="0.15"
             stroke-linecap="round"
             :marker-end="arrow.color ? getAnalysisMarkerUrl(arrow.color) : getMarkerUrl(arrow.type)"
@@ -145,7 +156,8 @@
             'legal-move': isLegalMoveSquare(rowIndex, colIndex),
             'drag-over': isDragOver(rowIndex, colIndex),
             'king-in-check': isKingInCheck(rowIndex, colIndex),
-            'last-move': isLastMoveSquare(rowIndex, colIndex)
+            'last-move': isLastMoveSquare(rowIndex, colIndex),
+            'hint-square': isHintSquare(rowIndex, colIndex)
           }"
           @click="handleSquareClick(rowIndex, colIndex)"
           @dragover.prevent="handleDragOver(rowIndex, colIndex)"
@@ -216,7 +228,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onUnmounted } from 'vue'
+import { ref, shallowRef, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useSounds } from '../composables/useSounds'
 
 interface Props {
@@ -226,6 +238,7 @@ interface Props {
   showCoordinates?: boolean
   lastMove?: { from: string; to: string } | null
   analysisArrows?: Array<{ from: string; to: string; color: string }>
+  hintSquare?: string | null
   pieceColors?: {
     whiteFill?: string
     blackFill?: string
@@ -243,7 +256,8 @@ const props = withDefaults(defineProps<Props>(), {
   interactive: true,
   showCoordinates: true,
   lastMove: null,
-  analysisArrows: () => []
+  analysisArrows: () => [],
+  hintSquare: null
 })
 
 const emit = defineEmits<{
@@ -364,9 +378,20 @@ const getAnalysisMarkerUrl = (color: string): string => {
     return 'url(#arrowhead-yellow)'
   } else if (color === '#f87171') {
     return 'url(#arrowhead-red)'
+  } else if (color === 'blue' || color === '#3b82f6') {
+    return 'url(#arrowhead-blue)'
   }
   return 'url(#arrowhead-neutral)'
 }
+
+const getAnalysisColor = (color: string): string => {
+  if (color === 'green') return '#4ade80'
+  if (color === 'yellow') return '#fbbf24'
+  if (color === 'red') return '#f87171'
+  if (color === 'blue') return '#3b82f6'
+  return color // Return as-is if already hex or unknown
+}
+
 
 const PIECE_SYMBOLS: Record<string, string> = {
   'wp': '♙', 'wn': '♘', 'wb': '♗', 'wr': '♖', 'wq': '♕', 'wk': '♔',
@@ -462,7 +487,7 @@ const getPieceImageWithColors = async (row: number, col: number): Promise<string
 }
 
 // Reactive piece images with colors
-const pieceImages = ref<Map<string, string>>(new Map())
+const pieceImages = shallowRef<Map<string, string>>(new Map())
 
 // Update piece images when colors or board changes
 let lastPieceImageFen = ref('')
@@ -475,17 +500,18 @@ watch([() => props.chess.fen(), customColorsKey], async (newVals) => {
   lastPieceImageFen.value = newFen
   lastCustomColorsKey.value = newKey
   
-  pieceImages.value.clear()
+  const newMap = new Map<string, string>()
   for (let row = 0; row < 8; row++) {
     for (let col = 0; col < 8; col++) {
       const piece = getPiece(row, col)
       if (piece) {
         const key = `${row}-${col}`
         const imageUrl = await getPieceImageWithColors(row, col)
-        pieceImages.value.set(key, imageUrl)
+        newMap.set(key, imageUrl)
       }
     }
   }
+  pieceImages.value = newMap
 }, { immediate: true })
 
 const getPieceImageUrl = (row: number, col: number): string => {
@@ -506,6 +532,12 @@ const isLastMoveSquare = (row: number, col: number): boolean => {
   if (!props.lastMove) return false
   const squareName = getSquareName(row, col)
   return squareName === props.lastMove.from || squareName === props.lastMove.to
+}
+
+const isHintSquare = (row: number, col: number): boolean => {
+  if (!props.hintSquare) return false
+  const squareName = getSquareName(row, col)
+  return squareName === props.hintSquare
 }
 
 const isKingInCheck = (row: number, col: number): boolean => {
@@ -1271,6 +1303,27 @@ const handleMouseDown = (event: MouseEvent) => {
   background-color: rgba(0, 0, 0, 0.25);
   pointer-events: none;
   z-index: 1;
+}
+
+.square.hint-square::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(245, 158, 11, 0.6) 0%, rgba(245, 158, 11, 0.3) 50%, transparent 70%);
+  pointer-events: none;
+  z-index: 2;
+  animation: hintPulse 2s ease-in-out infinite;
+}
+
+@keyframes hintPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.05);
+  }
 }
 
 .square.selected {

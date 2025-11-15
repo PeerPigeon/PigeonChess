@@ -26,6 +26,9 @@
       
       <!-- Dropdown Menu -->
       <div v-if="showMenu" class="dropdown-menu">
+        <button class="menu-item" @click="startPuzzleMode(); showMenu = false">
+          🧩 Puzzles
+        </button>
         <button class="menu-item" @click="showHistory = true; showMenu = false">
           📜 History
         </button>
@@ -307,6 +310,204 @@
                   <span class="move-number">{{ Math.floor(index / 2) + 1 }}{{ index % 2 === 0 ? '.' : '...' }}</span>
                   <span class="move-san">{{ move }}</span>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Puzzle Mode Screen -->
+      <div v-else-if="isPuzzleMode && currentPuzzle" class="game-screen">
+        <div class="game-info">
+          <div class="board-container">
+            <ChessBoard 
+              :chess="chess"
+              :flipped="myPlayer?.color === 'black'"
+              :interactive="puzzleResult === 'pending' && isMyTurn && viewingMoveIndex === null"
+              :last-move="lastMove"
+              :analysis-arrows="analysisArrows"
+              :hint-square="puzzleHintSquare"
+              :piece-colors="{
+                whiteFill: settings.customWhitePieceColor,
+                blackFill: settings.customBlackPieceColor,
+                whiteStroke: settings.customWhitePieceOutline,
+                blackStroke: settings.customBlackPieceOutline
+              }"
+              :white-arrow-color="settings.whiteArrowColor"
+              :black-arrow-color="settings.blackArrowColor"
+              :empty-arrow-color="settings.emptyArrowColor"
+              @move="handleMove"
+            />
+            
+            <!-- Move navigation - Portrait mode (below board, small devices) -->
+            <div v-if="currentGame?.moves && currentGame.moves.length > 0" class="move-navigation-portrait">
+              <button 
+                class="nav-btn"
+                :disabled="viewingMoveIndex === -1"
+                @click="goToStart"
+                title="Go to start"
+              >
+                ⏮
+              </button>
+              <button 
+                class="nav-btn"
+                :disabled="viewingMoveIndex === -1"
+                @click="previousMove"
+                title="Previous move"
+              >
+                ◀
+              </button>
+              <span class="move-counter">
+                {{ viewingMoveIndex === null ? (currentGame?.moves.length || 0) : (viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1) }} / {{ currentGame?.moves.length || 0 }}
+              </span>
+              <button 
+                class="nav-btn"
+                :disabled="viewingMoveIndex === null || viewingMoveIndex === (currentGame?.moves.length || 0) - 1"
+                @click="nextMove"
+                title="Next move"
+              >
+                ▶
+              </button>
+              <button 
+                class="nav-btn"
+                :disabled="viewingMoveIndex === null"
+                @click="goToEnd"
+                title="Go to current position"
+              >
+                ⏭
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <div class="game-controls">
+          <div class="puzzle-info">
+            <h3>🧩 Puzzle Challenge</h3>
+            <p class="puzzle-description">{{ puzzleMessage }}</p>
+            
+            <div v-if="puzzleResult === 'pending'" class="puzzle-hint">
+              <p>Find the best move for {{ myPlayer?.color }}!</p>
+              <p class="difficulty-badge" :class="currentPuzzle.difficulty">
+                {{ currentPuzzle.difficulty.toUpperCase() }}
+              </p>
+              <div class="puzzle-buttons">
+                <button 
+                  v-if="!showPuzzleHint" 
+                  class="hint-btn" 
+                  @click="showPuzzleHintPiece"
+                  title="Highlight which piece to move"
+                  :disabled="showingSolution"
+                >
+                  💡 Hint
+                </button>
+                <button 
+                  v-if="showPuzzleHint && !showPuzzleMove" 
+                  class="move-btn" 
+                  @click="showPuzzleMoveArrow"
+                  title="Show the move with an arrow"
+                  :disabled="showingSolution"
+                >
+                  ➡️ Show Move
+                </button>
+                <button 
+                  class="solution-btn" 
+                  @click="showSolution"
+                  title="Play through the full solution"
+                  :disabled="showingSolution"
+                >
+                  {{ showingSolution ? '⏳ Showing...' : '📖 Solution' }}
+                </button>
+              </div>
+              <div v-if="showPuzzleHint && !showPuzzleMove" class="hint-text">
+                <strong>Hint:</strong> {{ currentPuzzle.hint }}
+              </div>
+              <div v-if="showPuzzleMove" class="hint-text move-shown">
+                <strong>Move shown!</strong> Now you can make the move.
+              </div>
+            </div>
+            
+            <!-- Move History -->
+            <div v-if="currentGame?.moves && currentGame.moves.length > 0" class="moves-history">
+              <div class="moves-header">
+                <h4>Moves</h4>
+                <div class="move-navigation">
+                  <button 
+                    class="nav-btn"
+                    :disabled="viewingMoveIndex === -1"
+                    @click="goToStart"
+                    title="Go to start"
+                  >
+                    ⏮
+                  </button>
+                  <button 
+                    class="nav-btn"
+                    :disabled="viewingMoveIndex === -1"
+                    @click="previousMove"
+                    title="Previous move"
+                  >
+                    ◀
+                  </button>
+                  <span class="move-counter">
+                    {{ viewingMoveIndex === null ? (currentGame?.moves.length || 0) : (viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1) }} / {{ currentGame?.moves.length || 0 }}
+                  </span>
+                  <button 
+                    class="nav-btn"
+                    :disabled="viewingMoveIndex === null || viewingMoveIndex === (currentGame?.moves.length || 0) - 1"
+                    @click="nextMove"
+                    title="Next move"
+                  >
+                    ▶
+                  </button>
+                  <button 
+                    class="nav-btn"
+                    :disabled="viewingMoveIndex === null"
+                    @click="goToEnd"
+                    title="Go to current position"
+                  >
+                    ⏭
+                  </button>
+                </div>
+              </div>
+              <div class="moves-list">
+                <div 
+                  v-for="(move, index) in currentGame.moves" 
+                  :key="index"
+                  class="move-item"
+                  :class="{ 'viewing': index === viewingMoveIndex }"
+                  @click="goToMove(index)"
+                >
+                  <span class="move-number">{{ Math.floor(index / 2) + 1 }}{{ index % 2 === 0 ? '.' : '...' }}</span>
+                  <span class="move-san">{{ move }}</span>
+                </div>
+              </div>
+            </div>
+            
+            <div v-if="puzzleResult === 'correct'" class="puzzle-result success">
+              <h4>🎉 Puzzle Solved!</h4>
+              <p>You found the winning continuation!</p>
+              <div class="puzzle-actions">
+                <button class="primary" @click="loadNextPuzzle">
+                  Next Puzzle
+                </button>
+                <button class="secondary" @click="exitPuzzleMode">
+                  Exit Puzzles
+                </button>
+              </div>
+            </div>
+            
+            <div v-if="puzzleResult === 'incorrect'" class="puzzle-result failure">
+              <h4>Try Again</h4>
+              <p>{{ puzzleMessage }}</p>
+              <div class="puzzle-actions">
+                <button class="primary" @click="retryCurrentPuzzle">
+                  Retry
+                </button>
+                <button class="primary" @click="loadNextPuzzle">
+                  Next Puzzle
+                </button>
+                <button class="secondary" @click="exitPuzzleMode">
+                  Exit Puzzles
+                </button>
               </div>
             </div>
           </div>
@@ -988,6 +1189,7 @@ import { useIdentity } from './composables/useIdentity'
 import type { ChessMessage, GameHistoryEntry } from './types'
 import { saveToLocalStorage, loadFromLocalStorage } from './utils/helpers'
 import { getOpeningName } from './utils/openings'
+import { getRandomPuzzle, type ChessPuzzle } from './utils/puzzles'
 
 // Identity
 const {
@@ -1239,6 +1441,17 @@ const lastMove = ref<{ from: string; to: string } | null>(null)
 const isReplayMode = ref(false)
 const replayGame = ref<GameHistoryEntry | null>(null)
 const replayShowBestMoves = ref(false)
+
+// Puzzle mode
+const isPuzzleMode = ref(false)
+const currentPuzzle = ref<ChessPuzzle | null>(null)
+const puzzleMoveIndex = ref(0)
+const puzzleResult = ref<'correct' | 'incorrect' | 'pending'>('pending')
+const puzzleMessage = ref('')
+const showPuzzleHint = ref(false)
+const showingSolution = ref(false)
+const puzzleHintSquare = ref<string | null>(null)
+const showPuzzleMove = ref(false)
 
 // Current opening name
 const currentOpeningName = computed(() => {
@@ -2176,6 +2389,62 @@ const goToMove = (moveIndex: number) => {
   const moves = isReplayMode.value && replayGame.value ? replayGame.value.moves : currentGame.value?.moves
   if (!moves) return
   
+  // Special handling for puzzle mode - update game state directly
+  if (isPuzzleMode.value && currentPuzzle.value) {
+    if (puzzleResult.value !== 'pending') {
+      puzzleResult.value = 'pending'
+      puzzleMessage.value = currentPuzzle.value.description
+    }
+    // Update puzzle move index to match the position we're viewing
+    puzzleMoveIndex.value = moveIndex + 1
+    
+    // Recreate the board from the puzzle's starting position
+    chess.value = new Chess(currentPuzzle.value.fen)
+    
+    // Play moves up to the selected index
+    let lastMoveObj = null
+    for (let i = 0; i <= moveIndex; i++) {
+      const moveResult = chess.value.move(moves[i])
+      if (i === moveIndex) {
+        lastMoveObj = moveResult
+      }
+    }
+    
+    // Update the game state moves array and current turn
+    if (currentGame.value) {
+      currentGame.value.moves = moves.slice(0, moveIndex + 1)
+      currentGame.value.status = 'active'
+      currentGame.value.currentTurn = chess.value.turn() === 'w' ? 'white' : 'black'
+      currentGame.value.fen = chess.value.fen()
+    }
+    
+    // In puzzle mode, update myPlayer color to match current turn
+    if (myPlayer.value) {
+      myPlayer.value.color = chess.value.turn() === 'w' ? 'white' : 'black'
+    }
+    
+    // Update lastMove for highlighting
+    if (lastMoveObj) {
+      lastMove.value = { from: lastMoveObj.from, to: lastMoveObj.to }
+      
+      // Play appropriate sound
+      if (lastMoveObj.captured) {
+        playCaptureSound()
+      } else if (lastMoveObj.flags.includes('k') || lastMoveObj.flags.includes('q')) {
+        playCastleSound()
+      } else {
+        playMoveSound()
+      }
+    } else {
+      lastMove.value = null
+    }
+    
+    // Set to null to make board interactive
+    viewingMoveIndex.value = null
+    return
+  }
+  
+  // Normal viewing mode for replay/regular games
   // Create a new chess instance for viewing
   viewingChess.value = new Chess()
   
@@ -2247,6 +2516,12 @@ const previousMove = () => {
   const moves = isReplayMode.value && replayGame.value ? replayGame.value.moves : currentGame.value?.moves
   if (!moves || moves.length === 0) return
   
+  // Reset puzzle state if in puzzle mode and navigating backwards
+  if (isPuzzleMode.value && currentPuzzle.value && puzzleResult.value !== 'pending') {
+    puzzleResult.value = 'pending'
+    puzzleMessage.value = currentPuzzle.value.description
+  }
+  
   if (viewingMoveIndex.value === null) {
     // Currently viewing live position, go back one move from the end
     if (moves.length > 1) {
@@ -2264,9 +2539,44 @@ const previousMove = () => {
 }
 
 const goToStart = () => {
-  viewingChess.value = new Chess()
-  chess.value = viewingChess.value
-  viewingMoveIndex.value = -1
+  // Reset puzzle state if in puzzle mode
+  if (isPuzzleMode.value && currentPuzzle.value) {
+    if (puzzleResult.value !== 'pending') {
+      puzzleResult.value = 'pending'
+      puzzleMessage.value = currentPuzzle.value.description
+    }
+    puzzleMoveIndex.value = 0
+    // Set board to puzzle's starting FEN
+    viewingChess.value = new Chess(currentPuzzle.value.fen)
+    chess.value = viewingChess.value
+    
+    // Reset game state moves
+    if (currentGame.value) {
+      currentGame.value.moves = []
+      currentGame.value.status = 'active'
+      currentGame.value.currentTurn = chess.value.turn() === 'w' ? 'white' : 'black'
+      currentGame.value.fen = chess.value.fen()
+    }
+    
+    // In puzzle mode, update myPlayer color to match current turn
+    if (myPlayer.value) {
+      myPlayer.value.color = chess.value.turn() === 'w' ? 'white' : 'black'
+    }
+    
+    // Play sound when navigating back to start
+    playMoveSound()
+    
+    // Make board interactive by setting viewingMoveIndex to null
+    viewingMoveIndex.value = null
+  } else {
+    viewingChess.value = new Chess()
+    chess.value = viewingChess.value
+    viewingMoveIndex.value = -1
+    
+    // Play sound when navigating back to start
+    playMoveSound()
+  }
+  
   lastMove.value = null // Clear highlighting at starting position
 }
 
@@ -3139,6 +3449,31 @@ const declineChallenge = () => {
 }
 
 const handleMove = async (from: string, to: string, promotion?: 'q' | 'r' | 'b' | 'n') => {
+  // Special handling for puzzle mode
+  if (isPuzzleMode.value && currentPuzzle.value) {
+    const success = makeMove({ from, to, promotion })
+    if (success && currentGame.value) {
+      lastMove.value = { from, to }
+      const move = currentGame.value.moves[currentGame.value.moves.length - 1]
+      
+      // Get the chess move result to check for captures
+      const moveHistory = chess.value.history({ verbose: true })
+      const lastMoveData = moveHistory[moveHistory.length - 1]
+      
+      // Play appropriate sound
+      if (lastMoveData.captured) {
+        playCaptureSound()
+      } else if (lastMoveData.flags.includes('k') || lastMoveData.flags.includes('q')) {
+        playCastleSound()
+      } else {
+        playMoveSound()
+      }
+      
+      checkPuzzleMove(move)
+    }
+    return
+  }
+  
   const success = makeMove({ from, to, promotion })
   
   if (success && opponentId.value && currentGame.value) {
@@ -3436,6 +3771,275 @@ const exitReplayMode = () => {
   replayShowBestMoves.value = false
   resetGame()
   viewingMoveIndex.value = null
+}
+
+// Puzzle mode functions
+const startPuzzleMode = () => {
+  // Exit any current modes
+  if (isReplayMode.value) {
+    exitReplayMode()
+  }
+  if (currentGame.value) {
+    returnToLobby()
+  }
+  
+  // Load a random puzzle
+  const puzzle = getRandomPuzzle()
+  currentPuzzle.value = puzzle
+  isPuzzleMode.value = true
+  puzzleMoveIndex.value = 0
+  puzzleResult.value = 'pending'
+  puzzleMessage.value = puzzle.description
+  showPuzzleHint.value = false
+  
+  // Set up the chess board with the puzzle position
+  chess.value = new Chess(puzzle.fen)
+  
+  // Determine who moves first from the FEN
+  const sideToMove = chess.value.turn() // 'w' or 'b'
+  
+  // Create a pseudo game state
+  currentGame.value = {
+    id: `puzzle-${puzzle.id}`,
+    playerWhite: null,
+    playerBlack: null,
+    currentTurn: sideToMove === 'w' ? 'white' : 'black',
+    status: 'active',
+    moves: [],
+    fen: puzzle.fen,
+    createdAt: Date.now()
+  }
+  
+  // Human always plays the side that needs to find the solution (first move in solution)
+  // If puzzle starts with opponent's move, we need to play it first
+  myPlayer.value = {
+    id: 'puzzle-player',
+    color: sideToMove === 'w' ? 'white' : 'black'
+  }
+  
+  lastMove.value = null
+  viewingMoveIndex.value = null
+  showingSolution.value = false
+}
+
+const exitPuzzleMode = () => {
+  isPuzzleMode.value = false
+  currentPuzzle.value = null
+  puzzleMoveIndex.value = 0
+  puzzleResult.value = 'pending'
+  puzzleMessage.value = ''
+  showPuzzleHint.value = false
+  showingSolution.value = false
+  resetGame()
+}
+
+const loadNextPuzzle = () => {
+  startPuzzleMode()
+}
+
+const retryCurrentPuzzle = () => {
+  if (!currentPuzzle.value) return
+  
+  // Keep the same puzzle but reset its state
+  const puzzle = currentPuzzle.value
+  puzzleMoveIndex.value = 0
+  puzzleResult.value = 'pending'
+  puzzleMessage.value = puzzle.description
+  showPuzzleHint.value = false
+  showingSolution.value = false
+  
+  // Reset the chess board to the puzzle's starting position
+  chess.value = new Chess(puzzle.fen)
+  
+  // Update game state
+  if (currentGame.value) {
+    currentGame.value.status = 'active'
+    currentGame.value.moves = []
+    currentGame.value.fen = puzzle.fen
+    currentGame.value.currentTurn = chess.value.turn() === 'w' ? 'white' : 'black'
+  }
+  
+  lastMove.value = null
+  viewingMoveIndex.value = null
+  puzzleHintSquare.value = null
+  showPuzzleMove.value = false
+}
+
+const showPuzzleHintPiece = () => {
+  if (!currentPuzzle.value) return
+  
+  showPuzzleHint.value = true
+  showPuzzleMove.value = false
+  
+  // Get the next expected move
+  const nextMove = currentPuzzle.value.solution[puzzleMoveIndex.value]
+  
+  // Parse the move to get the starting square
+  // Try to make the move on a temporary board to get the from square
+  const tempChess = new Chess(chess.value.fen())
+  const moveResult = tempChess.move(nextMove)
+  
+  if (moveResult) {
+    puzzleHintSquare.value = moveResult.from
+    // Clear analysis arrows
+    analysisArrows.value = []
+  }
+}
+
+const showPuzzleMoveArrow = () => {
+  if (!currentPuzzle.value) return
+  
+  showPuzzleMove.value = true
+  
+  // Get the next expected move
+  const nextMove = currentPuzzle.value.solution[puzzleMoveIndex.value]
+  
+  // Parse the move to get from and to squares
+  const tempChess = new Chess(chess.value.fen())
+  const moveResult = tempChess.move(nextMove)
+  
+  if (moveResult) {
+    analysisArrows.value = [{
+      from: moveResult.from,
+      to: moveResult.to,
+      color: 'blue'
+    }]
+  }
+}
+
+const checkPuzzleMove = (move: string): boolean => {
+  if (!currentPuzzle.value || puzzleResult.value !== 'pending') return false
+  
+  // Clear hint indicators when player makes a move
+  puzzleHintSquare.value = null
+  analysisArrows.value = []
+  showPuzzleHint.value = false
+  showPuzzleMove.value = false
+  
+  const expectedMove = currentPuzzle.value.solution[puzzleMoveIndex.value]
+  
+  if (move === expectedMove) {
+    puzzleMoveIndex.value++
+    
+    // Check if puzzle is complete
+    if (puzzleMoveIndex.value >= currentPuzzle.value.solution.length) {
+      puzzleResult.value = 'correct'
+      puzzleMessage.value = '✅ Puzzle solved! Great job!'
+      playWinSound() // Play success sound
+      if (currentGame.value) {
+        currentGame.value.status = 'finished'
+      }
+      return true
+    }
+    
+    // If there's an opponent response move, play it automatically
+    if (puzzleMoveIndex.value < currentPuzzle.value.solution.length) {
+      const opponentMove = currentPuzzle.value.solution[puzzleMoveIndex.value]
+      
+      // Check if this is an opponent's move (opposite color)
+      const currentPlayerColor = myPlayer.value?.color
+      const currentTurn = chess.value.turn() === 'w' ? 'white' : 'black'
+      
+      if (currentTurn !== currentPlayerColor) {
+        // This is the opponent's turn, play their move automatically
+        setTimeout(() => {
+          if (!currentPuzzle.value) return
+          
+          const result = chess.value.move(opponentMove)
+          if (result && currentGame.value) {
+            currentGame.value.moves.push(result.san)
+            currentGame.value.fen = chess.value.fen()
+            currentGame.value.currentTurn = chess.value.turn() === 'w' ? 'white' : 'black'
+            lastMove.value = { from: result.from, to: result.to }
+            
+            // Play move sound
+            if (result.captured) {
+              playCaptureSound()
+            } else {
+              playMoveSound()
+            }
+            
+            puzzleMoveIndex.value++
+            
+            // Check if puzzle is now complete after opponent's move
+            if (puzzleMoveIndex.value >= currentPuzzle.value.solution.length) {
+              puzzleResult.value = 'correct'
+              puzzleMessage.value = '✅ Puzzle solved! Great job!'
+              playWinSound() // Play success sound
+              if (currentGame.value) {
+                currentGame.value.status = 'finished'
+              }
+            } else {
+              puzzleMessage.value = `Good! Now find the next move...`
+            }
+          }
+        }, 500) // Small delay to make it feel more natural
+      }
+    }
+    
+    puzzleMessage.value = `Good move! Continue...`
+    return true
+  } else {
+    // Incorrect move
+    puzzleResult.value = 'incorrect'
+    puzzleMessage.value = `❌ Incorrect! The correct move was ${expectedMove}. Try again?`
+    if (currentGame.value) {
+      currentGame.value.status = 'finished'
+    }
+    return false
+  }
+}
+
+const showSolution = async () => {
+  if (!currentPuzzle.value || showingSolution.value) return
+  
+  showingSolution.value = true
+  puzzleResult.value = 'pending'
+  puzzleMessage.value = 'Showing solution...'
+  
+  // Reset to puzzle start
+  chess.value = new Chess(currentPuzzle.value.fen)
+  if (currentGame.value) {
+    currentGame.value.moves = []
+    currentGame.value.fen = currentPuzzle.value.fen
+    currentGame.value.currentTurn = chess.value.turn() === 'w' ? 'white' : 'black'
+  }
+  lastMove.value = null
+  
+  // Play through each move in the solution with delays
+  for (let i = 0; i < currentPuzzle.value.solution.length; i++) {
+    await new Promise(resolve => setTimeout(resolve, 800)) // 800ms delay between moves
+    
+    const moveNotation = currentPuzzle.value.solution[i]
+    const result = chess.value.move(moveNotation)
+    
+    if (result && currentGame.value) {
+      currentGame.value.moves.push(result.san)
+      currentGame.value.fen = chess.value.fen()
+      currentGame.value.currentTurn = chess.value.turn() === 'w' ? 'white' : 'black'
+      lastMove.value = { from: result.from, to: result.to }
+      
+      // Play appropriate sound
+      if (result.captured) {
+        playCaptureSound()
+      } else if (result.flags.includes('k') || result.flags.includes('q')) {
+        playCastleSound()
+      } else {
+        playMoveSound()
+      }
+      
+      puzzleMessage.value = `Solution: ${i + 1}/${currentPuzzle.value.solution.length} - ${result.san}`
+    }
+  }
+  
+  // After showing solution, mark as complete
+  await new Promise(resolve => setTimeout(resolve, 1000))
+  puzzleResult.value = 'correct'
+  puzzleMessage.value = '✅ Solution shown!'
+  if (currentGame.value) {
+    currentGame.value.status = 'finished'
+  }
+  showingSolution.value = false
 }
 
 const getResultText = (): string => {
@@ -4089,6 +4693,219 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   overflow: hidden;
+}
+
+/* Puzzle Mode Styles */
+.puzzle-info {
+  padding: 1.5rem;
+  background: var(--light-color);
+  border-radius: 12px;
+  margin-bottom: 1rem;
+}
+
+.puzzle-info h3 {
+  margin: 0 0 1rem 0;
+  color: var(--primary-color);
+  font-size: 1.5rem;
+  text-align: center;
+}
+
+.puzzle-description {
+  font-size: 1rem;
+  color: var(--dark-color);
+  margin-bottom: 1rem;
+  text-align: center;
+  font-weight: 500;
+}
+
+.puzzle-hint {
+  background: #eff6ff;
+  border: 2px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 1rem;
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.puzzle-hint p {
+  margin: 0.5rem 0;
+  color: var(--dark-color);
+  font-size: 0.95rem;
+}
+
+.puzzle-buttons {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.hint-btn, .solution-btn, .move-btn {
+  padding: 0.5rem 1.25rem;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.hint-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.hint-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.move-btn {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}
+
+.move-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.solution-btn {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+}
+
+.solution-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
+.hint-btn:disabled, .solution-btn:disabled, .move-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.hint-btn:active:not(:disabled), .solution-btn:active:not(:disabled), .move-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.hint-text {
+  background: #fef3c7;
+  border: 2px solid #fbbf24;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-top: 0.75rem;
+  text-align: left;
+  animation: slideDown 0.3s ease;
+}
+
+.hint-text.move-shown {
+  background: #d1fae5;
+  border-color: #10b981;
+}
+
+.hint-text.move-shown strong {
+  color: #065f46;
+}
+
+.hint-text strong {
+  color: #92400e;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.difficulty-badge {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-weight: bold;
+  font-size: 0.9rem;
+  margin-top: 0.5rem;
+}
+
+.difficulty-badge.easy {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.difficulty-badge.medium {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.difficulty-badge.hard {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.puzzle-result {
+  background: white;
+  border-radius: 10px;
+  padding: 1.5rem;
+  text-align: center;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.puzzle-result h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1.3rem;
+}
+
+.puzzle-result p {
+  margin: 0.5rem 0;
+}
+
+.puzzle-result.success {
+  border: 3px solid #10b981;
+}
+
+.puzzle-result.success h4 {
+  color: #10b981;
+}
+
+.puzzle-result.failure {
+  border: 3px solid #f59e0b;
+}
+
+.puzzle-result.failure h4 {
+  color: #f59e0b;
+}
+
+.puzzle-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.puzzle-actions button {
+  width: 100%;
+}
+
+.puzzle-permanent-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid #e2e8f0;
+}
+
+.puzzle-permanent-actions button {
+  width: 100%;
+  font-weight: 600;
 }
 
 .replay-info-section {
