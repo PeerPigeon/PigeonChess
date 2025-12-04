@@ -21,8 +21,8 @@
   "dependencies": {
     "chess.js": "^1.4.0",
     "peerpigeon": "^1.0.6",
-    "pigeonidp": "github:PeerPigeon/PigeonIdP",
-    "pigeonmatch": "github:PeerPigeon/PigeonMatch",
+    "pigeonidp": "git+https://github.com/PeerPigeon/PigeonIdP.git",
+    "pigeonmatch": "git+https://github.com/PeerPigeon/PigeonMatch.git",
     "vue": "^3.5.22"
   },
   "devDependencies": {

@@ -163,7 +163,7 @@ const getMoveDotColor = (hexColor: string): string => {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  signalingUrls: ['wss://pigeonhub.fly.dev', 'wss://pigeonhub-c.fly.dev'],
+  signalingUrls: ['wss://pigeonhub-b.fly.dev', 'wss://pigeonhub-c.fly.dev'],
   networkName: 'pigeonchess',
   boardTheme: 'blue',
   soundEnabled: true
