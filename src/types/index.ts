@@ -64,6 +64,7 @@ export interface GameHistoryEntry {
 }
 
 export interface Settings {
+  settingsVersion?: number
   signalingUrls: string[]
   mutedSignalingUrls?: string[]
   networkName: string

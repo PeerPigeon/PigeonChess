@@ -163,15 +163,39 @@ const getMoveDotColor = (hexColor: string): string => {
 }
 
 const DEFAULT_SETTINGS: Settings = {
+  settingsVersion: 2,
   signalingUrls: ['wss://pigeonhub-b.fly.dev', 'wss://pigeonhub-c.fly.dev'],
   mutedSignalingUrls: [],
-  networkName: 'pigeonchess',
+  networkName: 'global',
   boardTheme: 'blue',
   soundEnabled: true
 }
 
 export function useSettings() {
-  const settings = ref<Settings>(loadFromLocalStorage('chess-settings', DEFAULT_SETTINGS))
+  const loaded = loadFromLocalStorage<Partial<Settings>>('chess-settings', {})
+
+  const loadedVersion = typeof loaded.settingsVersion === 'number' ? loaded.settingsVersion : 0
+
+  let normalizedNetworkName = typeof loaded.networkName === 'string' && loaded.networkName.trim().length > 0
+    ? loaded.networkName.trim()
+    : DEFAULT_SETTINGS.networkName
+
+  if (loadedVersion < (DEFAULT_SETTINGS.settingsVersion ?? 0) && normalizedNetworkName === 'pigeonchess') {
+    normalizedNetworkName = 'global'
+  }
+
+  const settings = ref<Settings>({
+    ...DEFAULT_SETTINGS,
+    ...loaded,
+    settingsVersion: DEFAULT_SETTINGS.settingsVersion,
+    signalingUrls: Array.isArray(loaded.signalingUrls) && loaded.signalingUrls.length > 0
+      ? loaded.signalingUrls
+      : DEFAULT_SETTINGS.signalingUrls,
+    mutedSignalingUrls: Array.isArray(loaded.mutedSignalingUrls)
+      ? loaded.mutedSignalingUrls
+      : [],
+    networkName: normalizedNetworkName
+  })
 
   // Apply board theme on load
   const applyBoardTheme = (themeId: string) => {

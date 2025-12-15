@@ -1239,7 +1239,7 @@ const {
   dhtGet
 } = usePeerPigeon({
   // Don't provide a custom peerId - let PeerPigeon generate its own
-  networkName: settings.value.networkName,
+  networkName: settings.value.networkName || 'global',
   maxPeers: 10,
   minPeers: 1,
   enableCrypto: true,

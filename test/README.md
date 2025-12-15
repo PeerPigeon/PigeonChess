@@ -32,7 +32,7 @@ The E2E runner starts a local Vite dev server and then runs the Puppeteer test.
 - `E2E_SIGNALING_URL`: force both players to use a single signaling server URL
 - `E2E_SIGNALING_URL_P1`: Player 1 signaling server (default `wss://pigeonhub-b.fly.dev`)
 - `E2E_SIGNALING_URL_P2`: Player 2 signaling server (default `wss://pigeonhub-c.fly.dev`)
-- `E2E_NETWORK_NAME`: network namespace (default `pigeonchess`)
+- `E2E_NETWORK_NAME`: network namespace (default `global`)
 - `E2E_DISABLE_SOUND`: set to `false` to enable sound (default `true`)
 
 ### What the Test Does
