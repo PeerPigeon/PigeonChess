@@ -164,6 +164,7 @@ const getMoveDotColor = (hexColor: string): string => {
 
 const DEFAULT_SETTINGS: Settings = {
   signalingUrls: ['wss://pigeonhub-b.fly.dev', 'wss://pigeonhub-c.fly.dev'],
+  mutedSignalingUrls: [],
   networkName: 'pigeonchess',
   boardTheme: 'blue',
   soundEnabled: true
@@ -251,6 +252,10 @@ export function useSettings() {
 
   const removeSignalingUrl = (url: string) => {
     settings.value.signalingUrls = settings.value.signalingUrls.filter(u => u !== url)
+
+    if (settings.value.mutedSignalingUrls?.length) {
+      settings.value.mutedSignalingUrls = settings.value.mutedSignalingUrls.filter(u => u !== url)
+    }
   }
 
   const resetToDefaults = () => {

@@ -13,7 +13,14 @@
               type="text" 
               v-model="settings.signalingUrls[index]"
               placeholder="wss://example.com"
+              :disabled="isUrlMuted(url)"
             />
+            <button
+              class="secondary"
+              @click="toggleMuteUrl(url)"
+            >
+              {{ isUrlMuted(url) ? 'Unmute' : 'Mute' }}
+            </button>
             <button 
               class="danger"
               @click="removeUrl(url)"
@@ -356,6 +363,20 @@ const toggleSound = (event: Event) => {
 
 const usePigeonhobbsTo = () => {
   props.settings.signalingUrls = ['wss://pigeonhobbs.to']
+  props.settings.mutedSignalingUrls = []
+}
+
+const isUrlMuted = (url: string) => {
+  return (props.settings.mutedSignalingUrls || []).includes(url)
+}
+
+const toggleMuteUrl = (url: string) => {
+  const current = props.settings.mutedSignalingUrls || []
+  if (current.includes(url)) {
+    props.settings.mutedSignalingUrls = current.filter(u => u !== url)
+  } else {
+    props.settings.mutedSignalingUrls = [...current, url]
+  }
 }
 </script>
 

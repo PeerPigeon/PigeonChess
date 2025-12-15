@@ -3345,7 +3345,14 @@ const initializeAndConnect = async () => {
     
     // Try to connect to signaling servers to bootstrap faster, but don't require it
     let connectedCount = 0
-    const connectionPromises = settings.value.signalingUrls.map(async (url) => {
+    const mutedUrls = new Set(settings.value.mutedSignalingUrls || [])
+    const activeSignalingUrls = settings.value.signalingUrls.filter(url => !mutedUrls.has(url))
+
+    if (activeSignalingUrls.length === 0) {
+      console.log('All signaling servers are muted - relying on WebDHT for serverless peer discovery')
+    }
+
+    const connectionPromises = activeSignalingUrls.map(async (url) => {
       try {
         console.log('Attempting to connect to signaling server:', url)
         await connect(url)

@@ -65,6 +65,7 @@ export interface GameHistoryEntry {
 
 export interface Settings {
   signalingUrls: string[]
+  mutedSignalingUrls?: string[]
   networkName: string
   boardTheme?: string
   customLightSquare?: string
