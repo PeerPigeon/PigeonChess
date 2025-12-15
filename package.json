@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:e2e": "tsc -p tsconfig.test.json && node test-dist/vector-clock-test.js"
+    "test:e2e:compile": "tsc -p tsconfig.test.json",
+    "test:e2e:runner": "node test-dist/vector-clock-test.js",
+    "test:e2e": "node scripts/run-e2e.mjs"
   },
   "keywords": [
     "chess",

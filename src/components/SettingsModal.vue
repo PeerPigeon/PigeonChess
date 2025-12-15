@@ -33,6 +33,10 @@
           />
           <button class="success" @click="addUrl">Add URL</button>
         </div>
+
+        <div class="presets">
+          <button class="secondary" @click="usePigeonhobbsTo">Use pigeonhobbs.to</button>
+        </div>
       </div>
       
       <div class="settings-section">
@@ -349,6 +353,10 @@ const toggleSound = (event: Event) => {
   const enabled = (event.target as HTMLInputElement).checked
   emit('toggleSound', enabled)
 }
+
+const usePigeonhobbsTo = () => {
+  props.settings.signalingUrls = ['wss://pigeonhobbs.to']
+}
 </script>
 
 <style scoped>
@@ -404,6 +412,13 @@ h2 {
 
 .add-url input {
   flex: 1;
+}
+
+.presets {
+  margin-top: 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 input {

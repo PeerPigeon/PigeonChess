@@ -148,6 +148,7 @@
           v-for="(__, colIndex) in 8"
           :key="colIndex"
           class="square"
+          :data-square="getSquareId(rowIndex, colIndex)"
           :class="{
             light: (rowIndex + colIndex) % 2 === 0,
             dark: (rowIndex + colIndex) % 2 === 1,
@@ -259,6 +260,12 @@ const props = withDefaults(defineProps<Props>(), {
   analysisArrows: () => [],
   hintSquare: null
 })
+
+const getSquareId = (rowIndex: number, colIndex: number) => {
+  const file = String.fromCharCode(97 + colIndex)
+  const rank = String(8 - rowIndex)
+  return `${file}${rank}`
+}
 
 const emit = defineEmits<{
   move: [from: string, to: string, promotion?: 'q' | 'r' | 'b' | 'n']

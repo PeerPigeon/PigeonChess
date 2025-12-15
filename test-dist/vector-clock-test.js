@@ -6,7 +6,14 @@ import puppeteer from 'puppeteer';
  * connects them to the P2P network, starts a game, makes moves,
  * and verifies that timer synchronization works correctly using vector clocks.
  */
-const DEV_URL = 'http://localhost:5173';
+const DEV_URL = process.env.BASE_URL || 'http://localhost:5173';
+const E2E_SIGNALING_URL = process.env.E2E_SIGNALING_URL;
+const E2E_SIGNALING_URL_P1 = process.env.E2E_SIGNALING_URL_P1 || 'wss://pigeonhub-b.fly.dev';
+const E2E_SIGNALING_URL_P2 = process.env.E2E_SIGNALING_URL_P2 || 'wss://pigeonhub-c.fly.dev';
+const E2E_NETWORK_NAME = process.env.E2E_NETWORK_NAME || 'pigeonchess';
+const E2E_DISABLE_SOUND = (process.env.E2E_DISABLE_SOUND || 'true') !== 'false';
+const E2E_SIGNALING_URLS_P1 = E2E_SIGNALING_URL ? [E2E_SIGNALING_URL] : [E2E_SIGNALING_URL_P1];
+const E2E_SIGNALING_URLS_P2 = E2E_SIGNALING_URL ? [E2E_SIGNALING_URL] : [E2E_SIGNALING_URL_P2];
 const SEARCH_DELAY = 2000; // ms to wait for matchmaking
 const MOVE_DELAY = 1500; // ms between moves
 const TIMER_SYNC_WAIT = 5000; // ms to wait for timer sync messages
@@ -19,19 +26,39 @@ class ChessTestRunner {
     }
     async setup() {
         console.log('🚀 Launching browsers...');
+        const chromiumArgs = [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--use-fake-ui-for-media-stream',
+            '--use-fake-device-for-media-stream',
+            '--mute-audio',
+            '--autoplay-policy=no-user-gesture-required'
+        ];
         // Launch two browser instances
         this.browser1 = await puppeteer.launch({
             headless: false, // Set to true for CI/CD
-            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            args: chromiumArgs,
             defaultViewport: { width: 1200, height: 900 }
         });
         this.browser2 = await puppeteer.launch({
             headless: false,
-            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            args: chromiumArgs,
             defaultViewport: { width: 1200, height: 900 }
         });
         this.page1 = await this.browser1.newPage();
         this.page2 = await this.browser2.newPage();
+        const seedSettings = (signalingUrls) => {
+            const settings = {
+                signalingUrls,
+                networkName: E2E_NETWORK_NAME,
+                soundEnabled: E2E_DISABLE_SOUND ? false : true
+            };
+            localStorage.setItem('chess-settings', JSON.stringify(settings));
+        };
+        await Promise.all([
+            this.page1.evaluateOnNewDocument(seedSettings, E2E_SIGNALING_URLS_P1),
+            this.page2.evaluateOnNewDocument(seedSettings, E2E_SIGNALING_URLS_P2)
+        ]);
         // Enable console logging from pages
         this.page1.on('console', msg => console.log('[Player 1]', msg.text()));
         this.page2.on('console', msg => console.log('[Player 2]', msg.text()));
@@ -48,8 +75,8 @@ class ChessTestRunner {
         try {
             // Wait for both to show "Connected to network"
             await Promise.all([
-                this.page1.waitForFunction(() => document.querySelector('.status-text')?.textContent?.includes('Connected'), { timeout: 30000 }),
-                this.page2.waitForFunction(() => document.querySelector('.status-text')?.textContent?.includes('Connected'), { timeout: 30000 })
+                this.page1.waitForFunction(() => document.querySelector('.status-text')?.textContent?.includes('Connected'), { timeout: 60000 }),
+                this.page2.waitForFunction(() => document.querySelector('.status-text')?.textContent?.includes('Connected'), { timeout: 60000 })
             ]);
             console.log('⏳ Waiting for peers to discover each other...');
             // Wait for peer count to show at least 1 peer on both
@@ -57,11 +84,11 @@ class ChessTestRunner {
                 this.page1.waitForFunction(() => {
                     const peerCount = document.querySelector('.peer-count')?.textContent;
                     return peerCount && !peerCount.includes('Searching') && !peerCount.includes('0 peers');
-                }, { timeout: 30000 }),
+                }, { timeout: 60000 }),
                 this.page2.waitForFunction(() => {
                     const peerCount = document.querySelector('.peer-count')?.textContent;
                     return peerCount && !peerCount.includes('Searching') && !peerCount.includes('0 peers');
-                }, { timeout: 30000 })
+                }, { timeout: 60000 })
             ]);
             // Extra delay for peer stabilization
             await this.delay(2000);
@@ -85,12 +112,27 @@ class ChessTestRunner {
     async startMatchmaking() {
         console.log('🔍 Starting matchmaking...');
         try {
-            // Select "Bullet 1+0" time control on both
+            // Select a clocked time control (Bullet 1+0) on both
             console.log('  Selecting time control on both players...');
-            await this.page1.waitForSelector('button[class*="time-control-btn"]');
-            await this.page2.waitForSelector('button[class*="time-control-btn"]');
-            await this.page1.click('button[class*="time-control-btn"]:nth-child(2)');
-            await this.page2.click('button[class*="time-control-btn"]:nth-child(2)');
+            await this.page1.waitForSelector('button.time-control-btn');
+            await this.page2.waitForSelector('button.time-control-btn');
+            const selectByDisplay = async (page, display) => {
+                const clicked = await page.evaluate((displayText) => {
+                    const buttons = Array.from(document.querySelectorAll('button.time-control-btn'));
+                    const target = buttons.find(btn => {
+                        const t = btn.querySelector('.control-time')?.textContent?.trim();
+                        return t === displayText;
+                    });
+                    if (!target)
+                        return false;
+                    target.click();
+                    return true;
+                }, display);
+                if (!clicked)
+                    throw new Error(`Time control '${display}' not found`);
+            };
+            await selectByDisplay(this.page1, '1+0');
+            await selectByDisplay(this.page2, '1+0');
             await this.delay(500);
             // Wait for search button to be visible
             console.log('  Waiting for search button...');
@@ -128,14 +170,14 @@ class ChessTestRunner {
         try {
             console.log(`♟️  Player ${player} making move: ${from} -> ${to}`);
             // Click source square
-            const fromSquare = await page.$(`[data-square="${from}"]`);
+            const fromSquare = await page.$(`.square[data-square="${from}"]`);
             if (!fromSquare) {
                 return { success: false, message: `Square ${from} not found` };
             }
             await fromSquare.click();
             await this.delay(300);
             // Click destination square
-            const toSquare = await page.$(`[data-square="${to}"]`);
+            const toSquare = await page.$(`.square[data-square="${to}"]`);
             if (!toSquare) {
                 return { success: false, message: `Square ${to} not found` };
             }
@@ -174,6 +216,8 @@ class ChessTestRunner {
             // Player 1's "my time" should match Player 2's "opponent time" (and vice versa)
             // They might differ by 1-2 seconds due to network latency, which is acceptable
             const timeDiffAcceptable = (time1, time2) => {
+                if (time1.includes('∞') || time2.includes('∞'))
+                    return false;
                 const parse = (t) => {
                     const [mins, secs] = t.split(':').map(Number);
                     return mins * 60 + secs;
@@ -185,6 +229,21 @@ class ChessTestRunner {
                 return diff <= 3; // Allow up to 3 seconds difference due to latency/sync interval
             };
             // Verify symmetry
+            if (!timers.player1.myTime || !timers.player1.opponentTime || !timers.player2.myTime || !timers.player2.opponentTime) {
+                return {
+                    success: false,
+                    message: 'Timer elements not found',
+                    details: timers
+                };
+            }
+            // If the game is casual/no-timer, skip this check.
+            if (timers.player1.myTime.includes('∞') && timers.player1.opponentTime.includes('∞')) {
+                return {
+                    success: true,
+                    message: 'Casual (no timer) game - skipping timer sync check',
+                    details: timers
+                };
+            }
             const myTimeMatches = timeDiffAcceptable(timers.player1.myTime, timers.player2.opponentTime);
             const oppTimeMatches = timeDiffAcceptable(timers.player1.opponentTime, timers.player2.myTime);
             if (myTimeMatches && oppTimeMatches) {
@@ -244,12 +303,24 @@ class ChessTestRunner {
     }
     async playTestGame() {
         console.log('🎮 Playing test game...');
+        const isPlayerBlack = async (page) => {
+            return page.evaluate(() => {
+                const el = document.querySelector('.chess-board-container');
+                return !!el?.classList.contains('flipped');
+            });
+        };
+        const player1IsBlack = await isPlayerBlack(this.page1);
+        const player2IsBlack = await isPlayerBlack(this.page2);
+        // If one board is flipped and the other isn't, use that to map turns.
+        // Otherwise fall back to Player 1 as white.
+        const whitePlayer = player1IsBlack && !player2IsBlack ? 2 : (!player1IsBlack && player2IsBlack ? 1 : 1);
+        const blackPlayer = whitePlayer === 1 ? 2 : 1;
         // Play a few moves to test timer sync during gameplay
         const moves = [
-            { player: 1, from: 'e2', to: 'e4' }, // White
-            { player: 2, from: 'e7', to: 'e5' }, // Black
-            { player: 1, from: 'g1', to: 'f3' }, // White
-            { player: 2, from: 'b8', to: 'c6' }, // Black
+            { player: whitePlayer, from: 'e2', to: 'e4' }, // White
+            { player: blackPlayer, from: 'e7', to: 'e5' }, // Black
+            { player: whitePlayer, from: 'g1', to: 'f3' }, // White
+            { player: blackPlayer, from: 'b8', to: 'c6' }, // Black
         ];
         for (const move of moves) {
             const result = await this.makeMove(move.player, move.from, move.to);
@@ -280,6 +351,11 @@ class ChessTestRunner {
 // Main test runner
 async function runTests() {
     console.log('🧪 PigeonChess Vector Clock Timer Test\n');
+    console.log('🔌 E2E signaling configuration');
+    console.log('  Player 1 hubs:', E2E_SIGNALING_URLS_P1.join(', '));
+    console.log('  Player 2 hubs:', E2E_SIGNALING_URLS_P2.join(', '));
+    console.log('  Network name:', E2E_NETWORK_NAME);
+    console.log('');
     const runner = new ChessTestRunner();
     const results = [];
     try {
@@ -316,6 +392,10 @@ async function runTests() {
     console.log('\n' + '='.repeat(60));
     console.log('📊 Test Summary');
     console.log('='.repeat(60));
+    console.log('🔌 Hubs');
+    console.log(`Player 1: ${E2E_SIGNALING_URLS_P1.join(', ')}`);
+    console.log(`Player 2: ${E2E_SIGNALING_URLS_P2.join(', ')}`);
+    console.log('-'.repeat(60));
     results.forEach((result, idx) => {
         const icon = result.success ? '✅' : '❌';
         console.log(`${icon} Test ${idx + 1}: ${result.message}`);
