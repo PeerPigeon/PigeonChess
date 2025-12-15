@@ -8,8 +8,8 @@ import puppeteer from 'puppeteer';
  */
 const DEV_URL = process.env.BASE_URL || 'http://localhost:5173';
 const E2E_SIGNALING_URL = process.env.E2E_SIGNALING_URL;
-const E2E_SIGNALING_URL_P1 = process.env.E2E_SIGNALING_URL_P1 || 'wss://pigeonhub-b.fly.dev';
-const E2E_SIGNALING_URL_P2 = process.env.E2E_SIGNALING_URL_P2 || 'wss://pigeonhub-c.fly.dev';
+const E2E_SIGNALING_URL_P1 = process.env.E2E_SIGNALING_URL_P1 || 'wss://pigeonhub.fly.dev';
+const E2E_SIGNALING_URL_P2 = process.env.E2E_SIGNALING_URL_P2 || 'wss://pigeonhub.fly.dev';
 const E2E_NETWORK_NAME = process.env.E2E_NETWORK_NAME || 'global';
 const E2E_DISABLE_SOUND = (process.env.E2E_DISABLE_SOUND || 'true') !== 'false';
 const E2E_SIGNALING_URLS_P1 = E2E_SIGNALING_URL ? [E2E_SIGNALING_URL] : [E2E_SIGNALING_URL_P1];
