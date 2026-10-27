@@ -78,7 +78,21 @@ class CompatMesh {
 
 const text = (message: any) => (typeof message === 'string' ? message : JSON.stringify(message))
 
-async function sendDirect(node: any, peerId: string, message: any) {
+/**
+ * Messages to one peer leave in the order they were sent. Encryption is async,
+ * so without this a timer sync could overtake the move sent just before it.
+ */
+const sendQueues = new Map<string, Promise<unknown>>()
+
+function sendDirect(node: any, peerId: string, message: any): Promise<unknown> {
+  const previous = sendQueues.get(peerId) ?? Promise.resolve()
+  const next = previous.catch(() => {}).then(() => sendDirectNow(node, peerId, message))
+  sendQueues.set(peerId, next)
+  next.finally(() => { if (sendQueues.get(peerId) === next) sendQueues.delete(peerId) }).catch(() => {})
+  return next
+}
+
+async function sendDirectNow(node: any, peerId: string, message: any) {
   if (!node) throw new Error('Mesh not started')
   const body = text(message)
   if (node.crypto) {

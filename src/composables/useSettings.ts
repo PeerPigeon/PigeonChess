@@ -5,8 +5,17 @@ import { loadFromLocalStorage, saveToLocalStorage } from '@/utils/helpers'
 
 const BOARD_THEMES: BoardTheme[] = [
   {
+    id: 'slate',
+    name: 'Pigeon slate',
+    light: '#d6dce0',
+    dark: '#6e7f8d',
+    highlight: 'rgba(122, 92, 153, 0.28)',
+    selected: 'rgba(46, 125, 111, 0.45)',
+    moveDot: 'rgba(28, 33, 38, 0.22)'
+  },
+  {
     id: 'blue',
-    name: 'Blue (Default)',
+    name: 'Blue',
     light: '#e0e7ff',
     dark: '#6366f1',
     highlight: 'rgba(99, 102, 241, 0.3)',
@@ -78,7 +87,7 @@ const BOARD_THEMES: BoardTheme[] = [
   },
   {
     id: 'custom',
-    name: 'Custom Colors',
+    name: 'Your own',
     light: '#f0d9b5',
     dark: '#b58863',
     highlight: 'rgba(181, 136, 99, 0.3)',
@@ -138,7 +147,7 @@ const PIECE_THEMES: PieceTheme[] = [
   },
   {
     id: 'custom',
-    name: 'Custom Colors',
+    name: 'Your own',
     whiteFill: '#ffffff',
     whiteStroke: '#000000',
     blackFill: '#000000',
@@ -164,11 +173,11 @@ const getMoveDotColor = (hexColor: string): string => {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  settingsVersion: 2,
+  settingsVersion: 3,
   signalingUrls: [...DEFAULT_SIGNALING_URLS],
   mutedSignalingUrls: [],
   networkName: 'global',
-  boardTheme: 'blue',
+  boardTheme: 'slate',
   soundEnabled: true
 }
 
@@ -185,9 +194,15 @@ export function useSettings() {
     normalizedNetworkName = 'global'
   }
 
+  // Version 3 made Pigeon slate the default board; move people still on the old default.
+  const boardTheme = loadedVersion < 3 && (!loaded.boardTheme || loaded.boardTheme === 'blue')
+    ? DEFAULT_SETTINGS.boardTheme
+    : loaded.boardTheme
+
   const settings = ref<Settings>({
     ...DEFAULT_SETTINGS,
     ...loaded,
+    boardTheme,
     settingsVersion: DEFAULT_SETTINGS.settingsVersion,
     signalingUrls: migrateSignalingUrls(Array.isArray(loaded.signalingUrls) ? loaded.signalingUrls : undefined),
     mutedSignalingUrls: Array.isArray(loaded.mutedSignalingUrls)
@@ -211,7 +226,7 @@ export function useSettings() {
       
       theme = {
         id: 'custom',
-        name: 'Custom Colors',
+        name: 'Your own',
         light: lightSquare,
         dark: darkSquare,
         highlight: `${darkSquare}4d`, // 30% opacity
@@ -233,7 +248,7 @@ export function useSettings() {
   }
 
   // Apply theme on initialization
-  applyBoardTheme(settings.value.boardTheme || 'blue')
+  applyBoardTheme(settings.value.boardTheme || 'slate')
   
   // Apply piece colors on initialization
   const applyPieceColors = () => {

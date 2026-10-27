@@ -1,259 +1,225 @@
+/*
+  PigeonChess, "Pigeon slate".
+  Feather greys for the room, slate and pale wing for the board, and the green
+  sheen of a pigeon's neck used only for what is live: your move, your clock
+  running, the one button that starts something. Violet marks the last move.
+*/
 :root {
-  --primary-color: #2563eb;
-  --primary-hover: #1d4ed8;
-  --primary-light: #3b82f6;
-  --secondary-color: #64748b;
-  --success-color: #2563eb;
-  --danger-color: #dc2626;
-  --warning-color: #d97706;
-  --info-color: #0ea5e9;
-  --light-color: #f1f5f9;
-  --dark-color: #1e293b;
+  --paper: #e9ecee;      /* the room */
+  --surface: #f6f7f8;    /* raised: sheets, inputs */
+  --ink: #1c2126;
+  --ink-2: #56616b;      /* secondary text */
+  --line: #c6ced4;
+  --line-strong: #9aa6af;
+  --wing: #d6dce0;       /* light squares */
+  --slate: #6e7f8d;      /* dark squares */
+  --sheen: #2e7d6f;      /* live: your move, go */
+  --sheen-deep: #24665a;
+  --sheen-wash: #d3e6e1;
+  --violet: #7a5c99;     /* last move */
+  --stop: #a8473d;       /* resign, errors */
+  --stop-wash: #f1dcd8;
+
+  --font: 'Archivo Variable', 'Archivo', system-ui, sans-serif;
+  --topbar: 56px;
+  --radius: 6px;
+
+  /* Board variables read by ChessBoard and the theme picker */
+  --board-light: var(--wing);
+  --board-dark: var(--slate);
+  --board-highlight: rgba(122, 92, 153, 0.28);
+  --board-selected: rgba(46, 125, 111, 0.45);
+  --board-move-dot: rgba(28, 33, 38, 0.22);
+
+  /* Names older component styles still use */
+  --primary-color: var(--sheen);
+  --primary-hover: var(--sheen-deep);
+  --primary-light: var(--sheen);
+  --secondary-color: var(--ink-2);
+  --success-color: var(--sheen);
+  --danger-color: var(--stop);
+  --warning-color: #9a6a1f;
+  --info-color: var(--slate);
+  --light-color: var(--paper);
+  --dark-color: var(--ink);
   --white: #ffffff;
   --black: #000000;
-  --board-light: #e0e7ff;
-  --board-dark: #6366f1;
-  --board-highlight: rgba(99, 102, 241, 0.3);
-  --board-selected: rgba(37, 99, 235, 0.4);
-  --board-move-dot: rgba(0, 0, 0, 0.2);
-  --gradient-1: #3b82f6;
-  --gradient-2: #1e40af;
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
-  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1);
 }
 
-* {
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', Oxygen, Ubuntu, Cantarell, sans-serif;
-  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-  color: var(--dark-color);
-  overflow: hidden;
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.45;
+  background: var(--paper);
+  color: var(--ink);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /* Disable text selection on mobile for better UX */
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  user-select: none;
-  /* Disable tap highlight on mobile */
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Allow text selection in inputs and text areas */
-input, textarea, [contenteditable] {
-  -webkit-user-select: text;
-  -moz-user-select: text;
-  user-select: text;
-}
-
-/* Mobile adjustments - detect via viewport dimensions */
-@media (max-width: 1024px) {
-  body {
-    /* allow scrolling on small screens */
-    overflow: auto;
-  }
-
-  button {
-    /* Larger touch targets */
-    padding: 0.85rem 1rem;
-    font-size: 1rem;
-    border-radius: 10px;
-    min-height: 44px; /* iOS recommended minimum touch target */
-  }
-
-  input, select {
-    font-size: 16px; /* Prevents iOS zoom on focus */
-    min-height: 44px;
-  }
-}
-
-/* Touch device specific - detect pointer capability */
-@media (hover: none) and (pointer: coarse) {
-  button {
-    min-height: 44px;
-    padding: 0.85rem 1rem;
-  }
-  
-  .square {
-    /* Better touch feedback */
-    -webkit-tap-highlight-color: rgba(99, 102, 241, 0.2);
-  }
-}
-
 #app {
-  width: 100vw;
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
+  min-height: 100dvh;
 }
 
 button {
+  font: inherit;
+  color: inherit;
   cursor: pointer;
-  border: none;
-  padding: 0.625rem 1.25rem;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  font-weight: 500;
-  transition: all 0.2s ease;
-  box-shadow: var(--shadow-sm);
-}
-
-button:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
-}
-
-button:active:not(:disabled) {
-  transform: translateY(0);
+  background: none;
+  border: 0;
 }
 
 button:disabled {
-  opacity: 0.5;
   cursor: not-allowed;
-  transform: none;
 }
 
-button.primary {
-  background: var(--primary-color);
-  color: var(--white);
+:focus-visible {
+  outline: 2px solid var(--sheen);
+  outline-offset: 2px;
 }
 
-button.primary:hover:not(:disabled) {
-  background: var(--primary-hover);
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.65rem;
+  width: 100%;
 }
 
-button.secondary {
-  background: var(--secondary-color);
-  color: var(--white);
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--sheen);
+  box-shadow: 0 0 0 2px var(--sheen-wash);
 }
 
+input[type='checkbox'],
+input[type='radio'] {
+  width: auto;
+  accent-color: var(--sheen);
+}
+
+input[type='color'] {
+  padding: 2px;
+  height: 2.25rem;
+}
+
+code {
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  background: none;
+}
+
+/* Buttons used by the settings and history sheets */
+button.primary,
+button.secondary,
+button.success,
+button.danger {
+  border-radius: var(--radius);
+  padding: 0.5rem 0.9rem;
+  font-weight: 600;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+}
+
+button.primary,
 button.success {
-  background: var(--success-color);
-  color: var(--white);
+  background: var(--sheen);
+  border-color: var(--sheen);
+  color: #fff;
+}
+
+button.primary:hover:not(:disabled),
+button.success:hover:not(:disabled) {
+  background: var(--sheen-deep);
+}
+
+button.secondary:hover:not(:disabled) {
+  border-color: var(--ink-2);
 }
 
 button.danger {
-  background: var(--danger-color);
-  color: var(--white);
+  color: var(--stop);
+  border-color: var(--stop);
 }
 
-input, select {
-  padding: 0.625rem 0.875rem;
-  border: 2px solid #bfdbfe;
-  border-radius: 8px;
-  font-size: 0.95rem;
-  transition: all 0.2s ease;
-  background: white;
+button.danger:hover:not(:disabled) {
+  background: var(--stop-wash);
 }
 
-input:focus, select:focus {
-  outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+button.primary:disabled,
+button.secondary:disabled,
+button.success:disabled,
+button.danger:disabled {
+  opacity: 0.45;
 }
 
+/* Sheets (settings, history) */
 .modal-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
+  inset: 0;
+  background: rgba(28, 33, 38, 0.42);
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 16px;
   z-index: 1000;
-  animation: fadeIn 0.2s ease;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .modal {
-  background: linear-gradient(to bottom, #ffffff 0%, #f8fafc 100%);
-  padding: 2.5rem;
-  border-radius: 20px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-  max-width: 500px;
-  width: 90%;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  animation: slideUp 0.3s ease;
+  background: var(--surface);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  padding: 1.5rem;
+  width: min(100%, 560px);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  box-shadow: 0 18px 50px rgba(28, 33, 38, 0.25);
 }
 
+.modal h2,
 .modal h3 {
-  margin-bottom: 1.25rem;
-  font-size: 1.5rem;
+  font-size: 1.15rem;
   font-weight: 700;
-  color: var(--dark-color);
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  margin-bottom: 0.75rem;
 }
 
 .modal p {
-  margin-bottom: 1.5rem;
-  font-size: 1rem;
-  line-height: 1.6;
-  color: #475569;
+  color: var(--ink-2);
+  margin-bottom: 1rem;
 }
 
 .modal .modal-buttons {
   display: flex;
-  gap: 0.75rem;
-  margin-top: 1.5rem;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1.25rem;
 }
 
-.modal .modal-buttons button {
-  flex: 1;
-  padding: 0.875rem 1.5rem;
-  font-size: 1rem;
-  font-weight: 600;
-  border-radius: 12px;
-}
-
-.challenge-modal {
-  border-top: 4px solid var(--primary-color);
-}
-
-.offer-modal {
-  border-top: 4px solid var(--info-color);
-}
-
-.confirm-modal {
-  border-top: 4px solid var(--danger-color);
-}
-
-.info-modal {
-  border-top: 4px solid var(--warning-color);
-}
-
-.card {
-  background: var(--white);
-  padding: 2rem;
-  border-radius: 16px;
-  box-shadow: var(--shadow-lg);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

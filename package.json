@@ -21,6 +21,7 @@
   "author": "PeerPigeon Contributors",
   "license": "MIT",
   "dependencies": {
+    "@fontsource-variable/archivo": "^5.3.0",
     "chess.js": "^1.4.0",
     "freertc": "github:draeder/freertc#81dc05b",
     "pigeonidp": "git+https://github.com/PeerPigeon/PigeonIdP.git",

@@ -1,972 +1,347 @@
 <template>
-  <div id="app" class="app-container">
-    <!-- Header -->
-    <header class="app-header">
-      <h1>
-        <img src="/pigeonlogo.svg" alt="Pigeon" class="pigeon-logo" />
-        PigeonChess
-        <span class="pawn-icon">♟️</span>
-      </h1>
-      
-      <div class="header-right">
-        <div v-if="isAuthenticated" class="user-info">
-          <span class="username">👤 {{ identityUsername }}</span>
-          <button class="btn-logout" @click="handleLogout" title="Logout">🚪</button>
-        </div>
-        <button v-else class="btn-login" @click="showLoginModal = true">
-          🔑 Login
-        </button>
-        
-        <button class="hamburger-menu" @click="showMenu = !showMenu" :class="{ active: showMenu }">
-          <span class="hamburger-line"></span>
-          <span class="hamburger-line"></span>
-          <span class="hamburger-line"></span>
-        </button>
+  <div id="app" class="app">
+    <header class="topbar">
+      <div class="brand">
+        <img src="/pigeonlogo.svg" alt="" class="brand-mark" />
+        <span class="wordmark">PigeonChess</span>
       </div>
-      
-      <!-- Dropdown Menu -->
-      <div v-if="showMenu" class="dropdown-menu">
-        <button class="menu-item" @click="startPuzzleMode(); showMenu = false">
-          🧩 Puzzles
-        </button>
-        <button class="menu-item" @click="showHistory = true; showMenu = false">
-          📜 History
-        </button>
-        <button class="menu-item" @click="showSettings = true; showMenu = false">
-          ⚙️ Settings
-        </button>
-      </div>
+
+      <p class="net" :class="statusClass" role="status">
+        <span class="net-dot" aria-hidden="true"></span>
+        <span>{{ statusText }}</span>
+        <span v-if="isConnected" class="net-peers">
+          {{ otherPeersCount > 0 ? `${otherPeersCount} ${otherPeersCount === 1 ? 'player' : 'players'} online` : 'Looking for players' }}
+        </span>
+      </p>
+
+      <nav class="nav" :class="{ open: showMenu }">
+        <button class="nav-link" @click="startPuzzleMode(); showMenu = false">Puzzles</button>
+        <button class="nav-link" @click="showHistory = true; showMenu = false">History</button>
+        <button class="nav-link" @click="showSettings = true; showMenu = false">Settings</button>
+        <span v-if="isAuthenticated" class="nav-user">
+          <span class="nav-username">{{ identityUsername }}</span>
+          <button class="nav-link" @click="handleLogout(); showMenu = false">Log out</button>
+        </span>
+        <button v-else class="nav-link nav-login" @click="showLoginModal = true; showMenu = false">Log in</button>
+      </nav>
+      <button class="menu-toggle" :aria-expanded="showMenu" @click="showMenu = !showMenu">
+        {{ showMenu ? 'Close' : 'Menu' }}
+      </button>
     </header>
 
-    <!-- Connection Status -->
-    <div class="status-bar" :class="statusClass">
-      <div class="status-left">
-        <span class="status-indicator"></span>
-        <span class="status-text">{{ statusText }}</span>
-      </div>
-      <span v-if="otherPeersCount > 0" class="peer-count">
-        👥 {{ otherPeersCount }} {{ otherPeersCount === 1 ? 'peer' : 'peers' }} online
-      </span>
-      <span v-else-if="isConnected" class="peer-count">
-        Searching for peers...
-      </span>
-    </div>
+    <main class="main">
+      <!-- Replay -->
+      <section v-if="isReplayMode && replayGame" class="table">
+        <div class="board-area">
+          <ChessBoard
+            :chess="chess"
+            :flipped="replayGame.myColor === 'black'"
+            :interactive="false"
+            :last-move="lastMove"
+            :analysis-arrows="analysisArrows"
+            :piece-colors="pieceColors"
+            :white-arrow-color="settings.whiteArrowColor"
+            :black-arrow-color="settings.blackArrowColor"
+            :empty-arrow-color="settings.emptyArrowColor"
+            @move="() => {}"
+          />
+        </div>
 
-    <!-- Main Content -->
-    <main class="main-content">
-      <!-- Replay Mode Container -->
-      <div v-if="isReplayMode && replayGame" class="replay-container">
-        <!-- Game Screen (reused from below) -->
-        <div class="game-screen">
-          <div class="game-info">
-            <div class="board-container">
-              <ChessBoard 
-                :chess="chess"
-                :flipped="myPlayer?.color === 'black'"
-                :interactive="false"
-                :last-move="lastMove"
-                :analysis-arrows="analysisArrows"
-                :piece-colors="{
-                  whiteFill: settings.customWhitePieceColor,
-                  blackFill: settings.customBlackPieceColor,
-                  whiteStroke: settings.customWhitePieceOutline,
-                  blackStroke: settings.customBlackPieceOutline
-                }"
-                :white-arrow-color="settings.whiteArrowColor"
-                :black-arrow-color="settings.blackArrowColor"
-                :empty-arrow-color="settings.emptyArrowColor"
-                @move="() => {}"
-              />
-              
-              <!-- Move navigation - Portrait mode (below board, small devices) -->
-              <div v-if="replayGame.moves && replayGame.moves.length > 0" class="move-navigation-portrait">
-                <button 
-                  class="nav-btn"
-                  :disabled="viewingMoveIndex === -1"
-                  @click="goToStart"
-                  title="Go to start"
-                >
-                  ⏮
-                </button>
-                <button 
-                  class="nav-btn"
-                  :disabled="viewingMoveIndex === -1"
-                  @click="previousMove"
-                  title="Previous move"
-                >
-                  ◀
-                </button>
-                <span class="move-counter">
-                  {{ viewingMoveIndex === null || viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1 }} / {{ replayGame.moves.length }}
-                </span>
-                <button 
-                  class="nav-btn"
-                  :disabled="viewingMoveIndex === (replayGame.moves.length - 1)"
-                  @click="nextMove"
-                  title="Next move"
-                >
-                  ▶
-                </button>
-                <button 
-                  class="nav-btn"
-                  :disabled="viewingMoveIndex === (replayGame.moves.length - 1)"
-                  @click="goToEnd"
-                  title="Go to final position"
-                >
-                  ⏭
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          <div class="game-controls">
-            <!-- Replay Header Info -->
-            <div class="replay-info-section">
-              <h3>🔍 Game Analysis</h3>
-              <div class="replay-details">
-                <span class="replay-result" :class="replayGame.result">{{ replayGame.result.toUpperCase() }}</span>
-                <div class="replay-players">
-                  <span class="replay-player">
-                    ⚪ {{ replayGame.myColor === 'white' ? ((replayGame.myUsername?.trim()) || formatPeerId(replayGame.myPeerId || 'Unknown')) : (replayGame.isAI ? '🤖 AI - ' + ['Easy', 'Medium', 'Hard', 'Very Hard'][replayGame.aiDifficulty || 0] : ((replayGame.opponentUsername?.trim()) || formatPeerId(replayGame.opponent))) }}
-                  </span>
-                  <span class="vs-text">vs</span>
-                  <span class="replay-player">
-                    ⚫ {{ replayGame.myColor === 'black' ? ((replayGame.myUsername?.trim()) || formatPeerId(replayGame.myPeerId || 'Unknown')) : (replayGame.isAI ? '🤖 AI - ' + ['Easy', 'Medium', 'Hard', 'Very Hard'][replayGame.aiDifficulty || 0] : ((replayGame.opponentUsername?.trim()) || formatPeerId(replayGame.opponent))) }}
-                  </span>
-                </div>
-                <span class="replay-date">{{ new Date(replayGame.date).toLocaleDateString() }}</span>
-              </div>
-              <div v-if="currentOpeningName" class="opening-display">
-                📖 <strong>{{ currentOpeningName }}</strong>
-              </div>
-              <button class="primary" @click="exitReplayMode">← Back to Menu</button>
-            </div>
-            
-            <!-- Replay mode controls -->
-            <div class="quick-actions">
-              <button 
-                class="action-icon analysis-toggle" 
-                :class="{ active: replayShowBestMoves }"
-                @click="replayShowBestMoves = !replayShowBestMoves" 
-                :title="replayShowBestMoves ? 'Hide Best Moves' : 'Show Best Moves'"
-              >
-                💡
-              </button>
-            </div>
-            
-            <!-- Analysis Mode Indicator -->
-            <div v-if="replayShowBestMoves" class="analysis-info">
-              <div class="analysis-header">
-                💡 Best Moves Shown
-              </div>
-              <div class="analysis-hint">
-                🟢 Best &nbsp;&nbsp; 🟡 Second best &nbsp;&nbsp; 🔴 Third best
-              </div>
-            </div>
-            
-            <!-- Move navigation - Landscape mode (below timers, iPhone SE and larger) -->
-            <div v-if="replayGame.moves && replayGame.moves.length > 0" class="move-navigation-landscape">
-              <button 
-                class="nav-btn"
-                :disabled="viewingMoveIndex === -1"
-                @click="goToStart"
-                title="Go to start"
-              >
-                ⏮
-              </button>
-              <button 
-                class="nav-btn"
-                :disabled="viewingMoveIndex === -1"
-                @click="previousMove"
-                title="Previous move"
-              >
-                ◀
-              </button>
-              <span class="move-counter">
-                {{ viewingMoveIndex === null || viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1 }} / {{ replayGame.moves.length }}
-              </span>
-              <button 
-                class="nav-btn"
-                :disabled="viewingMoveIndex === (replayGame.moves.length - 1)"
-                @click="nextMove"
-                title="Next move"
-              >
-                ▶
-              </button>
-              <button 
-                class="nav-btn"
-                :disabled="viewingMoveIndex === (replayGame.moves.length - 1)"
-                @click="goToEnd"
-                title="Go to final position"
-              >
-                ⏭
-              </button>
-            </div>
-            
-            <div class="player-section">
-              <div class="player-info">
-                <div class="player-display">
-                  <span class="player-display-icon">{{ replayGame.myColor === 'white' ? '♔' : '♚' }}</span>
-                  <span class="player-display-color">{{ (replayGame.myUsername?.trim()) || formatPeerId(replayGame.myPeerId || 'Unknown') }}</span>
-                  <span class="player-display-color-detail">({{ replayGame.myColor }})</span>
-                </div>
-                <div class="opponent-display">
-                  <span class="opponent-icon">{{ replayGame.myColor === 'white' ? '♚' : '♔' }}</span>
-                  <span class="opponent-name">{{ replayGame.isAI ? 'AI' : ((replayGame.opponentUsername?.trim()) || formatPeerId(replayGame.opponent)) }}</span>
-                  <span class="opponent-name-detail">{{ replayGame.isAI ? 'Computer' : ((replayGame.opponentUsername?.trim()) ? formatPeerId(replayGame.opponent || 'Unknown') : '') }}</span>
-                </div>
-              </div>
-              <div class="casual-mode-badge">
-                🔍 Analysis Mode
-              </div>
-            </div>
-            
-            <!-- Material Score -->
-            <div v-if="capturedPieces.white.length > 0 || capturedPieces.black.length > 0" class="material-section">
-              <h4 class="material-heading">Material</h4>
-              <div class="material-display">
-                <div v-if="capturedPieces[replayGame.myColor === 'white' ? 'white' : 'black'].length > 0" class="captured-pieces">
-                  <div class="captured-label">{{ replayGame.myUsername?.trim() || formatPeerId(replayGame.myPeerId || 'Unknown') }} captured:</div>
-                  <div class="pieces-row">
-                    <img 
-                      v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'white' : 'black']"
-                      :key="`my-${idx}`"
-                      :src="`/pieces/${replayGame.myColor === 'white' ? 'b' : 'w'}${piece}.svg`" 
-                      :alt="piece"
-                      class="captured-piece"
-                    />
-                    <span v-if="materialAdvantage[replayGame.myColor] > 0" class="advantage-score">
-                      +{{ materialAdvantage[replayGame.myColor] }}
-                    </span>
-                  </div>
-                </div>
-                <div v-if="capturedPieces[replayGame.myColor === 'white' ? 'black' : 'white'].length > 0" class="captured-pieces">
-                  <div class="captured-label">{{ replayGame.isAI ? 'AI' : (replayGame.opponentUsername?.trim() || formatPeerId(replayGame.opponent)) }} captured:</div>
-                  <div class="pieces-row">
-                    <img 
-                      v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'black' : 'white']"
-                      :key="`opp-${idx}`"
-                      :src="`/pieces/${replayGame.myColor === 'white' ? 'w' : 'b'}${piece}.svg`" 
-                      :alt="piece"
-                      class="captured-piece"
-                    />
-                    <span v-if="materialAdvantage[replayGame.myColor === 'white' ? 'black' : 'white'] > 0" class="advantage-score">
-                      +{{ materialAdvantage[replayGame.myColor === 'white' ? 'black' : 'white'] }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <div class="moves-history">
-              <div class="moves-header">
-                <h4>Move History</h4>
-                <div v-if="replayGame.moves && replayGame.moves.length > 0" class="move-navigation">
-                  <button 
-                    class="nav-btn"
-                    :disabled="viewingMoveIndex === -1"
-                    @click="goToStart"
-                    title="Go to start"
-                  >
-                    ⏮
-                  </button>
-                  <button 
-                    class="nav-btn"
-                    :disabled="viewingMoveIndex === -1"
-                    @click="previousMove"
-                    title="Previous move"
-                  >
-                    ◀
-                  </button>
-                  <span class="move-counter">
-                    {{ viewingMoveIndex === null || viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1 }} / {{ replayGame.moves.length }}
-                  </span>
-                  <button 
-                    class="nav-btn"
-                    :disabled="viewingMoveIndex === (replayGame.moves.length - 1)"
-                    @click="nextMove"
-                    title="Next move"
-                  >
-                    ▶
-                  </button>
-                  <button 
-                    class="nav-btn"
-                    :disabled="viewingMoveIndex === (replayGame.moves.length - 1)"
-                    @click="goToEnd"
-                    title="Go to end"
-                  >
-                    ⏭
-                  </button>
-                </div>
-              </div>
-              <div class="moves-list">
-                <div 
-                  v-for="(move, index) in replayGame.moves" 
-                  :key="index"
-                  class="move-item"
-                  :class="{ 'viewing': index === viewingMoveIndex }"
-                  @click="goToMove(index)"
-                >
-                  <span class="move-number">{{ Math.floor(index / 2) + 1 }}{{ index % 2 === 0 ? '.' : '...' }}</span>
-                  <span class="move-san">{{ move }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
+        <div class="side-head">
+          <h2 class="side-title">Review</h2>
+          <p class="side-meta">
+            {{ new Date(replayGame.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) }}, {{ replayResultText }}
+          </p>
         </div>
-      </div>
-      
-      <!-- Puzzle Mode Screen -->
-      <div v-else-if="isPuzzleMode && currentPuzzle" class="game-screen">
-        <div class="game-info">
-          <div class="board-container">
-            <ChessBoard 
-              :chess="chess"
-              :flipped="myPlayer?.color === 'black'"
-              :interactive="puzzleResult === 'pending' && isMyTurn && viewingMoveIndex === null"
-              :last-move="lastMove"
-              :analysis-arrows="analysisArrows"
-              :hint-square="puzzleHintSquare"
-              :piece-colors="{
-                whiteFill: settings.customWhitePieceColor,
-                blackFill: settings.customBlackPieceColor,
-                whiteStroke: settings.customWhitePieceOutline,
-                blackStroke: settings.customBlackPieceOutline
-              }"
-              :white-arrow-color="settings.whiteArrowColor"
-              :black-arrow-color="settings.blackArrowColor"
-              :empty-arrow-color="settings.emptyArrowColor"
-              @move="handleMove"
-            />
-            
-            <!-- Move navigation - Portrait mode (below board, small devices) -->
-            <div v-if="currentGame?.moves && currentGame.moves.length > 0" class="move-navigation-portrait">
-              <button 
-                class="nav-btn"
-                :disabled="viewingMoveIndex === -1"
-                @click="goToStart"
-                title="Go to start"
-              >
-                ⏮
-              </button>
-              <button 
-                class="nav-btn"
-                :disabled="viewingMoveIndex === -1"
-                @click="previousMove"
-                title="Previous move"
-              >
-                ◀
-              </button>
-              <span class="move-counter">
-                {{ viewingMoveIndex === null ? (currentGame?.moves.length || 0) : (viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1) }} / {{ currentGame?.moves.length || 0 }}
-              </span>
-              <button 
-                class="nav-btn"
-                :disabled="viewingMoveIndex === null || viewingMoveIndex === (currentGame?.moves.length || 0) - 1"
-                @click="nextMove"
-                title="Next move"
-              >
-                ▶
-              </button>
-              <button 
-                class="nav-btn"
-                :disabled="viewingMoveIndex === null"
-                @click="goToEnd"
-                title="Go to current position"
-              >
-                ⏭
-              </button>
-            </div>
-          </div>
-        </div>
-        
-        <div class="game-controls">
-          <div class="puzzle-info">
-            <h3>🧩 Puzzle Challenge</h3>
-            <p class="puzzle-description">{{ puzzleMessage }}</p>
-            
-            <div v-if="puzzleResult === 'pending'" class="puzzle-hint">
-              <p>Find the best move for {{ myPlayer?.color }}!</p>
-              <p class="difficulty-badge" :class="currentPuzzle.difficulty">
-                {{ currentPuzzle.difficulty.toUpperCase() }}
-              </p>
-              <div class="puzzle-buttons">
-                <button 
-                  v-if="!showPuzzleHint" 
-                  class="hint-btn" 
-                  @click="showPuzzleHintPiece"
-                  title="Highlight which piece to move"
-                  :disabled="showingSolution"
-                >
-                  💡 Hint
-                </button>
-                <button 
-                  v-if="showPuzzleHint && !showPuzzleMove" 
-                  class="move-btn" 
-                  @click="showPuzzleMoveArrow"
-                  title="Show the move with an arrow"
-                  :disabled="showingSolution"
-                >
-                  ➡️ Show Move
-                </button>
-                <button 
-                  class="solution-btn" 
-                  @click="showSolution"
-                  title="Play through the full solution"
-                  :disabled="showingSolution"
-                >
-                  {{ showingSolution ? '⏳ Showing...' : '📖 Solution' }}
-                </button>
-              </div>
-              <div v-if="showPuzzleHint && !showPuzzleMove" class="hint-text">
-                <strong>Hint:</strong> {{ currentPuzzle.hint }}
-              </div>
-              <div v-if="showPuzzleMove" class="hint-text move-shown">
-                <strong>Move shown!</strong> Now you can make the move.
-              </div>
-            </div>
-            
-            <!-- Move History -->
-            <div v-if="currentGame?.moves && currentGame.moves.length > 0" class="moves-history">
-              <div class="moves-header">
-                <h4>Moves</h4>
-                <div class="move-navigation">
-                  <button 
-                    class="nav-btn"
-                    :disabled="viewingMoveIndex === -1"
-                    @click="goToStart"
-                    title="Go to start"
-                  >
-                    ⏮
-                  </button>
-                  <button 
-                    class="nav-btn"
-                    :disabled="viewingMoveIndex === -1"
-                    @click="previousMove"
-                    title="Previous move"
-                  >
-                    ◀
-                  </button>
-                  <span class="move-counter">
-                    {{ viewingMoveIndex === null ? (currentGame?.moves.length || 0) : (viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1) }} / {{ currentGame?.moves.length || 0 }}
-                  </span>
-                  <button 
-                    class="nav-btn"
-                    :disabled="viewingMoveIndex === null || viewingMoveIndex === (currentGame?.moves.length || 0) - 1"
-                    @click="nextMove"
-                    title="Next move"
-                  >
-                    ▶
-                  </button>
-                  <button 
-                    class="nav-btn"
-                    :disabled="viewingMoveIndex === null"
-                    @click="goToEnd"
-                    title="Go to current position"
-                  >
-                    ⏭
-                  </button>
-                </div>
-              </div>
-              <div class="moves-list">
-                <div 
-                  v-for="(move, index) in currentGame.moves" 
-                  :key="index"
-                  class="move-item"
-                  :class="{ 'viewing': index === viewingMoveIndex }"
-                  @click="goToMove(index)"
-                >
-                  <span class="move-number">{{ Math.floor(index / 2) + 1 }}{{ index % 2 === 0 ? '.' : '...' }}</span>
-                  <span class="move-san">{{ move }}</span>
-                </div>
-              </div>
-            </div>
-            
-            <div v-if="puzzleResult === 'correct'" class="puzzle-result success">
-              <h4>🎉 Puzzle Solved!</h4>
-              <p>You found the winning continuation!</p>
-              <div class="puzzle-actions">
-                <button class="primary" @click="loadNextPuzzle">
-                  Next Puzzle
-                </button>
-                <button class="secondary" @click="exitPuzzleMode">
-                  Exit Puzzles
-                </button>
-              </div>
-            </div>
-            
-            <div v-if="puzzleResult === 'incorrect'" class="puzzle-result failure">
-              <h4>Try Again</h4>
-              <p>{{ puzzleMessage }}</p>
-              <div class="puzzle-actions">
-                <button class="primary" @click="retryCurrentPuzzle">
-                  Retry
-                </button>
-                <button class="primary" @click="loadNextPuzzle">
-                  Next Puzzle
-                </button>
-                <button class="secondary" @click="exitPuzzleMode">
-                  Exit Puzzles
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      <!-- Waiting/Matchmaking Screen -->
-      <div v-else-if="!isGameActive && !currentGame" class="welcome-screen">
-        <div class="welcome-card card">
-          <p>Decentralized peer-to-peer chess powered by PeerPigeon</p>
-          
-          <div class="connection-section">
-            <!-- Loading/Connecting State -->
-            <div v-if="isConnecting || (!isInitialized || !isConnected)" class="connecting-state">
-              <div class="spinner"></div>
-              <p class="connecting-text">{{ statusText }}</p>
-            </div>
-            
-            <!-- Connected and Ready State -->
-            <div v-else class="matchmaking">
-              <h3>✅ Ready to Play!</h3>
-              <p class="peer-id">Your Peer ID: <code>{{ myPeerId }}</code></p>
-              
-              <!-- Time Control Selector -->
-              <div class="time-control-section">
-                <h4>Select Time Control</h4>
-                <div class="time-controls">
-                  <button 
-                    v-for="control in timeControls" 
-                    :key="control.id"
-                    class="time-control-btn"
-                    :class="{ active: selectedTimeControl === control.id }"
-                    @click="selectTimeControl(control.id)"
-                  >
-                    <span class="control-name">{{ control.name }}</span>
-                    <span class="control-time">{{ control.display }}</span>
-                  </button>
-                </div>
-              </div>
-              
-              <!-- Search Button -->
-              <div class="search-section">
-                <button 
-                  v-if="!isSearching"
-                  class="primary search-btn"
-                  @click="startSearching"
-                >
-                  🔍 Search for Game
-                </button>
-                <div v-else class="searching-indicator">
-                  <p class="searching-text">
-                    Searching for opponent with {{ selectedTimeControlDisplay }}...
-                    <span class="spinner small"></span>
-                  </p>
-                  <button class="secondary" @click="stopSearching">Cancel</button>
-                </div>
-              </div>
-              
-              <!-- AI Opponent Button -->
-              <div class="ai-section">
-                <h4>AI Difficulty</h4>
-                <div class="ai-difficulty-slider">
-                  <div class="difficulty-labels">
-                    <span>Easy</span>
-                    <span>Medium</span>
-                    <span>Hard</span>
-                    <span>Very Hard</span>
-                  </div>
-                  <input 
-                    type="range" 
-                    min="0" 
-                    max="3" 
-                    step="1"
-                    v-model.number="aiDifficulty"
-                    class="slider"
-                  />
-                  <div class="difficulty-description">
-                    {{ difficultyDescriptions[aiDifficulty] }}
-                  </div>
-                </div>
-                
-                <button 
-                  v-if="!isSearching"
-                  class="secondary ai-btn"
-                  @click="startAIGame"
-                >
-                  🤖 Play vs AI ({{ ['Easy', 'Medium', 'Hard', 'Very Hard'][aiDifficulty] }})
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          <div v-if="error" class="error-message">
-            ⚠️ {{ error }}
-          </div>
-        </div>
-      </div>
 
-      <!-- Game Screen -->
-      <div v-else class="game-screen">
-        <div class="game-info">
-          <div class="board-container">
-            <ChessBoard 
-              :chess="chess"
-              :flipped="myPlayer?.color === 'black'"
-              :interactive="isMyTurn && isGameActive && viewingMoveIndex === null"
-              :last-move="lastMove"
-              :analysis-arrows="analysisArrows"
-              :piece-colors="{
-                whiteFill: settings.customWhitePieceColor,
-                blackFill: settings.customBlackPieceColor,
-                whiteStroke: settings.customWhitePieceOutline,
-                blackStroke: settings.customBlackPieceOutline
-              }"
-              :white-arrow-color="settings.whiteArrowColor"
-              :black-arrow-color="settings.blackArrowColor"
-              :empty-arrow-color="settings.emptyArrowColor"
-              @move="handleMove"
-            />
-            
-            <!-- Move navigation - Portrait mode (below board, small devices) -->
-            <div v-if="currentGame?.moves && currentGame.moves.length > 0" class="move-navigation-portrait">
-              <button 
-                class="nav-btn"
-                :disabled="viewingMoveIndex === -1"
-                @click="goToStart"
-                title="Go to start"
-              >
-                ⏮
-              </button>
-              <button 
-                class="nav-btn"
-                :disabled="viewingMoveIndex === -1"
-                @click="previousMove"
-                title="Previous move"
-              >
-                ◀
-              </button>
-              <span class="move-counter">
-                {{ viewingMoveIndex === null ? (currentGame?.moves.length || 0) : (viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1) }} / {{ currentGame?.moves.length || 0 }}
-              </span>
-              <button 
-                class="nav-btn"
-                :disabled="viewingMoveIndex === null || viewingMoveIndex === (currentGame?.moves.length || 0) - 1"
-                @click="nextMove"
-                title="Next move"
-              >
-                ▶
-              </button>
-              <button 
-                class="nav-btn"
-                :disabled="viewingMoveIndex === null"
-                @click="goToEnd"
-                title="Go to current position"
-              >
-                ⏭
-              </button>
+        <div class="seat seat-top">
+          <img class="seat-colour" :src="`/pieces/${replayGame.myColor === 'white' ? 'b' : 'w'}k.svg`" alt="" />
+          <span class="seat-name">{{ replayOpponentName }}</span>
+          <span class="seat-captures">
+            <img v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'black' : 'white']" :key="`ro-${idx}`" :src="`/pieces/${replayGame.myColor === 'white' ? 'w' : 'b'}${piece}.svg`" :alt="piece" />
+            <b v-if="materialAdvantage[replayGame.myColor === 'white' ? 'black' : 'white'] > 0">+{{ materialAdvantage[replayGame.myColor === 'white' ? 'black' : 'white'] }}</b>
+          </span>
+        </div>
+
+        <div class="side-info">
+          <p v-if="currentOpeningName" class="opening">{{ currentOpeningName }}</p>
+          <label class="toggle">
+            <input type="checkbox" v-model="replayShowBestMoves" />
+            <span>Show the engine's best moves</span>
+          </label>
+          <p v-if="replayShowBestMoves" class="legend">
+            <span class="key key-1"></span>best
+            <span class="key key-2"></span>second
+            <span class="key key-3"></span>third
+          </p>
+        </div>
+
+        <div class="moves">
+          <div class="moves-bar">
+            <button class="step" :disabled="viewingMoveIndex === -1" @click="goToStart" aria-label="First move">«</button>
+            <button class="step" :disabled="viewingMoveIndex === -1" @click="previousMove" aria-label="Previous move">‹</button>
+            <span class="moves-count">{{ viewingMoveIndex === null || viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1 }} of {{ replayGame.moves.length }}</span>
+            <button class="step" :disabled="viewingMoveIndex === (replayGame.moves.length - 1)" @click="nextMove" aria-label="Next move">›</button>
+            <button class="step" :disabled="viewingMoveIndex === (replayGame.moves.length - 1)" @click="goToEnd" aria-label="Last move">»</button>
+          </div>
+          <ol class="move-list">
+            <li v-for="(pair, row) in pairMoves(replayGame.moves)" :key="row">
+              <span class="move-no">{{ row + 1 }}</span>
+              <button v-for="(san, k) in pair" :key="k" class="ply" :class="{ current: row * 2 + k === viewingMoveIndex }" @click="goToMove(row * 2 + k)">{{ san }}</button>
+            </li>
+          </ol>
+        </div>
+
+        <div class="actions">
+          <button class="btn" @click="exitReplayMode">Back to the lobby</button>
+        </div>
+
+        <div class="seat seat-bottom">
+          <img class="seat-colour" :src="`/pieces/${replayGame.myColor === 'white' ? 'w' : 'b'}k.svg`" alt="" />
+          <span class="seat-name">{{ (replayGame.myUsername?.trim()) || 'You' }}</span>
+          <span class="seat-captures">
+            <img v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'white' : 'black']" :key="`rm-${idx}`" :src="`/pieces/${replayGame.myColor === 'white' ? 'b' : 'w'}${piece}.svg`" :alt="piece" />
+            <b v-if="materialAdvantage[replayGame.myColor] > 0">+{{ materialAdvantage[replayGame.myColor] }}</b>
+          </span>
+        </div>
+      </section>
+
+      <!-- Puzzles -->
+      <section v-else-if="isPuzzleMode && currentPuzzle" class="table">
+        <div class="board-area">
+          <ChessBoard
+            :chess="chess"
+            :flipped="myPlayer?.color === 'black'"
+            :interactive="puzzleResult === 'pending' && isMyTurn && viewingMoveIndex === null"
+            :last-move="lastMove"
+            :analysis-arrows="analysisArrows"
+            :hint-square="puzzleHintSquare"
+            :piece-colors="pieceColors"
+            :white-arrow-color="settings.whiteArrowColor"
+            :black-arrow-color="settings.blackArrowColor"
+            :empty-arrow-color="settings.emptyArrowColor"
+            @move="handleMove"
+          />
+        </div>
+
+        <div class="side-head">
+          <h2 class="side-title">Puzzle</h2>
+          <p class="side-meta">{{ capitalise(currentPuzzle.difficulty) }}, {{ myPlayer?.color }} to move</p>
+        </div>
+
+        <div class="side-info">
+          <p class="prompt">{{ puzzleMessage }}</p>
+
+          <template v-if="puzzleResult === 'pending'">
+            <div class="row">
+              <button v-if="!showPuzzleHint" class="btn" :disabled="showingSolution" @click="showPuzzleHintPiece">Show a hint</button>
+              <button v-if="showPuzzleHint && !showPuzzleMove" class="btn" :disabled="showingSolution" @click="showPuzzleMoveArrow">Show the move</button>
+              <button class="btn" :disabled="showingSolution" @click="showSolution">{{ showingSolution ? 'Playing the solution' : 'Play the solution' }}</button>
+              <button class="btn" @click="exitPuzzleMode">Leave puzzles</button>
+            </div>
+            <p v-if="showPuzzleHint && !showPuzzleMove" class="note">{{ currentPuzzle.hint }}</p>
+            <p v-if="showPuzzleMove" class="note">The arrow shows the move. Play it on the board.</p>
+          </template>
+
+          <div v-if="puzzleResult === 'correct'" class="verdict verdict-win">
+            <h3>Solved</h3>
+            <p>That's the winning line.</p>
+            <div class="row">
+              <button class="btn btn-go" @click="loadNextPuzzle">Next puzzle</button>
+              <button class="btn" @click="exitPuzzleMode">Leave puzzles</button>
+            </div>
+          </div>
+
+          <div v-if="puzzleResult === 'incorrect'" class="verdict verdict-loss">
+            <h3>Not that one</h3>
+            <div class="row">
+              <button class="btn btn-go" @click="retryCurrentPuzzle">Try again</button>
+              <button class="btn" @click="loadNextPuzzle">Next puzzle</button>
+              <button class="btn" @click="exitPuzzleMode">Leave puzzles</button>
             </div>
           </div>
         </div>
-        
-        <div class="game-controls">
-          <!-- Quick Actions - only visible when game is active -->
-          <div v-if="currentGame?.status !== 'finished'" class="quick-actions">
-            <button class="action-icon" @click="offerDraw" title="Offer Draw">
-              🤝
-            </button>
-            <button class="action-icon" @click="offerTakeback" title="Request Takeback">
-              ↩️
-            </button>
-            <button 
-              v-if="isAIGame" 
-              class="action-icon analysis-toggle" 
-              :class="{ active: showBestMoves }"
-              @click="showBestMoves = !showBestMoves" 
-              :title="showBestMoves ? 'Hide Best Moves' : 'Show Best Moves'"
-            >
-              💡
-            </button>
-            <button class="action-icon danger" @click="handleResign" title="Resign">
-              🏳️
-            </button>
+
+        <div v-if="currentGame?.moves && currentGame.moves.length > 0" class="moves">
+          <div class="moves-bar">
+            <button class="step" :disabled="viewingMoveIndex === -1" @click="goToStart" aria-label="First move">«</button>
+            <button class="step" :disabled="viewingMoveIndex === -1" @click="previousMove" aria-label="Previous move">‹</button>
+            <span class="moves-count">{{ viewingMoveIndex === null ? currentGame.moves.length : (viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1) }} of {{ currentGame.moves.length }}</span>
+            <button class="step" :disabled="viewingMoveIndex === null || viewingMoveIndex === currentGame.moves.length - 1" @click="nextMove" aria-label="Next move">›</button>
+            <button class="step" :disabled="viewingMoveIndex === null" @click="goToEnd" aria-label="Current position">»</button>
           </div>
-          
-          <!-- Turn Indicator -->
-          <div v-if="currentGame?.status !== 'finished'" class="turn-indicator">
-            <span v-if="isMyTurn" class="your-turn">Your Turn</span>
-            <span v-else-if="aiThinking" class="ai-thinking">🤔 AI is thinking...</span>
-            <span v-else class="opponent-turn">Opponent's Turn</span>
-          </div>
-          
-          <!-- Opening Display -->
-          <div v-if="currentOpeningName" class="opening-display">
-            📖 <strong>{{ currentOpeningName }}</strong>
-          </div>
-          
-          <!-- Analysis Mode Indicator -->
-          <div v-if="showBestMoves && isAIGame" class="analysis-info">
-            <div class="analysis-header">
-              � Best Moves Shown
-            </div>
-            <div class="analysis-hint">
-              🟢 Best &nbsp;&nbsp; 🟡 Second best &nbsp;&nbsp; 🔴 Third best
-            </div>
-          </div>
-          
-          <!-- Timers on one line -->
-          <div v-if="currentGameTimeControl" class="timers-container">
-            <div class="timer-section my-timer" :class="{ active: isMyTurn, 'in-check': isMyKingInCheck }">
-              <div class="timer-display">
-                <span class="timer-icon">{{ myPlayer?.color === 'white' ? '♔' : '♚' }}</span>
-                <span class="timer-label-inline">You:</span>
-                <span class="timer-time">{{ formatTime(myTime) }}</span>
-              </div>
-              <div class="timer-material">
-                <div 
-                  v-for="(count, piece) in groupedCapturedPieces[myPlayer?.color === 'white' ? 'white' : 'black']"
-                  :key="`my-${piece}`"
-                  class="piece-stack"
-                  :style="{ width: `${20 + (count - 1) * 6}px` }"
+          <ol class="move-list">
+            <li v-for="(pair, row) in pairMoves(currentGame.moves)" :key="row">
+              <span class="move-no">{{ row + 1 }}</span>
+              <button v-for="(san, k) in pair" :key="k" class="ply" :class="{ current: row * 2 + k === viewingMoveIndex }" @click="goToMove(row * 2 + k)">{{ san }}</button>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- Lobby -->
+      <section v-else-if="!isGameActive && !currentGame" class="table lobby">
+        <div class="board-area">
+          <ChessBoard
+            :chess="lobbyChess"
+            :flipped="false"
+            :interactive="false"
+            :last-move="null"
+            :analysis-arrows="[]"
+            :piece-colors="pieceColors"
+            @move="() => {}"
+          />
+        </div>
+
+        <div class="lobby-panel">
+          <template v-if="isConnecting || !isInitialized || !isConnected">
+            <h2 class="lobby-title">Connecting to relays</h2>
+            <p class="lobby-sub">Looking for other players. This usually takes a few seconds.</p>
+            <div class="progress" aria-hidden="true"><span></span></div>
+          </template>
+
+          <template v-else>
+            <h2 class="lobby-title">Play someone</h2>
+
+            <fieldset class="controls">
+              <legend>Time control</legend>
+              <div class="clock-grid">
+                <button
+                  v-for="control in timeControls"
+                  :key="control.id"
+                  class="clock-pick"
+                  :class="{ picked: selectedTimeControl === control.id }"
+                  :aria-pressed="selectedTimeControl === control.id"
+                  :disabled="isSearching"
+                  @click="selectTimeControl(control.id)"
                 >
-                  <img 
-                    v-for="n in count"
-                    :key="`my-${piece}-${n}`"
-                    :src="`/pieces/${myPlayer?.color === 'white' ? 'b' : 'w'}${piece}.svg`" 
-                    :alt="String(piece)"
-                    class="captured-piece-mini"
-                    :class="{ 'black-piece': myPlayer?.color === 'white' }"
-                    :style="{ transform: `translateX(${(n - 1) * 6}px)` }"
-                  />
-                </div>
-                <span 
-                  v-if="materialAdvantage[myPlayer?.color || 'white'] !== 0"
-                  class="material-score"
-                  :class="{ 
-                    'positive': materialAdvantage[myPlayer?.color || 'white'] > 0,
-                    'negative': materialAdvantage[myPlayer?.color || 'white'] < 0
-                  }"
-                >
-                  {{ materialAdvantage[myPlayer?.color || 'white'] > 0 ? '+' : '' }}{{ materialAdvantage[myPlayer?.color || 'white'] }}
-                </span>
-              </div>
-            </div>
-            
-            <div class="timer-section opponent-timer" :class="{ active: !isMyTurn, 'in-check': isOpponentKingInCheck, 'thinking': aiThinking }">
-              <div class="timer-display">
-                <span class="timer-icon">{{ myPlayer?.color === 'black' ? '♔' : '♚' }}</span>
-                <span class="timer-label-inline">{{ aiThinking ? '🤔 Thinking...' : 'Opp:' }}</span>
-                <span class="timer-time">{{ formatTime(opponentTime) }}</span>
-              </div>
-              <div class="timer-material">
-                <div 
-                  v-for="(count, piece) in groupedCapturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']"
-                  :key="`opp-${piece}`"
-                  class="piece-stack"
-                  :style="{ width: `${20 + (count - 1) * 6}px` }"
-                >
-                  <img 
-                    v-for="n in count"
-                    :key="`opp-${piece}-${n}`"
-                    :src="`/pieces/${myPlayer?.color === 'white' ? 'w' : 'b'}${piece}.svg`" 
-                    :alt="String(piece)"
-                    class="captured-piece-mini"
-                    :class="{ 'black-piece': myPlayer?.color === 'black' }"
-                    :style="{ transform: `translateX(${(n - 1) * 6}px)` }"
-                  />
-                </div>
-                <span 
-                  v-if="materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] !== 0"
-                  class="material-score"
-                  :class="{ 
-                    'positive': materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] > 0,
-                    'negative': materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] < 0
-                  }"
-                >
-                  {{ materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] > 0 ? '+' : '' }}{{ materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] }}
-                </span>
-              </div>
-            </div>
-          </div>
-          
-          <!-- Move navigation - Landscape mode (below timers, iPhone SE and larger) -->
-          <div v-if="currentGame?.moves && currentGame.moves.length > 0" class="move-navigation-landscape">
-            <button 
-              class="nav-btn"
-              :disabled="viewingMoveIndex === -1"
-              @click="goToStart"
-              title="Go to start"
-            >
-              ⏮
-            </button>
-            <button 
-              class="nav-btn"
-              :disabled="viewingMoveIndex === -1"
-              @click="previousMove"
-              title="Previous move"
-            >
-              ◀
-            </button>
-            <span class="move-counter">
-              {{ viewingMoveIndex === null ? (currentGame?.moves.length || 0) : (viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1) }} / {{ currentGame?.moves.length || 0 }}
-            </span>
-            <button 
-              class="nav-btn"
-              :disabled="viewingMoveIndex === null || viewingMoveIndex === (currentGame?.moves.length || 0) - 1"
-              @click="nextMove"
-              title="Next move"
-            >
-              ▶
-            </button>
-            <button 
-              class="nav-btn"
-              :disabled="viewingMoveIndex === null"
-              @click="goToEnd"
-              title="Go to current position"
-            >
-              ⏭
-            </button>
-          </div>
-          
-          <div class="player-section">
-            <div class="player-info">
-              <div class="player-display">
-                <span class="player-display-icon">{{ myPlayer?.color === 'white' ? '♔' : '♚' }}</span>
-                <span class="player-display-color">You</span>
-                <span class="player-display-color-detail">({{ myPlayer?.color }})</span>
-              </div>
-              <div class="opponent-display">
-                <span class="opponent-icon">{{ myPlayer?.color === 'white' ? '♚' : '♔' }}</span>
-                <span class="opponent-name">{{ isAIGame ? 'AI' : 'Opp' }}</span>
-                <span class="opponent-name-detail">{{ isAIGame ? 'Computer' : formatPeerId(opponentId || 'Unknown') }}</span>
-              </div>
-            </div>
-            <div v-if="currentGameTimeControl && currentGameTimeControl.minutes === 0" class="casual-mode-badge">
-              ♾️ Casual
-            </div>
-          </div>
-          
-          <!-- Material Score -->
-          <div v-if="capturedPieces.white.length > 0 || capturedPieces.black.length > 0" class="material-section">
-            <h4 class="material-heading">Material</h4>
-            <div class="material-display">
-              <div v-if="capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black'].length > 0" class="captured-pieces">
-                <div class="captured-label">You captured:</div>
-                <div class="pieces-row">
-                  <img 
-                    v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black']"
-                    :key="`my-${idx}`"
-                    :src="`/pieces/${myPlayer?.color === 'white' ? 'b' : 'w'}${piece}.svg`" 
-                    :alt="piece"
-                    class="captured-piece"
-                  />
-                  <span v-if="materialAdvantage[myPlayer?.color || 'white'] > 0" class="advantage-score">
-                    +{{ materialAdvantage[myPlayer?.color || 'white'] }}
-                  </span>
-                </div>
-              </div>
-              <div v-if="capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white'].length > 0" class="captured-pieces">
-                <div class="captured-label">Opponent captured:</div>
-                <div class="pieces-row">
-                  <img 
-                    v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']"
-                    :key="`opp-${idx}`"
-                    :src="`/pieces/${myPlayer?.color === 'white' ? 'w' : 'b'}${piece}.svg`" 
-                    :alt="piece"
-                    class="captured-piece"
-                  />
-                  <span v-if="materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] > 0" class="advantage-score">
-                    +{{ materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] }}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <!-- Bottom Timer (my clock, at bottom of board visually) -->
-          <div 
-            v-if="currentGameTimeControl && currentGameTimeControl.minutes > 0"
-            class="timer-section my-timer old-timer" 
-            :class="{ active: isMyTurn }"
-            style="display: none;"
-          >
-            <div class="timer-display">
-              <span class="timer-icon">{{ myPlayer?.color === 'white' ? '♔' : '♚' }}</span>
-              <span class="timer-time">{{ formatTime(myTime) }}</span>
-              <span class="timer-label-inline">You</span>
-            </div>
-          </div>
-          
-          <div v-if="currentGame?.status === 'finished'" class="game-result">
-            <h3>Game Over!</h3>
-            <p class="result-text">
-              {{ getResultText() }}
-            </p>
-            <button class="primary" @click="returnToLobby">
-              Return to Lobby
-            </button>
-          </div>
-          
-          <div class="moves-history">
-            <div class="moves-header">
-              <h4>Move History</h4>
-              <div v-if="currentGame?.moves && currentGame.moves.length > 0" class="move-navigation">
-                <button 
-                  class="nav-btn"
-                  :disabled="viewingMoveIndex === -1"
-                  @click="goToStart"
-                  title="Go to start"
-                >
-                  ⏮
-                </button>
-                <button 
-                  class="nav-btn"
-                  :disabled="viewingMoveIndex === -1"
-                  @click="previousMove"
-                  title="Previous move"
-                >
-                  ◀
-                </button>
-                <span class="move-counter">
-                  {{ viewingMoveIndex === null ? (currentGame?.moves.length || 0) : (viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1) }} / {{ currentGame?.moves.length || 0 }}
-                </span>
-                <button 
-                  class="nav-btn"
-                  :disabled="viewingMoveIndex === null || viewingMoveIndex === (currentGame?.moves.length || 0) - 1"
-                  @click="nextMove"
-                  title="Next move"
-                >
-                  ▶
-                </button>
-                <button 
-                  class="nav-btn"
-                  :disabled="viewingMoveIndex === null"
-                  @click="goToEnd"
-                  title="Go to current position"
-                >
-                  ⏭
+                  <span class="pick-time">{{ control.id === 'any' ? 'Any' : (control.minutes === 0 ? 'No clock' : control.display) }}</span>
+                  <span class="pick-name">{{ control.id === 'any' ? 'first free' : control.name.toLowerCase() }}</span>
                 </button>
               </div>
+            </fieldset>
+
+            <div v-if="!isSearching" class="row">
+              <button class="btn btn-go btn-wide" @click="startSearching">Find a game</button>
             </div>
-            <div class="moves-list">
-              <div 
-                v-for="(move, index) in currentGame?.moves || []" 
-                :key="index"
-                class="move-item"
-                :class="{ 'viewing': index === viewingMoveIndex }"
-                @click="goToMove(index)"
+            <div v-else class="searching">
+              <p><span class="pulse" aria-hidden="true"></span>Looking for an opponent at {{ selectedTimeControlDisplay }}</p>
+              <button class="btn" @click="stopSearching">Stop looking</button>
+            </div>
+
+            <h2 class="lobby-title lobby-title-2">Play the computer</h2>
+            <div class="levels" role="radiogroup" aria-label="Computer strength">
+              <button
+                v-for="(label, level) in aiLevels"
+                :key="level"
+                class="level"
+                role="radio"
+                :aria-checked="aiDifficulty === level"
+                :class="{ picked: aiDifficulty === level }"
+                @click="aiDifficulty = level"
               >
-                <span class="move-number">{{ Math.floor(index / 2) + 1 }}{{ index % 2 === 0 ? '.' : '...' }}</span>
-                <span class="move-san">{{ move }}</span>
-              </div>
+                <span class="level-name">{{ label.name }}</span>
+                <span class="level-elo">{{ label.elo }}</span>
+              </button>
             </div>
+            <div class="row">
+              <button class="btn btn-wide" :disabled="isSearching" @click="startAIGame">Start against {{ aiLevels[aiDifficulty].name.toLowerCase() }}</button>
+            </div>
+
+            <p class="you">You are <code :title="myPeerId">{{ formatPeerId(myPeerId) }}</code> on the {{ settings.networkName || 'global' }} network.</p>
+          </template>
+
+          <p v-if="error" class="alert">{{ error }}</p>
+        </div>
+      </section>
+
+      <!-- Game -->
+      <section v-else class="table">
+        <div class="board-area">
+          <ChessBoard
+            :chess="chess"
+            :flipped="myPlayer?.color === 'black'"
+            :interactive="isMyTurn && isGameActive && viewingMoveIndex === null"
+            :last-move="lastMove"
+            :analysis-arrows="analysisArrows"
+            :piece-colors="pieceColors"
+            :white-arrow-color="settings.whiteArrowColor"
+            :black-arrow-color="settings.blackArrowColor"
+            :empty-arrow-color="settings.emptyArrowColor"
+            @move="handleMove"
+          />
+        </div>
+
+        <div class="seat seat-top" :class="{ running: !isMyTurn && currentGame?.status !== 'finished', check: isOpponentKingInCheck }">
+          <img class="seat-colour" :src="`/pieces/${myPlayer?.color === 'white' ? 'b' : 'w'}k.svg`" alt="" />
+          <span class="seat-name">
+            {{ isAIGame ? `Computer, ${aiLevels[aiDifficulty].name.toLowerCase()}` : formatPeerId(opponentId || 'Opponent') }}
+            <small v-if="aiThinking">thinking</small>
+          </span>
+          <span class="seat-captures">
+            <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']" :key="`go-${idx}`" :src="`/pieces/${myPlayer?.color === 'white' ? 'w' : 'b'}${piece}.svg`" :alt="piece" />
+            <b v-if="materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] > 0">+{{ materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] }}</b>
+          </span>
+          <span v-if="hasClock" class="seat-clock">{{ formatTime(opponentTime) }}</span>
+        </div>
+
+        <div class="side-info">
+          <p v-if="currentGame?.status !== 'finished'" class="turn" :class="{ mine: isMyTurn }">
+            {{ isMyTurn ? 'Your move' : (aiThinking ? 'The computer is thinking' : 'Their move') }}
+          </p>
+          <p v-if="!hasClock && currentGame?.status !== 'finished'" class="note">No clock in this game.</p>
+          <p v-if="currentOpeningName" class="opening">{{ currentOpeningName }}</p>
+          <p v-if="showBestMoves && isAIGame" class="legend">
+            <span class="key key-1"></span>best
+            <span class="key key-2"></span>second
+            <span class="key key-3"></span>third
+          </p>
+
+          <div v-if="currentGame?.status === 'finished'" class="verdict" :class="resultClass">
+            <h3>{{ getResultText() }}</h3>
+            <button class="btn btn-go" @click="returnToLobby">Back to the lobby</button>
           </div>
         </div>
-      </div>
+
+        <div class="moves">
+          <div class="moves-bar">
+            <button class="step" :disabled="!currentGame?.moves?.length || viewingMoveIndex === -1" @click="goToStart" aria-label="First move">«</button>
+            <button class="step" :disabled="!currentGame?.moves?.length || viewingMoveIndex === -1" @click="previousMove" aria-label="Previous move">‹</button>
+            <span class="moves-count">{{ viewingMoveIndex === null ? (currentGame?.moves.length || 0) : (viewingMoveIndex === -1 ? 0 : viewingMoveIndex + 1) }} of {{ currentGame?.moves.length || 0 }}</span>
+            <button class="step" :disabled="viewingMoveIndex === null || viewingMoveIndex === (currentGame?.moves.length || 0) - 1" @click="nextMove" aria-label="Next move">›</button>
+            <button class="step" :disabled="viewingMoveIndex === null" @click="goToEnd" aria-label="Current position">»</button>
+          </div>
+          <ol class="move-list">
+            <li v-if="!currentGame?.moves?.length" class="empty">No moves yet.</li>
+            <li v-for="(pair, row) in pairMoves(currentGame?.moves || [])" :key="row">
+              <span class="move-no">{{ row + 1 }}</span>
+              <button v-for="(san, k) in pair" :key="k" class="ply" :class="{ current: row * 2 + k === viewingMoveIndex }" @click="goToMove(row * 2 + k)">{{ san }}</button>
+            </li>
+          </ol>
+        </div>
+
+        <div v-if="currentGame?.status !== 'finished'" class="actions">
+          <button class="btn" @click="offerDraw">Offer a draw</button>
+          <button class="btn" @click="offerTakeback">Ask to take back</button>
+          <button v-if="isAIGame" class="btn" :aria-pressed="showBestMoves" :class="{ on: showBestMoves }" @click="showBestMoves = !showBestMoves">
+            {{ showBestMoves ? 'Hide best moves' : 'Show best moves' }}
+          </button>
+          <button class="btn btn-stop" @click="handleResign">Resign</button>
+        </div>
+
+        <div class="seat seat-bottom" :class="{ running: isMyTurn && currentGame?.status !== 'finished', check: isMyKingInCheck }">
+          <img class="seat-colour" :src="`/pieces/${myPlayer?.color === 'white' ? 'w' : 'b'}k.svg`" alt="" />
+          <span class="seat-name">{{ identityUsername || 'You' }}</span>
+          <span class="seat-captures">
+            <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black']" :key="`gm-${idx}`" :src="`/pieces/${myPlayer?.color === 'white' ? 'b' : 'w'}${piece}.svg`" :alt="piece" />
+            <b v-if="materialAdvantage[myPlayer?.color || 'white'] > 0">+{{ materialAdvantage[myPlayer?.color || 'white'] }}</b>
+          </span>
+          <span v-if="hasClock" class="seat-clock">{{ formatTime(myTime) }}</span>
+        </div>
+      </section>
     </main>
 
-    <!-- Modals -->
-    <SettingsModal 
+    <SettingsModal
       v-if="showSettings"
       :settings="settings"
       :board-themes="boardThemes"
@@ -983,190 +358,123 @@
       @update-arrow-colors="setArrowColors"
       @toggle-sound="toggleSound"
     />
-    
+
     <GameHistory
       v-if="showHistory"
       :game-history="gameHistory"
       @close="showHistory = false"
       @watch="startReplayMode"
     />
-    
-    <!-- Login/Register Modal -->
-    <div v-if="showLoginModal" class="modal-overlay">
-      <div class="modal login-modal">
-        <h3>{{ loginMode === 'login' ? '🔑 Login' : '✨ Create Account' }}</h3>
-        <p v-if="loginMode === 'login'">
-          Log in with your PigeonIdP identity to sync your game history across devices.
+
+    <div v-if="showLoginModal" class="sheet-backdrop" @click.self="showLoginModal = false; loginError = ''">
+      <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="login-title">
+        <h3 id="login-title">{{ loginMode === 'login' ? 'Log in' : 'Create an account' }}</h3>
+        <p>{{ loginMode === 'login'
+          ? 'Your account keeps your game history across devices.'
+          : 'Pick a name other players will see, and a password to protect it.' }}</p>
+
+        <label class="field">
+          <span>Username</span>
+          <input v-model="loginUsername" type="text" autocomplete="username" @keyup.enter="handleLogin" />
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input v-model="loginPassword" type="password" :autocomplete="loginMode === 'login' ? 'current-password' : 'new-password'" @keyup.enter="handleLogin" />
+        </label>
+        <ul v-if="loginMode === 'register' && loginPassword" class="rules">
+          <li :class="{ met: loginPassword.length >= 12 }">12 or more characters</li>
+          <li :class="{ met: /[A-Z]/.test(loginPassword) && /[a-z]/.test(loginPassword) }">Upper and lower case letters</li>
+          <li :class="{ met: /\d/.test(loginPassword) }">A number</li>
+          <li :class="{ met: /[!@#$%^&*()_+\-=\[\]{};':&quot;\\|,.<>\/?]/.test(loginPassword) }">A symbol</li>
+        </ul>
+
+        <p v-if="loginError" class="alert">{{ loginError }}</p>
+
+        <div class="sheet-actions">
+          <button class="btn" @click="showLoginModal = false; loginError = ''">Cancel</button>
+          <button class="btn btn-go" :disabled="loginLoading || !loginUsername || !loginPassword" @click="handleLogin">
+            {{ loginLoading ? 'Checking' : (loginMode === 'login' ? 'Log in' : 'Create account') }}
+          </button>
+        </div>
+        <p class="sheet-foot">
+          {{ loginMode === 'login' ? 'New here?' : 'Already have an account?' }}
+          <a href="#" @click.prevent="toggleLoginMode">{{ loginMode === 'login' ? 'Create an account' : 'Log in' }}</a>
         </p>
-        <p v-else>
-          Create a new identity to sync your game history and play with a unique username.
-        </p>
-        
-        <div class="login-form">
-          <div class="form-group">
-            <label>Username</label>
-            <input 
-              v-model="loginUsername" 
-              type="text" 
-              placeholder="Enter username"
-              @keyup.enter="handleLogin"
-            />
-          </div>
-          
-          <div class="form-group">
-            <label>Password</label>
-            <input 
-              v-model="loginPassword" 
-              type="password" 
-              placeholder="Enter password"
-              @keyup.enter="handleLogin"
-            />
-            <div v-if="loginMode === 'register' && loginPassword" class="password-requirements">
-              <p style="font-size: 11px; color: #666; margin: 5px 0;">Requirements:</p>
-              <ul style="font-size: 11px; color: #666; margin: 0; padding-left: 20px;">
-                <li :style="{ color: loginPassword.length >= 12 ? '#4CAF50' : '#f44336' }">
-                  {{ loginPassword.length >= 12 ? '✓' : '✗' }} At least 12 characters
-                </li>
-                <li :style="{ color: /[A-Z]/.test(loginPassword) && /[a-z]/.test(loginPassword) ? '#4CAF50' : '#f44336' }">
-                  {{ /[A-Z]/.test(loginPassword) && /[a-z]/.test(loginPassword) ? '✓' : '✗' }} Upper & lowercase letters
-                </li>
-                <li :style="{ color: /\d/.test(loginPassword) ? '#4CAF50' : '#f44336' }">
-                  {{ /\d/.test(loginPassword) ? '✓' : '✗' }} At least one number
-                </li>
-                <li :style="{ color: /[!@#$%^&*()_+\-=\[\]{};':&quot;\\|,.<>\/?]/.test(loginPassword) ? '#4CAF50' : '#f44336' }">
-                  {{ /[!@#$%^&*()_+\-=\[\]{};':&quot;\\|,.<>\/?]/.test(loginPassword) ? '✓' : '✗' }} Special character
-                </li>
-              </ul>
-            </div>
-          </div>
-          
-          <p v-if="loginError" class="error-message">{{ loginError }}</p>
-          
-          <div class="modal-buttons">
-            <button class="primary" @click="handleLogin" :disabled="loginLoading || !loginUsername || !loginPassword">
-              {{ loginLoading ? '⏳ Please wait...' : (loginMode === 'login' ? 'Login' : 'Create Account') }}
-            </button>
-            <button class="secondary" @click="showLoginModal = false; loginError = ''">
-              Cancel
-            </button>
-          </div>
-          
-          <p class="toggle-mode">
-            {{ loginMode === 'login' ? "Don't have an account?" : "Already have an account?" }}
-            <a href="#" @click.prevent="toggleLoginMode">
-              {{ loginMode === 'login' ? 'Create one' : 'Log in' }}
-            </a>
-          </p>
+      </div>
+    </div>
+
+    <div v-if="incomingChallenge" class="sheet-backdrop">
+      <div class="sheet" role="alertdialog" aria-modal="true">
+        <h3>{{ formatPeerId(incomingChallenge.from) }} wants a game</h3>
+        <div class="sheet-actions">
+          <button class="btn" @click="declineChallenge">Decline</button>
+          <button class="btn btn-go" @click="acceptChallenge">Play</button>
         </div>
       </div>
     </div>
-    
-    <!-- Challenge Modal -->
-    <div v-if="incomingChallenge" class="modal-overlay">
-      <div class="modal challenge-modal">
-        <h3>🎮 Incoming Challenge!</h3>
-        <p>{{ formatPeerId(incomingChallenge.from) }} wants to play a game.</p>
-        <div class="modal-buttons">
-          <button class="danger" @click="declineChallenge">
-            Decline
-          </button>
-          <button class="success" @click="acceptChallenge">
-            Accept
-          </button>
+
+    <div v-if="showAlreadyInGameModal" class="sheet-backdrop">
+      <div class="sheet" role="alertdialog" aria-modal="true">
+        <h3>You're already playing</h3>
+        <p>Finish or resign the current game before starting another.</p>
+        <div class="sheet-actions">
+          <button class="btn btn-go" @click="showAlreadyInGameModal = false">OK</button>
         </div>
       </div>
     </div>
-    
-    <!-- Already in Game Modal -->
-    <div v-if="showAlreadyInGameModal" class="modal-overlay">
-      <div class="modal info-modal">
-        <h3>⚠️ Already in Game</h3>
-        <p>You are already in an active game. Finish your current game before starting a new one.</p>
-        <div class="modal-buttons">
-          <button class="primary" @click="showAlreadyInGameModal = false">
-            OK
-          </button>
+
+    <div v-if="showResignConfirmModal" class="sheet-backdrop">
+      <div class="sheet" role="alertdialog" aria-modal="true">
+        <h3>Resign this game?</h3>
+        <p>It ends now and counts as a loss.</p>
+        <div class="sheet-actions">
+          <button class="btn" @click="showResignConfirmModal = false">Keep playing</button>
+          <button class="btn btn-stop" @click="confirmResign">Resign</button>
         </div>
       </div>
     </div>
-    
-    <!-- Resign Confirmation Modal -->
-    <div v-if="showResignConfirmModal" class="modal-overlay">
-      <div class="modal confirm-modal">
-        <h3>🏳️ Resign Game?</h3>
-        <p>Are you sure you want to resign? This will end the game and count as a loss.</p>
-        <div class="modal-buttons">
-          <button class="secondary" @click="showResignConfirmModal = false">
-            Cancel
-          </button>
-          <button class="danger" @click="confirmResign">
-            Resign
-          </button>
+
+    <div v-if="incomingDrawOffer" class="sheet-backdrop">
+      <div class="sheet" role="alertdialog" aria-modal="true">
+        <h3>{{ formatPeerId(incomingDrawOffer.from) }} offers a draw</h3>
+        <div class="sheet-actions">
+          <button class="btn" @click="declineDrawOffer">Keep playing</button>
+          <button class="btn btn-go" @click="acceptDrawOffer">Agree to a draw</button>
         </div>
       </div>
     </div>
-    
-    <!-- Draw Offer Modal -->
-    <div v-if="incomingDrawOffer" class="modal-overlay">
-      <div class="modal offer-modal">
-        <h3>🤝 Draw Offered</h3>
-        <p>{{ formatPeerId(incomingDrawOffer.from) }} is offering a draw.</p>
-        <div class="modal-buttons">
-          <button class="danger" @click="declineDrawOffer">
-            Decline
-          </button>
-          <button class="success" @click="acceptDrawOffer">
-            Accept Draw
-          </button>
+
+    <div v-if="incomingTakebackRequest" class="sheet-backdrop">
+      <div class="sheet" role="alertdialog" aria-modal="true">
+        <h3>{{ formatPeerId(incomingTakebackRequest.from) }} asks to take back their last move</h3>
+        <div class="sheet-actions">
+          <button class="btn" @click="declineTakebackRequest">Decline</button>
+          <button class="btn btn-go" @click="acceptTakebackRequest">Allow it</button>
         </div>
       </div>
     </div>
-    
-    <!-- Takeback Request Modal -->
-    <div v-if="incomingTakebackRequest" class="modal-overlay">
-      <div class="modal offer-modal">
-        <h3>↩️ Takeback Requested</h3>
-        <p>{{ formatPeerId(incomingTakebackRequest.from) }} requests to undo their last move.</p>
-        <div class="modal-buttons">
-          <button class="danger" @click="declineTakebackRequest">
-            Decline
-          </button>
-          <button class="success" @click="acceptTakebackRequest">
-            Accept
-          </button>
+
+    <div v-if="showChallengeRejectedModal" class="sheet-backdrop">
+      <div class="sheet" role="alertdialog" aria-modal="true">
+        <h3>They're in another game</h3>
+        <p>Try again when their game ends, or find someone else.</p>
+        <div class="sheet-actions">
+          <button class="btn btn-go" @click="showChallengeRejectedModal = false">OK</button>
         </div>
       </div>
     </div>
-    
-    <!-- Challenge Rejected Modal -->
-    <div v-if="showChallengeRejectedModal" class="modal-overlay">
-      <div class="modal info-modal">
-        <h3>❌ Challenge Rejected</h3>
-        <p>Your challenge was rejected. The player is already in a game.</p>
-        <div class="modal-buttons">
-          <button class="primary" @click="showChallengeRejectedModal = false">
-            OK
-          </button>
-        </div>
-      </div>
-    </div>
-    
-    <!-- Game Abandoned Modal -->
-    <div v-if="showAbandonmentModal" class="modal-overlay">
-      <div class="modal info-modal">
-        <h3>⚠️ Game Abandoned</h3>
+
+    <div v-if="showAbandonmentModal" class="sheet-backdrop">
+      <div class="sheet" role="alertdialog" aria-modal="true">
+        <h3>{{ iAbandoned ? 'Game abandoned' : 'You win' }}</h3>
         <p v-if="abandonmentReason === 'initial_move_timeout'">
-          <strong>{{ iAbandoned ? 'Game Abandoned' : 'You Won!' }}</strong><br>
-          {{ iAbandoned ? 'You' : 'Opponent' }} failed to make the first move within the time limit.
+          {{ iAbandoned ? "You didn't" : "Your opponent didn't" }} make a first move in time.
         </p>
         <p v-else-if="abandonmentReason === 'peer_disconnect'">
-          <strong>{{ iAbandoned ? 'Game Abandoned' : 'You Won!' }}</strong><br>
-          {{ iAbandoned ? 'Your' : 'Opponent\'s' }} connection was lost and could not be re-established.
+          {{ iAbandoned ? 'Your connection' : "Your opponent's connection" }} dropped and didn't come back.
         </p>
-        <div class="modal-buttons">
-          <button class="primary" @click="showAbandonmentModal = false; abandonmentReason = null; iAbandoned = false">
-            OK
-          </button>
+        <div class="sheet-actions">
+          <button class="btn btn-go" @click="showAbandonmentModal = false; abandonmentReason = null; iAbandoned = false">OK</button>
         </div>
       </div>
     </div>
@@ -1181,7 +489,6 @@ import { useMatchmaking } from './composables/useMatchmaking'
 import ChessBoard from './components/ChessBoard.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import GameHistory from './components/GameHistory.vue'
-import MatchmakingLobby from './components/MatchmakingLobby.vue'
 import { useChessGame } from './composables/useChessGame'
 import { useSettings } from './composables/useSettings'
 import { useSounds } from './composables/useSounds'
@@ -1475,12 +782,12 @@ const currentOpeningName = computed(() => {
   return null
 })
 
-const difficultyDescriptions: Record<number, string> = {
-  0: '😊 Easy - Beginner level (~800-1000 Elo)',
-  1: '🤔 Medium - Intermediate player (~1200-1400 Elo)',
-  2: '� Hard - Advanced player (~1800-2000 Elo)',
-  3: '🏆 Very Hard - Master level (~2500-2800+ Elo)'
-}
+const aiLevels = [
+  { name: 'Easy', elo: 'about 900' },
+  { name: 'Medium', elo: 'about 1300' },
+  { name: 'Hard', elo: 'about 1900' },
+  { name: 'Master', elo: '2500 and up' }
+]
 
 const startAIGame = () => {
   if (isGameActive.value) return
@@ -2874,8 +2181,9 @@ const processIncomingTimer = (incomingTimer: any, incomingClock: Record<string, 
     opponentTime.value = whiteT
   }
 
-  // Update current turn
-  currentGame.value.currentTurn = incomingTimer.currentTurn
+  // Whose turn it is comes from the board, not the clock message: a timer sync
+  // can be sent before the move it crossed on the way.
+  currentGame.value.currentTurn = chess.value.turn() === 'w' ? 'white' : 'black'
 
   // Restart timer loop to use updated state
   if (timerInterval) clearInterval(timerInterval)
@@ -3121,9 +2429,43 @@ const statusClass = computed(() => {
 })
 
 const statusText = computed(() => {
-  if (!isInitialized.value) return 'Initializing...'
-  if (!isConnected.value) return 'Connecting to network...'
-  return 'Connected to network'
+  if (!isInitialized.value) return 'Starting'
+  if (!isConnected.value) return 'Connecting'
+  return 'Connected'
+})
+
+// View helpers for the template
+const lobbyChess = new Chess()
+const pieceColors = computed(() => ({
+  whiteFill: settings.value.customWhitePieceColor,
+  blackFill: settings.value.customBlackPieceColor,
+  whiteStroke: settings.value.customWhitePieceOutline,
+  blackStroke: settings.value.customBlackPieceOutline
+}))
+const pairMoves = (moves: string[]): string[][] => {
+  const rows: string[][] = []
+  for (let i = 0; i < moves.length; i += 2) rows.push(moves.slice(i, i + 2))
+  return rows
+}
+const capitalise = (word: string) => (word ? word[0].toUpperCase() + word.slice(1) : '')
+const hasClock = computed(() => Boolean(currentGameTimeControl.value && currentGameTimeControl.value.minutes > 0))
+const resultClass = computed(() => {
+  const result = currentGame.value?.result
+  if (!result || result === 'draw') return 'verdict-draw'
+  return result === myPlayer.value?.color ? 'verdict-win' : 'verdict-loss'
+})
+const replayResultText = computed(() => {
+  const result = replayGame.value?.result
+  if (result === 'win') return 'you won'
+  if (result === 'loss') return 'you lost'
+  if (result === 'draw') return 'drawn'
+  return 'abandoned'
+})
+const replayOpponentName = computed(() => {
+  const game = replayGame.value
+  if (!game) return ''
+  if (game.isAI) return `Computer, ${(aiLevels[game.aiDifficulty || 0]?.name || 'Easy').toLowerCase()}`
+  return (game.opponentUsername?.trim()) || formatPeerId(game.opponent || 'Opponent')
 })
 
 // Material counting
@@ -3904,7 +3246,7 @@ const checkPuzzleMove = (move: string): boolean => {
     // Check if puzzle is complete
     if (puzzleMoveIndex.value >= currentPuzzle.value.solution.length) {
       puzzleResult.value = 'correct'
-      puzzleMessage.value = '✅ Puzzle solved! Great job!'
+      puzzleMessage.value = 'Solved.'
       playWinSound() // Play success sound
       if (currentGame.value) {
         currentGame.value.status = 'finished'
@@ -3944,7 +3286,7 @@ const checkPuzzleMove = (move: string): boolean => {
             // Check if puzzle is now complete after opponent's move
             if (puzzleMoveIndex.value >= currentPuzzle.value.solution.length) {
               puzzleResult.value = 'correct'
-              puzzleMessage.value = '✅ Puzzle solved! Great job!'
+              puzzleMessage.value = 'Solved.'
               playWinSound() // Play success sound
               if (currentGame.value) {
                 currentGame.value.status = 'finished'
@@ -3962,7 +3304,7 @@ const checkPuzzleMove = (move: string): boolean => {
   } else {
     // Incorrect move
     puzzleResult.value = 'incorrect'
-    puzzleMessage.value = `❌ Incorrect! The correct move was ${expectedMove}. Try again?`
+    puzzleMessage.value = `The move was ${expectedMove}.`
     if (currentGame.value) {
       currentGame.value.status = 'finished'
     }
@@ -4015,7 +3357,7 @@ const showSolution = async () => {
   // After showing solution, mark as complete
   await new Promise(resolve => setTimeout(resolve, 1000))
   puzzleResult.value = 'correct'
-  puzzleMessage.value = '✅ Solution shown!'
+  puzzleMessage.value = 'That was the full solution.'
   if (currentGame.value) {
     currentGame.value.status = 'finished'
   }
@@ -4023,15 +3365,15 @@ const showSolution = async () => {
 }
 
 const getResultText = (): string => {
-  if (!currentGame.value?.result) return 'Draw'
+  if (!currentGame.value?.result) return 'Drawn'
   
-  if (currentGame.value.result === 'draw') return 'Draw'
+  if (currentGame.value.result === 'draw') return 'Drawn'
   
   // Check if game was abandoned
-  if (abandonmentReason.value) return 'Game Abandoned'
+  if (abandonmentReason.value) return 'Game abandoned'
   
   const iWon = currentGame.value.result === myPlayer.value?.color
-  return iWon ? 'You Win!' : 'You Lose'
+  return iWon ? 'You won' : 'You lost'
 }
 
 // Message handling
@@ -4438,2509 +3780,915 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.app-container {
+/* ---------- top bar ---------- */
+.topbar {
+  height: var(--topbar);
   display: flex;
-  flex-direction: column;
-  height: 100vh;
-  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-}
-
-.app-header {
-  display: flex;
-  justify-content: center;
   align-items: center;
-  padding: 1.25rem 2rem;
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(10px);
-  box-shadow: var(--shadow-md);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  gap: 1.5rem;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
   position: relative;
-  flex-wrap: wrap;
-  z-index: 10000;
+  z-index: 20;
 }
 
-.app-header h1 {
-  font-size: 2rem;
-  font-weight: 700;
-  background: linear-gradient(135deg, #2563eb, #1e40af);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  margin: 0;
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+}
+
+.wordmark {
+  font-stretch: 125%;
+  font-weight: 800;
+  font-size: 1.2rem;
+  letter-spacing: -0.02em;
+}
+
+.net {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  color: var(--ink-2);
+  font-size: 0.875rem;
+  margin-right: auto;
 }
 
-.pigeon-logo {
-  width: 2rem;
-  height: 2rem;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+.net-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line-strong);
 }
 
-.header-right {
-  position: absolute;
-  right: 2rem;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
+.status-connected .net-dot {
+  background: var(--sheen);
 }
 
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: var(--primary-color);
-  color: white;
-  border-radius: 0.5rem;
-  font-size: 0.9rem;
-  font-weight: 600;
+.status-connecting .net-dot {
+  background: var(--slate);
+  animation: blink 1.4s ease-in-out infinite;
 }
 
-.username {
+.net-peers {
+  padding-left: 0.5rem;
+  border-left: 1px solid var(--line);
+}
+
+@keyframes blink {
+  50% { opacity: 0.3; }
+}
+
+.nav {
   display: flex;
   align-items: center;
   gap: 0.25rem;
 }
 
-.btn-logout, .btn-login {
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: 0.5rem;
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.9rem;
-  transition: all 0.2s;
-}
-
-.btn-logout {
-  background: rgba(239, 68, 68, 0.1);
-  color: var(--danger-color);
-}
-
-.btn-logout:hover {
-  background: var(--danger-color);
-  color: white;
-}
-
-.btn-login {
-  background: var(--primary-color);
-  color: white;
-}
-
-.btn-login:hover {
-  background: var(--primary-hover);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
-}
-
-.hamburger-menu {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 3px;
-  background: transparent;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  z-index: 1001;
-  transition: all 0.3s ease;
-  width: 2rem;
-  height: 2rem;
-}
-
-.hamburger-menu:hover {
-  transform: scale(1.1);
-}
-
-.hamburger-line {
-  width: 20px;
-  height: 2.5px;
-  background: linear-gradient(135deg, #2563eb, #1e40af);
-  border-radius: 2px;
-  transition: all 0.3s ease;
-  margin: 0 auto;
-}
-
-.hamburger-menu.active .hamburger-line:nth-child(1) {
-  transform: rotate(45deg) translate(5px, 5px);
-}
-
-.hamburger-menu.active .hamburger-line:nth-child(2) {
-  opacity: 0;
-}
-
-.hamburger-menu.active .hamburger-line:nth-child(3) {
-  transform: rotate(-45deg) translate(7px, -7px);
-}
-
-.dropdown-menu {
-  position: absolute;
-  top: 100%;
-  right: 2rem;
-  margin-top: 0.5rem;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.2);
-  overflow: hidden;
-  z-index: 9999;
-  min-width: 180px;
-  border: 1px solid #e2e8f0;
-}
-
-.menu-item {
-  width: 100%;
-  padding: 1rem 1.5rem;
-  background: white;
-  border: none;
-  text-align: left;
-  font-size: 0.95rem;
+.nav-link {
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--radius);
   font-weight: 500;
-  color: var(--dark-color);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  color: var(--ink);
 }
 
-.menu-item:hover {
-  background: #eff6ff;
-  color: #2563eb;
+.nav-link:hover {
+  background: var(--wing);
 }
 
-.menu-item:not(:last-child) {
-  border-bottom: 1px solid #f1f5f9;
-}
-
-.status-bar {
-  padding: 0.75rem 2rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.95rem;
-  font-weight: 500;
-  transition: background-color 0.3s;
-}
-
-.status-left {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.status-indicator {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: currentColor;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-.peer-count {
-  font-weight: 600;
-}
-
-.status-disconnected {
-  background: #ef4444;
-  color: white;
-}
-
-.status-connecting {
-  background: #f59e0b;
-  color: white;
-}
-
-.status-connected {
-  background: #2563eb;
-  color: white;
-}
-
-.main-content {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-}
-
-/* Replay Mode Styles */
-.replay-container {
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-}
-
-/* Puzzle Mode Styles */
-.puzzle-info {
-  padding: 1.5rem;
-  background: var(--light-color);
-  border-radius: 12px;
-  margin-bottom: 1rem;
-}
-
-.puzzle-info h3 {
-  margin: 0 0 1rem 0;
-  color: var(--primary-color);
-  font-size: 1.5rem;
-  text-align: center;
-}
-
-.puzzle-description {
-  font-size: 1rem;
-  color: var(--dark-color);
-  margin-bottom: 1rem;
-  text-align: center;
-  font-weight: 500;
-}
-
-.puzzle-hint {
-  background: #eff6ff;
-  border: 2px solid #bfdbfe;
-  border-radius: 8px;
-  padding: 1rem;
-  text-align: center;
-  margin-bottom: 1rem;
-}
-
-.puzzle-hint p {
-  margin: 0.5rem 0;
-  color: var(--dark-color);
-  font-size: 0.95rem;
-}
-
-.puzzle-buttons {
-  display: flex;
-  gap: 0.75rem;
-  justify-content: center;
-  margin-top: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.hint-btn, .solution-btn, .move-btn {
-  padding: 0.5rem 1.25rem;
-  color: white;
-  border: none;
-  border-radius: 20px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.hint-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
-}
-
-.hint-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-.move-btn {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
-}
-
-.move-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
-}
-
-.solution-btn {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
-}
-
-.solution-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
-}
-
-.hint-btn:disabled, .solution-btn:disabled, .move-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.hint-btn:active:not(:disabled), .solution-btn:active:not(:disabled), .move-btn:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-.hint-text {
-  background: #fef3c7;
-  border: 2px solid #fbbf24;
-  border-radius: 8px;
-  padding: 1rem;
-  margin-top: 0.75rem;
-  text-align: left;
-  animation: slideDown 0.3s ease;
-}
-
-.hint-text.move-shown {
-  background: #d1fae5;
-  border-color: #10b981;
-}
-
-.hint-text.move-shown strong {
-  color: #065f46;
-}
-
-.hint-text strong {
-  color: #92400e;
-}
-
-@keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.difficulty-badge {
-  display: inline-block;
-  padding: 0.5rem 1rem;
-  border-radius: 20px;
-  font-weight: bold;
-  font-size: 0.9rem;
-  margin-top: 0.5rem;
-}
-
-.difficulty-badge.easy {
-  background: #d1fae5;
-  color: #065f46;
-}
-
-.difficulty-badge.medium {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.difficulty-badge.hard {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.puzzle-result {
-  background: white;
-  border-radius: 10px;
-  padding: 1.5rem;
-  text-align: center;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.puzzle-result h4 {
-  margin: 0 0 0.75rem 0;
-  font-size: 1.3rem;
-}
-
-.puzzle-result p {
-  margin: 0.5rem 0;
-}
-
-.puzzle-result.success {
-  border: 3px solid #10b981;
-}
-
-.puzzle-result.success h4 {
-  color: #10b981;
-}
-
-.puzzle-result.failure {
-  border: 3px solid #f59e0b;
-}
-
-.puzzle-result.failure h4 {
-  color: #f59e0b;
-}
-
-.puzzle-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
-
-.puzzle-actions button {
-  width: 100%;
-}
-
-.puzzle-permanent-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  margin-top: 1.5rem;
-  padding-top: 1.5rem;
-  border-top: 2px solid #e2e8f0;
-}
-
-.puzzle-permanent-actions button {
-  width: 100%;
-  font-weight: 600;
-}
-
-.replay-info-section {
-  padding: 1rem;
-  background: var(--light-color);
-  border-radius: 8px;
-  margin-bottom: 1rem;
-}
-
-.replay-info-section h3 {
-  margin: 0 0 0.75rem 0;
-  color: var(--primary-color);
-  font-size: 1.25rem;
-}
-
-.replay-details {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.replay-result {
-  padding: 0.25rem 0.75rem;
-  border-radius: 4px;
-  font-weight: bold;
-  font-size: 0.9rem;
-  display: inline-block;
-  width: fit-content;
-}
-
-.replay-result.win {
-  background: var(--success-color);
-  color: white;
-}
-
-.replay-result.loss {
-  background: var(--danger-color);
-  color: white;
-}
-
-.replay-result.draw {
-  background: var(--warning-color);
-  color: white;
-}
-
-.replay-opponent {
-  color: var(--secondary-color);
-  font-weight: 600;
-  font-size: 0.95rem;
-}
-
-.replay-players {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  align-items: flex-start;
-}
-
-.replay-player {
-  color: var(--secondary-color);
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-
-.vs-text {
-  color: var(--secondary-color);
-  font-size: 0.75rem;
-  opacity: 0.7;
+.nav-login {
+  border: 1px solid var(--line-strong);
   margin-left: 0.5rem;
 }
 
-.replay-date {
-  color: var(--secondary-color);
-  font-size: 0.85rem;
+.nav-user {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.5rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--line);
 }
 
-.opening-display {
-  margin-top: 0.75rem;
-  padding: 0.75rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 8px;
-  color: white;
-  font-size: 0.9rem;
-  text-align: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.opening-display strong {
+.nav-username {
   font-weight: 600;
 }
 
-.welcome-screen {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2rem;
-  overflow: visible;
-  min-height: 0;
-}
-
-.welcome-card {
-  max-width: 600px;
-  width: 100%;
-  text-align: center;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-
-.welcome-card h2 {
-  font-size: 2.5rem;
-  font-weight: 700;
-  margin-bottom: 0.75rem;
-  color: var(--dark-color);
-  letter-spacing: -0.025em;
-}
-
-.welcome-card > p {
-  color: var(--secondary-color);
-  margin-bottom: 2.5rem;
-  font-size: 1.05rem;
-}
-
-.connection-section {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  align-items: center;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.connecting-state {
-  text-align: center;
-  padding: 2rem;
-}
-
-.connecting-text {
-  margin-top: 1rem;
-  color: var(--primary-color);
-  font-weight: 600;
-  font-size: 1.1rem;
-}
-
-.spinner {
-  width: 60px;
-  height: 60px;
-  border: 4px solid rgba(99, 102, 241, 0.1);
-  border-top: 4px solid #2563eb;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin: 0 auto;
-}
-
-.spinner.small {
-  width: 30px;
-  height: 30px;
-  border-width: 3px;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-button.large {
-  padding: 0.75rem 2rem;
-  font-size: 1.1rem;
-}
-
-.matchmaking {
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.matchmaking h3 {
-  margin-bottom: 0.5rem;
-  color: #2563eb;
-  font-size: 1.75rem;
-  font-weight: 700;
-}
-
-.waiting-peers {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding: 2.5rem;
-  color: var(--secondary-color);
-}
-
-.matchmaking > p {
-  color: var(--secondary-color);
-  margin-bottom: 1rem;
-}
-
-.peer-id {
-  font-size: 0.9rem;
-  color: var(--secondary-color);
-  margin-bottom: 1.5rem;
-  margin-top: 0.5rem;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.peer-id code {
-  background: #eff6ff;
-  padding: 0.375rem 0.75rem;
-  border-radius: 6px;
-  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
-  font-size: 0.85rem;
-  border: 1px solid #bfdbfe;
-  word-break: break-all;
-  display: inline-block;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-
-.time-control-section {
-  width: 100%;
-  max-width: 100%;
-  margin: 1.5rem 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-.time-control-section h4 {
-  margin-bottom: 1rem;
-  color: var(--dark-color);
-  font-size: 1.1rem;
-}
-
-.time-controls {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.6rem;
-  width: 100%;
-}
-
-.time-control-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 0.65rem 0.25rem;
-  border: 2px solid #bfdbfe;
-  background: white;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 65px;
-}
-
-.time-control-btn:hover {
-  border-color: #93c5fd;
-  background: #eff6ff;
-  transform: translateY(-1px);
-}
-
-.time-control-btn.active {
-  border-color: #2563eb;
-  background: #dbeafe;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-
-.control-name {
-  font-size: 0.75rem;
-  color: #64748b;
+.menu-toggle {
+  display: none;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
   font-weight: 500;
-  white-space: nowrap;
+}
+
+/* ---------- the table: board on the left, the game on the right ---------- */
+.main {
+  padding: 20px 24px;
+}
+
+.table {
+  --side: clamp(300px, 28vw, 380px);
+  --board: min(calc(100dvh - var(--topbar) - 40px), calc(100vw - var(--side) - 48px - 32px));
+  display: grid;
+  grid-template-columns: var(--board) var(--side);
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    'board head'
+    'board top'
+    'board info'
+    'board moves'
+    'board actions'
+    'board bottom';
+  column-gap: 32px;
+  justify-content: center;
+  height: var(--board);
+}
+
+.board-area {
+  grid-area: board;
+  width: var(--board);
+  height: var(--board);
+}
+
+.board-area :deep(.chess-board) {
+  max-width: none;
+  width: 100%;
+}
+
+.side-head {
+  grid-area: head;
+  padding-bottom: 0.75rem;
+}
+
+.side-title {
+  font-stretch: 112%;
+  font-weight: 700;
+  font-size: 1.35rem;
+  letter-spacing: -0.01em;
+}
+
+.side-meta {
+  color: var(--ink-2);
+}
+
+/* A seat: one player, their captures and their clock, at the board edge they sit on */
+.seat {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    'colour name clock'
+    'colour captures clock';
+  column-gap: 0.65rem;
+  align-items: center;
+  align-content: center;
+  padding: 0.6rem 0;
+}
+
+.seat-top {
+  grid-area: top;
+  border-bottom: 1px solid var(--line);
+}
+
+.seat-bottom {
+  grid-area: bottom;
+  border-top: 1px solid var(--line);
+}
+
+.seat-colour {
+  grid-area: colour;
+  width: 26px;
+  height: 26px;
+}
+
+.seat-name {
+  grid-area: name;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
-}
-
-.control-time {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--dark-color);
-  margin-top: 0.25rem;
   white-space: nowrap;
 }
 
-/* Adjust time controls for small screens */
-@media (max-width: 480px) {
-  .welcome-screen {
-    padding: 0.75rem;
-  }
-  
-  .welcome-card {
-    padding: 1rem;
-  }
-  
-  .welcome-card h2 {
-    font-size: 1.6rem;
-    margin-bottom: 0.6rem;
-  }
-  
-  .welcome-card > p {
-    font-size: 0.9rem;
-    margin-bottom: 1.75rem;
-  }
-  
-  .matchmaking h3 {
-    font-size: 1.4rem;
-  }
-  
-  .time-control-section {
-    padding: 0;
-    margin: 1rem 0;
-  }
-  
-  .time-controls {
-    gap: 0.5rem;
-  }
-  
-  .time-control-btn {
-    padding: 0.6rem 0.2rem;
-    min-height: 60px;
-  }
-  
-  .control-name {
-    font-size: 0.7rem;
-  }
-  
-  .control-time {
-    font-size: 0.9rem;
-  }
-  
-  .game-controls {
-    padding: 8px;
-    gap: 0.5rem;
-  }
-  
-  .action-icon {
-    padding: 0.6rem;
-    font-size: 1.6rem;
-    min-height: 50px;
-  }
-  
-  .turn-indicator {
-    font-size: 0.85rem;
-    padding: 0.4rem;
-  }
-  
-  .player-section {
-    padding-bottom: 0.4rem;
-  }
-  
-  .player-display, .opponent-display {
-    font-size: 0.8rem;
-    padding: 0.35rem 0.5rem;
-  }
-  
-  .player-display-icon, .opponent-icon {
-    font-size: 0.9rem;
-  }
-  
-  .player-display-color, .opponent-name {
-    font-size: 0.75rem;
-  }
-  
-  .player-section h4, .material-section h4 {
-    font-size: 0.8rem;
-  }
-  
-  .casual-mode-badge {
-    font-size: 0.75rem;
-    padding: 0.3rem 0.5rem;
-  }
-}
-
-/* iPhone SE and very small screens */
-@media (max-width: 375px) {
-  .welcome-screen {
-    padding: 0.5rem;
-  }
-  
-  .welcome-card {
-    padding: 0.75rem;
-  }
-  
-  .welcome-card h2 {
-    font-size: 1.4rem;
-    margin-bottom: 0.5rem;
-  }
-  
-  .welcome-card > p {
-    font-size: 0.85rem;
-    margin-bottom: 1.5rem;
-  }
-  
-  .matchmaking h3 {
-    font-size: 1.25rem;
-    margin-bottom: 0.4rem;
-  }
-  
-  .time-control-section {
-    padding: 0;
-    margin: 1rem 0;
-  }
-  
-  .time-controls {
-    gap: 0.4rem;
-  }
-  
-  .time-control-btn {
-    padding: 0.55rem 0.15rem;
-    min-height: 58px;
-  }
-  
-  .control-name {
-    font-size: 0.65rem;
-  }
-  
-  .control-time {
-    font-size: 0.85rem;
-  }
-  
-  .app-header {
-    padding: 0.75rem 0.75rem;
-  }
-  
-  .app-header h1 {
-    font-size: 1.25rem;
-    gap: 0.3rem;
-  }
-  
-  .pigeon-logo {
-    width: 1.25rem;
-    height: 1.25rem;
-  }
-  
-  .pawn-icon {
-    font-size: 1.1rem;
-  }
-  
-  .header-actions button {
-    font-size: 0.85rem;
-    padding: 0.6rem 0.65rem;
-  }
-  
-  .peer-id {
-    font-size: 0.8rem;
-    margin-bottom: 0.75rem;
-  }
-  
-  .peer-id code {
-    font-size: 0.7rem;
-    padding: 0.25rem 0.4rem;
-  }
-  
-  .control-buttons {
-    gap: 0.4rem;
-  }
-  
-  button {
-    font-size: 0.9rem;
-    padding: 0.8rem 0.85rem;
-  }
-  
-  .search-section {
-    margin-top: 1rem;
-  }
-  
-  .game-controls {
-    padding: 6px;
-    gap: 0.4rem;
-  }
-  
-  .action-icon {
-    padding: 0.5rem;
-    font-size: 1.4rem;
-    min-height: 45px;
-  }
-  
-  .turn-indicator {
-    font-size: 0.8rem;
-    padding: 0.35rem;
-  }
-  
-  .timer-section {
-    padding: 0.35rem 0.6rem;
-  }
-  
-  .timer-icon {
-    font-size: 1.1rem;
-  }
-  
-  .timer-time {
-    font-size: 1.2rem;
-  }
-  
-  .timer-label-inline {
-    font-size: 0.65rem;
-  }
-  
-  .player-section {
-    padding-bottom: 0.35rem;
-  }
-  
-  .player-section h4, .material-section h4 {
-    font-size: 0.75rem;
-    margin-bottom: 0.4rem;
-  }
-  
-  .player-display, .opponent-display {
-    font-size: 0.8rem;
-    padding: 0.35rem 0.5rem;
-  }
-  
-  .player-display-icon, .opponent-icon {
-    font-size: 0.85rem;
-  }
-  
-  .player-display-color, .opponent-name {
-    font-size: 0.7rem;
-  }
-  
-  .casual-mode-badge {
-    font-size: 0.7rem;
-    padding: 0.25rem 0.4rem;
-  }
-  
-  .captured-piece {
-    width: 20px;
-    height: 20px;
-  }
-  
-  .turn-indicator {
-    font-size: 0.85rem;
-    padding: 0.4rem;
-  }
-  
-  .control-buttons button.compact {
-    padding: 0.45rem 0.35rem;
-    font-size: 0.8rem;
-  }
-}
-
-.search-section {
-  width: 100%;
-  max-width: 100%;
-  margin-top: 1.5rem;
-  box-sizing: border-box;
-}
-
-.ai-section {
-  width: 100%;
-  max-width: 100%;
-  margin-top: 1rem;
-  box-sizing: border-box;
-}
-
-.ai-section h4 {
-  font-size: 1rem;
-  margin: 0 0 0.75rem 0;
-  color: #1e293b;
-  text-align: center;
-}
-
-.ai-difficulty-slider {
-  margin-bottom: 1rem;
-  padding: 1rem;
-  background: #f8fafc;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-}
-
-.difficulty-labels {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 0.5rem;
-  font-size: 0.75rem;
-  color: #64748b;
-  font-weight: 500;
-}
-
-.slider {
-  width: 100%;
-  height: 6px;
-  border-radius: 5px;
-  background: #e2e8f0;
-  outline: none;
-  appearance: none;
-  -webkit-appearance: none;
-  margin-bottom: 0.75rem;
-}
-
-.slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #6366f1;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.slider::-webkit-slider-thumb:hover {
-  background: #4f46e5;
-  transform: scale(1.1);
-}
-
-.slider::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #6366f1;
-  cursor: pointer;
-  border: none;
-  transition: all 0.2s ease;
-}
-
-.slider::-moz-range-thumb:hover {
-  background: #4f46e5;
-  transform: scale(1.1);
-}
-
-.difficulty-description {
+.seat-name small {
+  font-weight: 400;
+  color: var(--ink-2);
+  margin-left: 0.4rem;
   font-size: 0.85rem;
-  color: #475569;
-  text-align: center;
-  min-height: 2.5rem;
+}
+
+.seat-captures {
+  grid-area: captures;
   display: flex;
   align-items: center;
-  justify-content: center;
+  min-height: 18px;
 }
 
-.ai-color-selection {
-  margin: 1.5rem 0 1rem 0;
+.seat-captures:empty {
+  display: none;
 }
 
-.ai-color-selection h4 {
-  font-size: 0.95rem;
-  margin-bottom: 0.75rem;
-  color: #334155;
-  font-weight: 600;
+.seat-captures img {
+  width: 18px;
+  height: 18px;
+  margin-right: -6px;
 }
 
-.color-buttons {
-  display: flex;
-  gap: 0.75rem;
-}
-
-.color-btn {
-  flex: 1;
-  padding: 0.75rem 1rem;
-  border: 2px solid #e2e8f0;
-  background: white;
-  border-radius: 0.5rem;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: 500;
-  color: #475569;
-  transition: all 0.2s ease;
-}
-
-.color-btn:hover {
-  border-color: #cbd5e1;
-  background: #f8fafc;
-}
-
-.color-btn.active {
-  border-color: #6366f1;
-  background: #eef2ff;
-  color: #4f46e5;
-  font-weight: 600;
-}
-
-.ai-btn {
-  width: 100%;
-  padding: 1rem 1.5rem;
-  font-size: 1.1rem;
-  font-weight: 600;
-}
-
-.search-btn {
-  width: 100%;
-  padding: 1rem 1.5rem;
-  font-size: 1.1rem;
-  font-weight: 600;
-}
-
-.searching-indicator {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding: 1.5rem;
-  background: #dbeafe;
-  border-radius: 12px;
-  border: 2px solid #93c5fd;
-}
-
-.searching-text {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-weight: 600;
-  color: #2563eb;
-  margin: 0;
-}
-
-.searching-text .spinner {
-  flex-shrink: 0;
-  margin: 0;
-  display: inline-block;
-}
-
-.peer-list {
-  width: 100%;
-  margin-top: 1.5rem;
-  max-width: 500px;
-}
-
-.peer-list h4 {
-  text-align: left;
-  margin-bottom: 1rem;
-  color: var(--dark-color);
-  font-size: 1.1rem;
-}
-
-.peer-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1.25rem 1.5rem;
-  background: white;
-  border: 2px solid #dbeafe;
-  border-radius: 12px;
-  margin-bottom: 0.75rem;
-  transition: all 0.2s ease;
-}
-
-.peer-item:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
-  border-color: #3b82f6;
-  background: #eff6ff;
-}
-
-.peer-name {
-  font-family: monospace;
-  font-size: 0.95rem;
-  color: var(--dark-color);
-  font-weight: 500;
-}
-
-.info-text {
-  margin-top: 1rem;
-  padding: 0.875rem 1.25rem;
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  color: white;
-  border-radius: 10px;
-  text-align: center;
-  font-size: 0.9rem;
-  font-weight: 500;
-  box-shadow: var(--shadow-sm);
-}
-
-.error-message {
-  margin-top: 1rem;
-  padding: 0.875rem 1.25rem;
-  background: #fef2f2;
-  border: 2px solid var(--danger-color);
-  border-radius: 10px;
-  color: var(--danger-color);
-  font-weight: 500;
-}
-
-.game-screen {
-  flex: 1;
-  display: flex;
-  gap: 1rem;
-  padding: 1rem;
-  overflow: hidden;
-}
-
-.game-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  overflow: hidden;
-  gap: 1rem;
-}
-
-.timers-container {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  width: 100%;
-}
-
-.timers-container .timer-section {
-  flex: 1;
-  min-width: 160px;
-  padding: 0.6rem 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.timers-container .timer-display {
-  gap: 0.5rem;
-}
-
-.timers-container .timer-icon {
-  font-size: 1.3rem;
-}
-
-.timers-container .timer-label-inline {
-  display: inline;
+.seat-captures b {
+  margin-left: 10px;
   font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-2);
 }
 
-.timers-container .timer-time {
-  font-size: 1.4rem;
-}
-
-.timer-material {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.2rem;
-  align-items: center;
-  justify-content: center;
-  min-height: 24px;
-}
-
-.piece-stack {
-  position: relative;
-  display: inline-block;
-  height: 20px;
-  margin-right: 4px;
-}
-
-.piece-stack img {
-  position: absolute;
-  top: 0;
-  left: 0;
-}
-
-.captured-piece-mini {
-  width: 20px;
-  height: 20px;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
-}
-
-.captured-piece-mini.black-piece {
-  filter: drop-shadow(0 0 0 white) 
-          drop-shadow(0 0 1px white) 
-          drop-shadow(0 0 1px white);
-}
-
-.advantage-score-mini {
-  font-size: 0.7rem;
+/* The clocks are the loud thing on the page */
+.seat-clock {
+  grid-area: clock;
+  font-stretch: 75%;
   font-weight: 700;
-  color: #16a34a;
-  margin-left: 0.25rem;
-}
-
-.material-score {
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: #64748b;
-  margin-left: auto;
-  padding-left: 0.5rem;
-  min-width: 2rem;
+  font-size: 2.6rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  padding: 0.35rem 0.6rem 0.4rem;
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  background: transparent;
+  min-width: 5.2ch;
   text-align: right;
 }
 
-.material-score.positive {
-  color: #16a34a;
+.seat.running .seat-clock {
+  color: #fff;
+  background: var(--sheen);
 }
 
-.material-score.negative {
-  color: #dc2626;
+.seat.check .seat-colour {
+  border-radius: 50%;
+  background: var(--stop-wash);
+  box-shadow: 0 0 0 2px var(--stop);
 }
 
-.material-score:empty::after {
-  content: '0';
-}
-
-.timer-section {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  border-radius: 12px;
-  padding: 0.75rem 1.5rem;
-  box-shadow: var(--shadow-sm);
-  transition: all 0.3s ease;
-}
-
-.timer-section.active {
-  background: #dbeafe;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
-  transform: scale(1.02);
-}
-
-.timer-section.thinking {
-  background: #fef3c7;
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.3);
-  animation: thinkingPulse 1.5s ease-in-out infinite;
-}
-
-@keyframes thinkingPulse {
-  0%, 100% {
-    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.3);
-  }
-  50% {
-    box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.5);
-  }
-}
-
-.timer-section.in-check {
-  background: #fee2e2;
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.4);
-  animation: checkPulse 1s ease-in-out infinite;
-}
-
-@keyframes checkPulse {
-  0%, 100% {
-    box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.4);
-  }
-  50% {
-    box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.6);
-  }
-}
-
-.timer-display {
+.side-info {
+  grid-area: info;
+  padding: 0.75rem 0;
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  justify-content: center;
+  flex-direction: column;
+  gap: 0.6rem;
 }
 
-.timer-label {
-  text-align: center;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-top: 0.25rem;
-}
-
-.timer-label-inline {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.side-info:empty {
   display: none;
 }
 
-.timer-section.active .timer-label {
-  color: #2563eb;
+.turn {
+  font-weight: 600;
+  color: var(--ink-2);
 }
 
-.timer-section.active .timer-label-inline {
-  color: #2563eb;
+.turn.mine {
+  color: var(--sheen);
 }
 
-.timer-icon {
-  font-size: 2rem;
+.opening {
+  font-style: italic;
+  color: var(--ink-2);
 }
 
-.timer-time {
-  font-size: 2rem;
+.note,
+.prompt {
+  color: var(--ink-2);
+}
+
+.prompt {
+  color: var(--ink);
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+
+.key {
+  display: inline-block;
+  width: 18px;
+  height: 4px;
+  border-radius: 2px;
+  margin-left: 0.4rem;
+}
+
+.key:first-child {
+  margin-left: 0;
+}
+
+.key-1 { background: #4ade80; }
+.key-2 { background: #fbbf24; }
+.key-3 { background: #f87171; }
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.verdict {
+  border-left: 4px solid var(--line-strong);
+  padding: 0.25rem 0 0.25rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.verdict h3 {
+  font-stretch: 112%;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.verdict-win { border-color: var(--sheen); }
+.verdict-loss { border-color: var(--stop); }
+
+/* ---------- moves ---------- */
+.moves {
+  grid-area: moves;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--line);
+}
+
+.moves-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0.4rem 0;
+}
+
+.moves-count {
+  flex: 1;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.step {
+  width: 34px;
+  height: 30px;
+  border-radius: var(--radius);
+  font-size: 1.15rem;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.step:hover:not(:disabled) {
+  background: var(--wing);
+}
+
+.step:disabled {
+  color: var(--line-strong);
+}
+
+.move-list {
+  list-style: none;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.move-list li {
+  display: grid;
+  grid-template-columns: 2.4rem 1fr 1fr;
+  align-items: center;
+}
+
+.move-list li:nth-child(even) {
+  background: rgba(214, 220, 224, 0.45);
+}
+
+.move-list li.empty {
+  display: block;
+  padding: 0.5rem 0;
+  color: var(--ink-2);
+  background: none;
+}
+
+.move-no {
+  color: var(--ink-2);
+  font-size: 0.85rem;
+  padding-left: 0.4rem;
+}
+
+.ply {
+  text-align: left;
+  padding: 0.3rem 0.5rem;
+  font-weight: 500;
+  border-radius: 4px;
+}
+
+.ply:hover {
+  background: var(--wing);
+}
+
+.ply.current {
+  background: var(--violet);
+  color: #fff;
+}
+
+/* ---------- actions and buttons ---------- */
+.actions {
+  grid-area: actions;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.btn {
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--ink-2);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+}
+
+.btn.on {
+  border-color: var(--violet);
+  color: var(--violet);
+}
+
+.btn-go {
+  background: var(--sheen);
+  border-color: var(--sheen);
+  color: #fff;
+}
+
+.btn-go:hover:not(:disabled) {
+  background: var(--sheen-deep);
+  border-color: var(--sheen-deep);
+}
+
+.btn-stop {
+  color: var(--stop);
+  border-color: transparent;
+  background: transparent;
+  margin-left: auto;
+}
+
+.btn-stop:hover:not(:disabled) {
+  border-color: var(--stop);
+  background: var(--stop-wash);
+}
+
+.btn-wide {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  font-size: 1rem;
+}
+
+.alert {
+  color: var(--stop);
+  font-weight: 500;
+}
+
+/* ---------- lobby ---------- */
+.lobby {
+  grid-template-rows: 1fr;
+  grid-template-areas: 'board panel';
+}
+
+.lobby .board-area {
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+.lobby-panel {
+  grid-area: panel;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 4px;
+}
+
+.lobby-title {
+  font-stretch: 118%;
+  font-weight: 800;
+  font-size: 1.9rem;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+}
+
+.lobby-title-2 {
+  font-size: 1.35rem;
+  margin-top: 0.75rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--line);
+}
+
+.lobby-sub {
+  color: var(--ink-2);
+  max-width: 34ch;
+}
+
+.progress {
+  height: 3px;
+  background: var(--wing);
+  border-radius: 2px;
+  overflow: hidden;
+  max-width: 240px;
+}
+
+.progress span {
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--sheen);
+  animation: slide 1.3s ease-in-out infinite;
+}
+
+@keyframes slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
+.controls {
+  border: 0;
+}
+
+.controls legend {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: var(--ink-2);
+  font-size: 0.875rem;
+}
+
+.clock-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.clock-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem 0.25rem;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.clock-pick:nth-child(4n) {
+  border-right: 0;
+}
+
+.clock-pick:nth-last-child(-n + 4) {
+  border-bottom: 0;
+}
+
+.clock-pick:hover:not(:disabled):not(.picked) {
+  background: var(--wing);
+}
+
+.pick-time {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
-  color: var(--dark-color);
-}
-
-.timer-section.active .timer-time {
-  color: #2563eb;
-}
-
-.board-container {
-  flex: 1;
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(10px);
-  border-radius: 16px;
-  padding: 1.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  box-shadow: var(--shadow-md);
-  position: relative;
-}
-
-.game-controls {
-  width: 320px;
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(10px);
-  border-radius: 16px;
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  overflow-y: auto;
-  box-shadow: var(--shadow-md);
-}
-
-/* Mobile layout adjustments - viewport based detection */
-@media (max-width: 1024px) {
-  .main-content {
-    flex-direction: column;
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-  
-  .welcome-screen {
-    padding: 0.75rem;
-    min-height: min-content;
-    align-items: flex-start;
-  }
-  
-  .welcome-card {
-    padding: 1rem;
-    max-width: 100%;
-    margin-top: 0;
-  }
-  
-  .welcome-card h2 {
-    font-size: 1.5rem;
-    margin-bottom: 0.5rem;
-  }
-  
-  .welcome-card > p {
-    font-size: 0.9rem;
-    margin-bottom: 1.5rem;
-  }
-  
-  .matchmaking h3 {
-    font-size: 1.35rem;
-  }
-
-  .game-screen {
-    flex-direction: column;
-    padding: 0.75rem;
-    gap: 0.75rem;
-    overflow: visible;
-    min-height: auto;
-  }
-
-  .board-container {
-    order: 1;
-    padding: 12px;
-    width: 100%;
-    height: auto;
-  }
-
-  .game-controls {
-    order: 2;
-    width: 100%;
-    padding: 12px;
-    border-radius: 12px;
-    max-height: none;
-    overflow-y: visible;
-    overflow-x: hidden;
-    gap: 0.75rem;
-  }
-  
-  .quick-actions {
-    gap: 0.6rem;
-    margin-bottom: 0.25rem;
-  }
-  
-  .action-icon {
-    padding: 0.7rem;
-    font-size: 1.8rem;
-    border-radius: 14px;
-    min-height: 55px;
-  }
-  
-  .turn-indicator {
-    font-size: 0.9rem;
-    padding: 0.5rem;
-    margin-bottom: 0rem;
-    order: -1;
-    display: none;
-  }
-
-  .timer-section {
-    padding: 0.4rem 0.75rem;
-  }
-  
-  .timer-display {
-    gap: 0.5rem;
-  }
-  
-  .timer-icon {
-    font-size: 1.25rem;
-  }
-  
-  .timer-time {
-    font-size: 1.35rem;
-  }
-  
-  .timer-label {
-    display: none;
-  }
-  
-  .timer-label-inline {
-    display: inline;
-    font-size: 0.7rem;
-  }
-  
-  .player-section {
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid #e2e8f0;
-    display: none;
-  }
-  
-  .timers-container {
-    order: 0;
-    gap: 0.5rem;
-  }
-  
-  .timers-container .timer-section {
-    flex-direction: column;
-    gap: 0.3rem;
-    min-width: 150px;
-    padding: 0.5rem 0.6rem;
-  }
-  
-  .timer-material {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.15rem;
-    align-items: center;
-    justify-content: center;
-    min-height: 20px;
-  }
-  
-  .material-section {
-    order: 1;
-    display: none;
-  }
-  
-  .material-heading {
-    display: none;
-  }
-  
-  .captured-label {
-    display: none;
-  }
-  
-  .material-display {
-    display: flex;
-    gap: 0.4rem;
-  }
-  
-  .captured-pieces {
-    background: rgba(255, 255, 255, 0.95);
-    padding: 0.4rem 0.6rem;
-    border-radius: 8px;
-    margin-bottom: 0;
-    flex: 1;
-  }
-  
-  .pieces-row {
-    gap: 0.2rem;
-    justify-content: center;
-  }
-  
-  .moves-history {
-    display: none;
-  }
-  
-  .player-section h4 {
-    font-size: 0.85rem;
-    margin-bottom: 0.5rem;
-    display: none;
-  }
-  
-  .player-info {
-    gap: 0.5rem;
-    flex-direction: row;
-  }
-  
-  .player-display, .opponent-display {
-    font-size: 0.85rem;
-    padding: 0.4rem 0.6rem;
-    flex: 1;
-  }
-  
-  .player-display-icon, .opponent-icon {
-    font-size: 1rem;
-  }
-  
-  .player-display-color, .opponent-name {
-    font-size: 0.8rem;
-  }
-  
-  .player-display-color-detail,
-  .opponent-name-detail {
-    display: none;
-  }
-  
-  .material-section {
-    padding: 0.5rem 0;
-  }
-  
-  .material-section h4 {
-    font-size: 0.85rem;
-    margin-bottom: 0.5rem;
-  }
-  
-  .captured-pieces {
-    margin-bottom: 0.4rem;
-  }
-  
-  .captured-label {
-    font-size: 0.75rem;
-    margin-bottom: 0.25rem;
-  }
-  
-  .captured-piece {
-    width: 22px;
-    height: 22px;
-  }
-  
-  .advantage-score {
-    font-size: 0.75rem;
-  }
-  
-  .casual-mode-badge {
-    font-size: 0.7rem;
-    padding: 0.4rem 0.6rem;
-    margin-top: 0.5rem;
-  }
-  
-  .control-buttons {
-    display: none;
-  }
-  
-  .active-controls {
-    display: none;
-  }
-  
-  .game-result {
-    padding: 0.5rem 0;
-  }
-  
-  .game-result h3 {
-    font-size: 1.1rem;
-    margin-bottom: 0.4rem;
-  }
-  
-  .result-text {
-    font-size: 1.1rem;
-    margin-bottom: 1rem;
-  }
-
-  .timer-time {
-    font-size: 1.4rem;
-  }
-
-  .search-btn, .control-buttons button, .primary, .secondary, .danger {
-    width: 100%;
-    padding: 0.9rem 1rem;
-    font-size: 1rem;
-  }
-  
-  .app-header {
-    padding: 0.75rem 0.75rem;
-    flex-wrap: wrap;
-    gap: 0.25rem;
-    min-height: auto;
-    flex-direction: column;
-    position: relative;
-  }
-  
-  .app-header h1 {
-    font-size: 1.35rem;
-    flex: none;
-    text-align: center;
-    margin: 0;
-    gap: 0.35rem;
-  }
-  
-  .pigeon-logo {
-    width: 1.35rem;
-    height: 1.35rem;
-  }
-  
-  .pawn-icon {
-    font-size: 1.2rem;
-  }
-  
-  .hamburger-menu {
-    right: 0.75rem;
-    width: 1.35rem;
-    height: 1.35rem;
-    gap: 2px;
-  }
-  
-  .hamburger-line {
-    width: 16px;
-    height: 2px;
-  }
-  
-  .hamburger-menu:hover {
-    transform: scale(1.1);
-  }
-  
-  .dropdown-menu {
-    right: 0.75rem;
-    margin-top: 0.25rem;
-  }
-  
-  .header-actions button {
-    flex: 1;
-    max-width: 150px;
-    font-size: 0.9rem;
-    padding: 0.65rem 0.75rem;
-  }
-  
-  .welcome-card h2 {
-    font-size: 1.75rem;
-  }
-  
-  .welcome-card > p {
-    font-size: 0.95rem;
-  }
-  
-  .peer-id {
-    font-size: 0.85rem;
-    margin-bottom: 1rem;
-  }
-  
-  .peer-id code {
-    font-size: 0.75rem;
-    padding: 0.3rem 0.5rem;
-    word-break: break-all;
-  }
-  
-  .time-control-section {
-    margin: 1rem 0;
-    padding: 0;
-  }
-  
-  .time-controls {
-    width: 100%;
-  }
-  
-  .search-section {
-    margin-top: 1rem;
-  }
-  
-  .control-buttons {
-    flex-direction: column;
-    width: 100%;
-  }
-  
-  .control-buttons button {
-    width: 100%;
-    min-width: 0;
-    flex: none;
-  }
-  
-  .challenge-modal .actions,
-  .info-modal .actions,
-  .confirm-modal .actions,
-  .offer-modal .actions {
-    flex-direction: column;
-    width: 100%;
-  }
-  
-  .challenge-modal .actions button,
-  .info-modal .actions button,
-  .confirm-modal .actions button,
-  .offer-modal .actions button {
-    width: 100%;
-  }
-  
-  .status-bar {
-    padding: 0.5rem 0.75rem;
-    font-size: 0.75rem;
-    flex-wrap: nowrap;
-    gap: 0.5rem;
-  }
-  
-  .status-left {
-    gap: 0.35rem;
-    flex-shrink: 0;
-  }
-  
-  .status-text {
-    font-size: 0.75rem;
-  }
-  
-  .peer-count {
-    font-size: 0.75rem;
-    white-space: nowrap;
-  }
-  
-  .matchmaking {
-    padding: 0;
-  }
-}
-
-/* Landscape mobile phones and tablets */
-@media (max-width: 1024px) and (orientation: landscape) and (max-height: 500px) {
-  .game-screen {
-    flex-direction: row !important;
-    gap: 0.5rem !important;
-    padding: 0.5rem !important;
-    height: 100vh !important;
-    overflow: hidden !important;
-  }
-  
-  .game-info {
-    flex: 1 !important;
-    height: 100% !important;
-    display: flex !important;
-    flex-direction: column !important;
-  }
-  
-  .board-container {
-    flex: 1 !important;
-    width: 100% !important;
-    height: 100% !important;
-    padding: 0.25rem !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-  }
-  
-  .game-controls {
-    width: 240px !important;
-    flex-shrink: 0 !important;
-    max-height: 100vh !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    max-height: 100%;
-    overflow-y: auto;
-    padding: 0.25rem;
-  }
-}
-
-/* Touch device specific adjustments */
-@media (hover: none) and (pointer: coarse) {
-  button:hover:not(:disabled) {
-    transform: none;
-  }
-  
-  button:active:not(:disabled) {
-    transform: scale(0.98);
-    transition: transform 0.1s;
-  }
-}
-
-.player-section {
-  display: none;
-}
-
-.player-section h4 {
-  margin-bottom: 0.75rem;
-  color: var(--dark-color);
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.quick-actions {
-  display: flex;
-  gap: 0.75rem;
-  margin-bottom: 0.5rem;
-}
-
-.action-icon {
-  background: rgba(255, 255, 255, 0.95);
-  border: 2px solid #e2e8f0;
-  border-radius: 16px;
-  padding: 0.6rem;
-  font-size: 1.5rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  width: 100%;
-  flex: 1;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 50px;
-}
-
-.action-icon:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  border-color: #cbd5e1;
-}
-
-.action-icon:active {
-  transform: translateY(0);
-}
-
-.action-icon.danger {
-  border-color: #fecaca;
-}
-
-.action-icon.danger:hover {
-  background: #fee;
-  border-color: #fca5a5;
-}
-
-.action-icon.active {
-  background: #dbeafe;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-}
-
-.action-icon.analysis-toggle {
-  font-size: 1.3rem;
-}
-
-.action-icon.analysis-toggle.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-color: #667eea;
-  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3);
-  animation: pulse-analysis 2s ease-in-out infinite;
-}
-
-@keyframes pulse-analysis {
-  0%, 100% {
-    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3);
-  }
-  50% {
-    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.5);
-  }
-}
-
-.analysis-info {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 0.75rem 1rem;
-  border-radius: 10px;
-  text-align: center;
-  margin-top: 0.5rem;
-}
-
-.analysis-header {
-  font-weight: 600;
   font-size: 1rem;
-  margin-bottom: 0.25rem;
 }
 
-.analysis-hint {
-  font-size: 0.85rem;
-  opacity: 0.9;
+.pick-name {
+  font-size: 0.75rem;
+  color: var(--ink-2);
 }
 
-.casual-mode-badge {
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
-  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-  border: 2px solid #fbbf24;
-  border-radius: 10px;
-  text-align: center;
-  font-weight: 600;
-  color: #92400e;
-  font-size: 0.95rem;
+.clock-pick.picked {
+  background: var(--ink);
+  color: #fff;
 }
 
-.material-section {
-  padding: 1rem 0;
-  border-bottom: 2px solid #e2e8f0;
-  display: none;
+.clock-pick.picked .pick-name {
+  color: var(--wing);
 }
 
-.material-section h4 {
-  margin-bottom: 0.75rem;
-  color: var(--dark-color);
-  font-size: 0.9rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.clock-pick:disabled:not(.picked) {
+  color: var(--line-strong);
 }
 
-.material-display {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.captured-pieces {
-  background: #f8fafc;
-  border-radius: 8px;
-  padding: 0.75rem;
-}
-
-.captured-label {
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: #64748b;
-  margin-bottom: 0.5rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.pieces-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-  align-items: center;
-  min-height: 28px;
-}
-
-.captured-piece {
-  width: 24px;
-  height: 24px;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
-}
-
-.advantage-score {
-  margin-left: 0.5rem;
-  font-weight: 700;
-  font-size: 0.9rem;
-  color: #16a34a;
-  background: #dcfce7;
-  padding: 0.25rem 0.5rem;
-  border-radius: 6px;
-  border: 1px solid #86efac;
-}
-
-.player-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.player-display,
-.opponent-display {
+.searching {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.75rem 1rem;
-  background: #eff6ff;
-  border: 2px solid #bfdbfe;
-  border-radius: 10px;
-}
-
-.player-display-icon,
-.opponent-icon {
-  font-size: 1.5rem;
-}
-
-.player-display-color {
-  font-weight: 600;
-  color: var(--dark-color);
-}
-
-.opponent-name {
-  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
-  font-size: 0.85rem;
-  color: var(--dark-color);
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.player-display-color-detail,
-.opponent-name-detail {
-  display: inline;
-}
-
-.game-result {
-  text-align: center;
-}
-
-.game-result h3 {
-  margin-bottom: 0.5rem;
-  color: var(--dark-color);
-}
-
-.result-text {
-  font-size: 1.5rem;
-  font-weight: bold;
-  margin-bottom: 1.5rem;
-  color: #2563eb;
-}
-
-.active-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.control-buttons {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.control-buttons button {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-}
-
-.turn-indicator {
-  text-align: center;
-  padding: 1rem;
-  border-radius: 10px;
-  font-weight: 600;
-  font-size: 1.05rem;
-  background: #eff6ff;
-  border: 2px solid #bfdbfe;
-}
-
-.your-turn {
-  color: #2563eb;
-}
-
-.opponent-turn {
-  color: #64748b;
-}
-
-.ai-thinking {
-  color: #f59e0b;
-  animation: pulse-thinking 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse-thinking {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
-}
-
-.moves-history {
-  flex: 1;
-  overflow-y: auto;
-}
-
-.moves-header {
-  display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.75rem;
-  gap: 1rem;
-  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--sheen);
+  border-radius: var(--radius);
+  background: var(--sheen-wash);
 }
 
-.moves-history h4 {
-  margin: 0;
-  color: var(--dark-color);
-}
-
-.move-navigation {
+.searching p {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
-  background: white;
-  border: 1px solid #dbeafe;
-  border-radius: 8px;
-  padding: 0.25rem;
+  gap: 0.55rem;
+  font-weight: 500;
 }
 
-/* Move navigation - Portrait mode (below board) */
-.move-navigation-portrait {
-  display: none; /* Hidden by default */
-  align-items: center;
-  gap: 0.25rem;
-  background: white;
-  border: 1px solid #dbeafe;
-  border-radius: 8px;
-  padding: 0.25rem;
-  margin-top: 0.5rem;
-  justify-content: center;
+.pulse {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--sheen);
+  animation: blink 1.2s ease-in-out infinite;
 }
 
-/* Show portrait navigation on small devices in portrait mode */
-@media (max-width: 820px) and (orientation: portrait) {
-  .move-navigation-portrait {
-    display: flex !important;
-  }
-  
-  /* Make board container a column so navigation appears BELOW the board */
-  .board-container {
-    flex-direction: column !important;
-    justify-content: flex-start !important;
-  }
-}
-
-/* Galaxy Fold - reduce CONTAINER height only */
-@media (max-width: 380px) and (orientation: portrait) {
-  .game-info {
-    max-height: 55vh !important;
-  }
-  
-  .board-container {
-    max-height: 55vh !important;
-  }
-  
-  .game-controls {
-    flex: 1 !important;
-    max-height: none !important;
-    height: auto !important;
-  }
-}
-
-/* Move navigation - Landscape mode (below timers) */
-.move-navigation-landscape {
-  display: none; /* Hidden by default */
-  align-items: center;
-  gap: 0.25rem;
-  background: white;
-  border: 1px solid #dbeafe;
-  border-radius: 8px;
-  padding: 0.25rem;
-  margin-top: 0.5rem;
-  justify-content: center;
-}
-
-/* Show landscape navigation on iPhone SE and larger in landscape mode */
-@media (min-width: 568px) and (max-width: 1024px) and (orientation: landscape) and (max-height: 500px) {
-  .move-navigation-landscape {
-    display: flex !important;
-  }
-}
-
-.nav-btn {
-  background: transparent;
-  border: none;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: #2563eb;
-  font-size: 1rem;
-  border-radius: 6px;
-  transition: all 0.2s ease;
-}
-
-.nav-btn:hover:not(:disabled) {
-  background: #eff6ff;
-  color: #1d4ed8;
-}
-
-.nav-btn:disabled {
-  color: #cbd5e1;
-  cursor: not-allowed;
-}
-
-.move-counter {
-  font-size: 0.85rem;
-  color: var(--secondary-color);
-  font-weight: 600;
-  padding: 0 0.5rem;
-  min-width: 60px;
-  text-align: center;
-  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
-}
-
-.moves-list {
+.levels {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.5rem;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.4rem;
 }
 
-.move-item {
-  font-size: 0.9rem;
-  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
-  padding: 0.5rem;
-  background: white;
-  border: 1px solid #dbeafe;
-  border-radius: 6px;
-  transition: all 0.2s ease;
-  cursor: pointer;
-}
-
-.move-item:hover {
-  background: #eff6ff;
-  border-color: #3b82f6;
-}
-
-.move-item.viewing {
-  background: #dbeafe;
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
-}
-
-.move-number {
-  color: var(--secondary-color);
-  margin-right: 0.25rem;
-}
-
-.move-san {
-  color: var(--dark-color);
-  font-weight: bold;
-}
-
-/* Responsive adjustments for move navigation */
-@media (max-width: 768px) {
-  .moves-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  
-  /* Hide desktop move navigation on mobile - use portrait/landscape versions instead */
-  .moves-header .move-navigation {
-    display: none !important;
-  }
-  
-  .move-counter {
-    flex: 1;
-  }
-}
-
-/* Also hide on tablets and small laptops when either portrait or landscape mobile nav is showing */
-@media (max-width: 1024px) and (orientation: landscape) and (max-height: 500px) {
-  .moves-header .move-navigation {
-    display: none !important;
-  }
-}
-
-@media (max-width: 820px) and (orientation: portrait) {
-  .moves-header .move-navigation {
-    display: none !important;
-  }
-}
-
-.challenge-modal {
-  text-align: center;
-}
-
-.challenge-modal h2,
-.info-modal h2,
-.confirm-modal h2 {
-  margin-bottom: 1rem;
-  color: var(--dark-color);
-}
-
-.challenge-modal p,
-.info-modal p,
-.confirm-modal p {
-  margin-bottom: 1.5rem;
-  color: var(--dark-color);
-  line-height: 1.6;
-}
-
-.challenge-modal .actions,
-.info-modal .actions,
-.confirm-modal .actions,
-.offer-modal .actions {
-  display: flex;
-  gap: 1rem;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-
-.challenge-modal .actions button,
-.info-modal .actions button,
-.confirm-modal .actions button,
-.offer-modal .actions button {
-  min-width: 100px;
-}
-
-.info-modal,
-.confirm-modal,
-.offer-modal {
-  text-align: center;
-}
-
-.login-modal {
-  max-width: 400px;
-}
-
-.login-form {
+.level {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
   text-align: left;
 }
 
-.form-group label {
+.level:hover:not(.picked) {
+  border-color: var(--ink-2);
+}
+
+.level-name {
+  font-weight: 700;
+}
+
+.level-elo {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.level.picked {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+
+.you {
+  margin-top: auto;
+  padding-top: 1rem;
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+
+/* ---------- sheets (dialogs) ---------- */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(28, 33, 38, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 1000;
+}
+
+.sheet {
+  width: min(100%, 400px);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1.4rem;
+  box-shadow: 0 18px 50px rgba(28, 33, 38, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.sheet h3 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.sheet p {
+  color: var(--ink-2);
+}
+
+.sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.sheet-foot {
+  font-size: 0.875rem;
+}
+
+.sheet-foot a {
+  color: var(--sheen);
   font-weight: 600;
-  color: var(--text-color);
 }
 
-.form-group input {
-  padding: 0.75rem;
-  border: 2px solid #e5e7eb;
-  border-radius: 0.5rem;
-  font-size: 1rem;
-  transition: border-color 0.2s;
-}
-
-.form-group input:focus {
-  outline: none;
-  border-color: var(--primary-color);
-}
-
-.error-message {
-  color: var(--danger-color);
-  font-size: 0.9rem;
-  margin: 0;
-  padding: 0.5rem;
-  background: rgba(239, 68, 68, 0.1);
-  border-radius: 0.5rem;
-}
-
-.toggle-mode {
-  text-align: center;
-  font-size: 0.9rem;
-  color: var(--secondary-color);
-  margin-top: 0.5rem;
-}
-
-.toggle-mode a {
-  color: var(--primary-color);
-  text-decoration: none;
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
   font-weight: 600;
+  font-size: 0.875rem;
 }
 
-.toggle-mode a:hover {
-  text-decoration: underline;
+.rules {
+  list-style: none;
+  font-size: 0.8rem;
+  color: var(--ink-2);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.15rem 1rem;
 }
 
-@media (max-width: 768px) {
-  .game-screen {
-    flex-direction: column;
+.rules li::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+  margin-right: 0.45rem;
+}
+
+.rules li.met {
+  color: var(--ink);
+}
+
+.rules li.met::before {
+  background: var(--sheen);
+  border-color: var(--sheen);
+}
+
+/* ---------- narrow screens: the board takes the width, seats above and below it ---------- */
+@media (max-width: 860px) {
+  .topbar {
+    padding: 0 16px;
+    gap: 0.75rem;
   }
-  
-  .game-controls {
-    width: 100%;
-    max-height: 200px;
-  }
-  
-  .header-right {
-    position: static;
-    margin-left: auto;
-  }
-  
-  .user-info {
+
+  .net {
     font-size: 0.8rem;
-    padding: 0.4rem 0.8rem;
+  }
+
+  .net-peers {
+    display: none;
+  }
+
+  .menu-toggle {
+    display: block;
+  }
+
+  .nav {
+    display: none;
+    position: absolute;
+    top: var(--topbar);
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    background: var(--paper);
+    border-bottom: 1px solid var(--line);
+    padding: 0.5rem 16px 0.75rem;
+  }
+
+  .nav.open {
+    display: flex;
+  }
+
+  .nav-link {
+    text-align: left;
+    padding: 0.65rem 0.5rem;
+  }
+
+  .nav-login,
+  .nav-user {
+    margin-left: 0;
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .main {
+    padding: 12px 16px 24px;
+  }
+
+  .table {
+    --board: calc(100vw - 32px);
+    grid-template-columns: 100%;
+    grid-template-rows: none;
+    grid-template-areas:
+      'head'
+      'top'
+      'board'
+      'bottom'
+      'info'
+      'actions'
+      'moves';
+    height: auto;
+  }
+
+  .seat-top {
+    border-bottom: 0;
+  }
+
+  .seat-bottom {
+    border-top: 0;
+  }
+
+  .seat-clock {
+    font-size: 2rem;
+  }
+
+  .moves {
+    max-height: 40vh;
+  }
+
+  .actions {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .lobby {
+    grid-template-areas:
+      'panel'
+      'board';
+  }
+
+  .lobby .board-area {
+    margin-top: 1.5rem;
+  }
+
+  .lobby-panel {
+    overflow: visible;
+  }
+
+  .lobby-title {
+    font-size: 1.6rem;
+  }
+
+  .levels {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 380px) {
+  .clock-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .clock-pick:nth-child(4n) {
+    border-right: 1px solid var(--line);
+  }
+
+  .clock-pick:nth-child(3n) {
+    border-right: 0;
+  }
+
+  .clock-pick:nth-last-child(-n + 4) {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .clock-pick:nth-last-child(-n + 3) {
+    border-bottom: 0;
   }
 }
 </style>

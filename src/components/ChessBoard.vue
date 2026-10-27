@@ -179,10 +179,10 @@
             @touchmove.prevent="handleTouchMove($event)"
             @touchend="handleTouchEnd($event)"
           />
-          <div v-if="showCoordinates && colIndex === 0" class="rank-label">
+          <div v-if="showCoordinates && colIndex === (flipped ? 7 : 0)" class="rank-label">
             {{ 8 - rowIndex }}
           </div>
-          <div v-if="showCoordinates && rowIndex === 7" class="file-label">
+          <div v-if="showCoordinates && rowIndex === (flipped ? 0 : 7)" class="file-label">
             {{ String.fromCharCode(97 + colIndex) }}
           </div>
         </div>
@@ -192,7 +192,7 @@
     <!-- Promotion Dialog -->
     <div v-if="showPromotionDialog" class="promotion-overlay" @click="showPromotionDialog = false">
       <div class="promotion-dialog" @click.stop>
-        <h3>Choose promotion piece:</h3>
+        <h3>Promote to</h3>
         <div class="promotion-pieces">
           <button 
             class="promotion-piece" 
@@ -1159,10 +1159,10 @@ const handleMouseDown = (event: MouseEvent) => {
   grid-template-rows: repeat(8, 1fr);
   grid-template-columns: repeat(8, 1fr);
   width: 100%;
-  max-width: min(100%, 100vh - 180px);
   aspect-ratio: 1 / 1;
   box-sizing: border-box;
-  border-radius: 4px;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(28, 33, 38, 0.35);
   overflow: hidden;
   position: relative;
 }
@@ -1179,65 +1179,6 @@ const handleMouseDown = (event: MouseEvent) => {
 
 .arrow-canvas line {
   pointer-events: none;
-}
-
-/* Make the board responsive on small screens */
-@media (max-width: 1024px) {
-  .chess-board {
-    /* use available viewport width while leaving padding/margins */
-    width: calc(100vw - 30px);
-    height: auto;
-    aspect-ratio: 1 / 1;
-    max-width: none;
-  }
-
-  .piece {
-    width: 90%;
-    height: 90%;
-  }
-
-  .rank-label, .file-label {
-    font-size: 0.65rem;
-  }
-  
-  .square {
-    /* Better touch targets on mobile */
-    min-width: 40px;
-    min-height: 40px;
-  }
-  
-  .square.legal-move::after {
-    width: 35%;
-    height: 35%;
-  }
-}
-
-/* Landscape mode - make board fit the available space */
-@media (max-width: 1024px) and (orientation: landscape) {
-  .chess-board-container {
-    width: 100% !important;
-    height: 100% !important;
-  }
-  
-  .chess-board {
-    width: auto !important;
-    height: 95% !important;
-    max-width: 95% !important;
-    max-height: 95% !important;
-    aspect-ratio: 1 / 1 !important;
-    grid-template-rows: repeat(8, 1fr) !important;
-    grid-template-columns: repeat(8, 1fr) !important;
-  }
-  
-  .square {
-    min-width: 0 !important;
-    min-height: 0 !important;
-  }
-  
-  .piece {
-    width: 85% !important;
-    height: 85% !important;
-  }
 }
 
 /* Touch device specific adjustments */
@@ -1263,9 +1204,6 @@ const handleMouseDown = (event: MouseEvent) => {
     transform: none;
   }
   
-  .chess-board-container.flipped .square:hover .piece {
-    transform: rotate(180deg);
-  }
 }
 
 .board-row {
@@ -1275,7 +1213,6 @@ const handleMouseDown = (event: MouseEvent) => {
 .square {
   position: relative;
   cursor: pointer;
-  transition: background-color 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1298,7 +1235,7 @@ const handleMouseDown = (event: MouseEvent) => {
   content: '';
   position: absolute;
   inset: 0;
-  background-color: rgba(0, 0, 0, 0.15);
+  background-color: rgba(122, 92, 153, 0.32);
   pointer-events: none;
   z-index: 1;
 }
@@ -1307,7 +1244,7 @@ const handleMouseDown = (event: MouseEvent) => {
   content: '';
   position: absolute;
   inset: 0;
-  background-color: rgba(0, 0, 0, 0.25);
+  background-color: rgba(122, 92, 153, 0.42);
   pointer-events: none;
   z-index: 1;
 }
@@ -1335,26 +1272,17 @@ const handleMouseDown = (event: MouseEvent) => {
 
 .square.selected {
   background-color: var(--board-selected) !important;
-  box-shadow: inset 0 0 0 3px rgba(99, 102, 241, 0.6);
+  box-shadow: inset 0 0 0 3px rgba(46, 125, 111, 0.85);
 }
 
 .square.king-in-check {
-  background-color: rgba(220, 38, 38, 0.4) !important;
-  animation: checkSquarePulse 1s ease-in-out infinite;
+  background-color: rgba(168, 71, 61, 0.55) !important;
 }
 
-@keyframes checkSquarePulse {
-  0%, 100% {
-    box-shadow: inset 0 0 0 3px rgba(220, 38, 38, 0.6);
-  }
-  50% {
-    box-shadow: inset 0 0 0 5px rgba(220, 38, 38, 0.9);
-  }
-}
 
 .square.drag-over {
   background-color: var(--board-selected) !important;
-  box-shadow: inset 0 0 0 3px rgba(34, 197, 94, 0.6);
+  box-shadow: inset 0 0 0 3px rgba(46, 125, 111, 0.85);
 }
 
 .square.legal-move::after {
@@ -1377,8 +1305,7 @@ const handleMouseDown = (event: MouseEvent) => {
   height: 85%;
   user-select: none;
   pointer-events: none;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
-  transition: transform 0.1s ease;
+  filter: drop-shadow(0 1px 1px rgba(28, 33, 38, 0.18));
   position: relative;
   z-index: 10;
 }
@@ -1390,18 +1317,6 @@ const handleMouseDown = (event: MouseEvent) => {
 
 .piece[draggable="true"]:active {
   cursor: grabbing;
-}
-
-.chess-board-container.flipped .square:hover .piece {
-  transform: rotate(180deg) scale(1.05);
-}
-
-.square:hover .piece[draggable="true"] {
-  transform: scale(1.08);
-}
-
-.square:hover .piece:not([draggable="true"]) {
-  transform: scale(1.05);
 }
 
 @media (min-width: 768px) {
@@ -1421,13 +1336,28 @@ const handleMouseDown = (event: MouseEvent) => {
 .rank-label,
 .file-label {
   position: absolute;
-  font-size: 0.7rem;
-  font-weight: bold;
-  color: rgba(0, 0, 0, 0.5);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--slate, #6e7f8d);
   user-select: none;
 }
 
 .rank-label {
+  left: 2px;
+  top: 2px;
+}
+
+/* The flipped board is rotated, so put labels where they land on the left and bottom edges */
+.chess-board-container.flipped .rank-label {
+  left: auto;
+  top: auto;
+  right: 2px;
+  bottom: 2px;
+}
+
+.chess-board-container.flipped .file-label {
+  right: auto;
+  bottom: auto;
   left: 2px;
   top: 2px;
 }
@@ -1439,7 +1369,7 @@ const handleMouseDown = (event: MouseEvent) => {
 
 .square.dark .rank-label,
 .square.dark .file-label {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--wing, #d6dce0);
 }
 
 .promotion-overlay {
@@ -1448,7 +1378,7 @@ const handleMouseDown = (event: MouseEvent) => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(28, 33, 38, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1457,17 +1387,18 @@ const handleMouseDown = (event: MouseEvent) => {
 }
 
 .promotion-dialog {
-  background: white;
-  padding: 1.5rem;
-  border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  background: var(--surface, #f6f7f8);
+  padding: 1.25rem;
+  border-radius: 10px;
+  box-shadow: 0 18px 50px rgba(28, 33, 38, 0.3);
   text-align: center;
 }
 
 .promotion-dialog h3 {
   margin: 0 0 1rem 0;
-  font-size: 1.1rem;
-  color: #1e293b;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink, #1c2126);
 }
 
 .promotion-pieces {
@@ -1477,12 +1408,11 @@ const handleMouseDown = (event: MouseEvent) => {
 }
 
 .promotion-piece {
-  background: #f1f5f9;
-  border: 2px solid #cbd5e1;
-  border-radius: 8px;
+  background: var(--wing, #d6dce0);
+  border: 1px solid var(--line-strong, #9aa6af);
+  border-radius: 6px;
   padding: 0.5rem;
   cursor: pointer;
-  transition: all 0.2s ease;
   width: 60px;
   height: 60px;
   display: flex;
@@ -1491,9 +1421,8 @@ const handleMouseDown = (event: MouseEvent) => {
 }
 
 .promotion-piece:hover {
-  background: #e0e7ff;
-  border-color: #6366f1;
-  transform: scale(1.1);
+  border-color: var(--sheen, #2e7d6f);
+  box-shadow: inset 0 0 0 1px var(--sheen, #2e7d6f);
 }
 
 .promotion-piece img {

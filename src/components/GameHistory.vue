@@ -1,78 +1,29 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal history-modal">
-      <h2>Game History</h2>
-      
-      <div v-if="gameHistory.length === 0" class="empty-state">
-        <p>No games played yet. Start a new game!</p>
+    <div class="modal history" role="dialog" aria-modal="true" aria-labelledby="history-title">
+      <div class="history-head">
+        <h2 id="history-title">Your games</h2>
+        <button class="secondary" @click="$emit('close')">Close</button>
       </div>
-      
-      <div v-else class="history-list">
-        <div 
-          v-for="game in gameHistory" 
-          :key="game.gameId"
-          class="history-item"
-          :class="game.result"
-        >
-          <div class="game-header">
-            <span class="result-badge" :class="game.result">
-              {{ game.result.toUpperCase() }}
+
+      <p v-if="gameHistory.length === 0" class="empty">
+        Games you finish are kept here so you can play through them again.
+      </p>
+
+      <ol v-else class="games">
+        <li v-for="game in gameHistory" :key="game.gameId" class="game" :class="game.result">
+          <div class="game-main">
+            <span class="result">{{ resultWord(game.result) }}</span>
+            <span class="who">
+              <img class="colour" :src="`/pieces/${game.myColor === 'white' ? 'w' : 'b'}k.svg`" alt="" />
+              against {{ opponentName(game) }}
             </span>
-            <span class="date">{{ formatDate(game.date) }}</span>
+            <span class="when">{{ formatDate(game.date) }}, {{ game.moves.length }} {{ game.moves.length === 1 ? 'move' : 'moves' }}</span>
+            <span v-if="game.opening" class="opening">{{ game.opening }}</span>
           </div>
-          
-          <div class="game-info">
-            <div v-if="game.opening" class="info-row">
-              <span class="label">Opening:</span>
-              <span class="value opening-name">{{ game.opening }}</span>
-            </div>
-            <div class="info-row">
-              <span class="label">Color:</span>
-              <span class="value">{{ game.myColor === 'white' ? '♔ White' : '♚ Black' }}</span>
-            </div>
-            <div class="info-row">
-              <span class="label">{{ game.myColor === 'white' ? 'White' : 'Black' }}:</span>
-              <span v-if="game.myUsername && game.myUsername.trim()" class="value username">{{ game.myUsername }}</span>
-              <span v-else class="value opponent-id">{{ formatPeerId(game.myPeerId || 'Unknown') }}</span>
-            </div>
-            <div v-if="game.isAI" class="info-row">
-              <span class="label">Opponent:</span>
-              <span class="value ai-indicator">🤖 AI - {{ formatDifficulty(game.aiDifficulty) }}</span>
-            </div>
-            <div v-else class="info-row">
-              <span class="label">{{ game.myColor === 'white' ? 'Black' : 'White' }}:</span>
-              <span v-if="game.opponentUsername && game.opponentUsername.trim()" class="value username">{{ game.opponentUsername }}</span>
-              <span v-else class="value opponent-id">{{ formatPeerId(game.opponent) }}</span>
-            </div>
-            <div class="info-row">
-              <span class="label">Moves:</span>
-              <span class="value">{{ game.moves.length }}</span>
-            </div>
-          </div>
-          
-          <details class="moves-details">
-            <summary>View Moves</summary>
-            <div class="moves-list">
-              <div 
-                v-for="(move, moveIndex) in game.moves" 
-                :key="moveIndex"
-                class="move-item"
-              >
-                <span class="move-number">{{ Math.floor(moveIndex / 2) + 1 }}{{ moveIndex % 2 === 0 ? '.' : '...' }}</span>
-                <span class="move-san">{{ move }}</span>
-              </div>
-            </div>
-          </details>
-          
-          <button class="watch-btn" @click="emit('watch', game)">
-            🔍 Analyze Game
-          </button>
-        </div>
-      </div>
-      
-      <div class="actions">
-        <button class="primary" @click="$emit('close')">Close</button>
-      </div>
+          <button class="secondary" @click="emit('watch', game)">Review</button>
+        </li>
+      </ol>
     </div>
   </div>
 </template>
@@ -90,9 +41,15 @@ const emit = defineEmits<{
   watch: [game: GameHistoryEntry]
 }>()
 
-const formatDate = (timestamp: number): string => {
-  const date = new Date(timestamp)
-  return date.toLocaleString()
+const formatDate = (timestamp: number): string =>
+  new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+
+const resultWord = (result: string): string =>
+  ({ win: 'Won', loss: 'Lost', draw: 'Drawn', abandoned: 'Abandoned' } as Record<string, string>)[result] || result
+
+const opponentName = (game: GameHistoryEntry): string => {
+  if (game.isAI) return formatDifficulty(game.aiDifficulty)
+  return (game.opponentUsername && game.opponentUsername.trim()) || formatPeerId(game.opponent)
 }
 
 const formatPeerId = (peerId: string | undefined): string => {
@@ -105,196 +62,95 @@ const formatPeerId = (peerId: string | undefined): string => {
 
 const formatDifficulty = (difficulty: number | undefined): string => {
   if (difficulty === undefined || difficulty === null) return 'Computer'
-  const levels = ['Easy', 'Medium', 'Hard', 'Very Hard']
-  return levels[difficulty] || 'Computer'
+  const levels = ['easy', 'medium', 'hard', 'master']
+  return levels[difficulty] ? `Computer, ${levels[difficulty]}` : 'Computer'
 }
 </script>
 
 <style scoped>
-.history-modal {
-  max-width: 700px;
-  max-height: 80vh;
-  overflow-y: auto;
+.history {
+  width: min(100%, 620px);
 }
 
-h2 {
-  margin-bottom: 1.5rem;
-  color: var(--dark-color);
-}
-
-.empty-state {
-  text-align: center;
-  padding: 3rem 1rem;
-  color: var(--secondary-color);
-}
-
-.history-list {
+.history-head {
   display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.history-item {
-  background: var(--light-color);
-  border-radius: 8px;
-  padding: 1rem;
-  border-left: 4px solid var(--secondary-color);
-}
-
-.history-item.win {
-  border-left-color: var(--success-color);
-}
-
-.history-item.loss {
-  border-left-color: var(--danger-color);
-}
-
-.history-item.draw {
-  border-left-color: var(--warning-color);
-}
-
-.history-item.abandoned {
-  border-left-color: #6b7280; /* gray */
-}
-
-.game-header {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   margin-bottom: 0.75rem;
 }
 
-.result-badge {
-  padding: 0.25rem 0.75rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: bold;
-  color: white;
+.history-head h2 {
+  margin: 0;
 }
 
-.result-badge.win {
-  background: var(--success-color);
+.empty {
+  color: var(--ink-2);
 }
 
-.result-badge.loss {
-  background: var(--danger-color);
+.games {
+  list-style: none;
+  border-top: 1px solid var(--line);
 }
 
-.result-badge.draw {
-  background: var(--warning-color);
-}
-
-.result-badge.abandoned {
-  background: #6b7280; /* gray */
-}
-
-.date {
-  font-size: 0.85rem;
-  color: var(--secondary-color);
-}
-
-.game-info {
+.game {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 0 0.75rem 0.85rem;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
 }
 
-.info-row {
+.game.win { border-left-color: var(--sheen); }
+.game.loss { border-left-color: var(--stop); }
+
+.game-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  column-gap: 0.75rem;
+}
+
+.result {
+  font-weight: 700;
+  grid-row: span 3;
+}
+
+.game.win .result { color: var(--sheen); }
+.game.loss .result { color: var(--stop); }
+
+.who {
+  font-weight: 600;
   display: flex;
-  gap: 0.5rem;
-  font-size: 0.9rem;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
 }
 
-.label {
-  font-weight: bold;
-  color: var(--dark-color);
+.colour {
+  width: 18px;
+  height: 18px;
+  flex: none;
 }
 
-.value {
-  color: var(--secondary-color);
-}
-
-.opponent-id {
-  font-family: monospace;
+.when,
+.opening {
   font-size: 0.85rem;
+  color: var(--ink-2);
 }
 
-.username {
-  font-weight: 600;
-  color: var(--primary-color);
-}
-
-.ai-indicator {
-  color: var(--primary-color);
-  font-weight: 600;
-}
-
-.opening-name {
-  font-weight: 600;
-  color: var(--primary-color);
+.opening {
   font-style: italic;
 }
 
-.moves-details {
-  margin-top: 0.75rem;
-  cursor: pointer;
-}
+@media (max-width: 480px) {
+  .game-main {
+    grid-template-columns: 1fr;
+  }
 
-.moves-details summary {
-  font-size: 0.9rem;
-  color: var(--primary-color);
-  user-select: none;
-}
-
-.moves-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-  padding: 0.75rem;
-  background: white;
-  border-radius: 4px;
-}
-
-.move-item {
-  font-size: 0.85rem;
-  font-family: monospace;
-}
-
-.move-number {
-  color: var(--secondary-color);
-  margin-right: 0.25rem;
-}
-
-.move-san {
-  color: var(--dark-color);
-  font-weight: bold;
-}
-
-.watch-btn {
-  margin-top: 0.75rem;
-  width: 100%;
-  padding: 0.5rem;
-  background: var(--primary-color);
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 600;
-  transition: background 0.2s;
-}
-
-.watch-btn:hover {
-  background: var(--primary-hover);
-}
-
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 1rem;
-  border-top: 1px solid #e0e0e0;
+  .result {
+    grid-row: auto;
+  }
 }
 </style>

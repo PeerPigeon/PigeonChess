@@ -1,11 +1,11 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal settings-modal">
-      <h2>Settings</h2>
+    <div class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <h2 id="settings-title">Settings</h2>
       
       <div class="settings-section">
         <h3>Signaling relays</h3>
-        <p class="description">Configure the WebSocket URLs for peer discovery and signaling.</p>
+        <p class="description">Where your browser first finds other players. The first relay you list is asked for the others, and the room settles on the best ones automatically.</p>
         
         <div class="url-list">
           <div v-for="(url, index) in settings.signalingUrls" :key="index" class="url-item">
@@ -19,7 +19,7 @@
               class="secondary"
               @click="toggleMuteUrl(url)"
             >
-              {{ isUrlMuted(url) ? 'Unmute' : 'Mute' }}
+              {{ isUrlMuted(url) ? 'Use' : 'Skip' }}
             </button>
             <button 
               class="danger"
@@ -35,34 +35,32 @@
           <input 
             type="text" 
             v-model="newUrl"
-            placeholder="Add new signaling URL"
+            placeholder="wss://relay.example/ws"
             @keyup.enter="addUrl"
           />
-          <button class="success" @click="addUrl">Add URL</button>
+          <button class="secondary" @click="addUrl">Add relay</button>
         </div>
 
         <div class="presets">
-          <button class="secondary" @click="usePigeonhobbsTo">Use pigeonhobbs.to</button>
+          <button class="secondary" @click="usePigeonhobbsTo">Reset to peer.ooo</button>
         </div>
       </div>
       
       <div class="settings-section">
-        <h3>Sound Effects</h3>
-        <p class="description">Enable or disable game sound effects.</p>
-        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+        <h3>Sound</h3>
+        <label class="check">
           <input 
             type="checkbox" 
             :checked="settings.soundEnabled !== false"
             @change="toggleSound"
-            style="width: 20px; height: 20px; cursor: pointer;"
           />
-          <span>Enable sound effects</span>
+          <span>Play sounds for moves and captures</span>
         </label>
       </div>
       
       <div class="settings-section">
-        <h3>Network Name</h3>
-        <p class="description">The network namespace for game isolation.</p>
+        <h3>Network</h3>
+        <p class="description">Only players on the same network name can find each other. Leave it as global to play anyone.</p>
         <input 
           type="text" 
           v-model="settings.networkName"
@@ -71,8 +69,7 @@
       </div>
       
       <div class="settings-section">
-        <h3>Board Theme</h3>
-        <p class="description">Choose your preferred board color scheme.</p>
+        <h3>Board</h3>
         <div class="theme-grid">
           <div 
             v-for="theme in boardThemes" 
@@ -85,13 +82,13 @@
               <div 
                 class="theme-square light" 
                 :style="theme.id === 'custom' 
-                  ? { background: 'linear-gradient(135deg, #ff0000 0%, #ff7f00 16%, #ffff00 33%, #00ff00 50%, #0000ff 66%, #4b0082 83%, #9400d3 100%)' }
+                  ? { background: 'repeating-linear-gradient(45deg, #d6dce0 0 4px, #f6f7f8 4px 8px)' }
                   : { backgroundColor: theme.id === 'custom' && customLightSquare ? customLightSquare : theme.light }"
               ></div>
               <div 
                 class="theme-square dark" 
                 :style="theme.id === 'custom'
-                  ? { background: 'linear-gradient(135deg, #9400d3 0%, #4b0082 16%, #0000ff 33%, #00ff00 50%, #ffff00 66%, #ff7f00 83%, #ff0000 100%)' }
+                  ? { background: 'repeating-linear-gradient(45deg, #6e7f8d 0 4px, #9aa6af 4px 8px)' }
                   : { backgroundColor: theme.id === 'custom' && customDarkSquare ? customDarkSquare : theme.dark }"
               ></div>
             </div>
@@ -103,7 +100,7 @@
         <div v-if="settings.boardTheme === 'custom'" class="custom-colors">
           <div class="color-picker-group">
             <label>
-              Light Squares
+              Light squares
               <input 
                 type="color" 
                 v-model="customLightSquare"
@@ -114,7 +111,7 @@
           </div>
           <div class="color-picker-group">
             <label>
-              Dark Squares
+              Dark squares
               <input 
                 type="color" 
                 v-model="customDarkSquare"
@@ -127,8 +124,7 @@
       </div>
       
       <div class="settings-section">
-        <h3>Piece Colors</h3>
-        <p class="description">Choose your preferred piece color scheme.</p>
+        <h3>Pieces</h3>
         <div class="theme-grid">
           <div 
             v-for="theme in pieceThemes" 
@@ -141,13 +137,13 @@
               <div 
                 class="theme-square light" 
                 :style="theme.id === 'custom'
-                  ? { background: 'linear-gradient(135deg, #ff0000 0%, #ff7f00 16%, #ffff00 33%, #00ff00 50%, #0000ff 66%, #4b0082 83%, #9400d3 100%)' }
+                  ? { background: 'repeating-linear-gradient(45deg, #d6dce0 0 4px, #f6f7f8 4px 8px)' }
                   : { backgroundColor: theme.whiteFill, border: `3px solid ${theme.whiteStroke}` }"
               ></div>
               <div 
                 class="theme-square dark" 
                 :style="theme.id === 'custom'
-                  ? { background: 'linear-gradient(135deg, #9400d3 0%, #4b0082 16%, #0000ff 33%, #00ff00 50%, #ffff00 66%, #ff7f00 83%, #ff0000 100%)' }
+                  ? { background: 'repeating-linear-gradient(45deg, #6e7f8d 0 4px, #9aa6af 4px 8px)' }
                   : { backgroundColor: theme.blackFill, border: `3px solid ${theme.blackStroke}` }"
               ></div>
             </div>
@@ -159,7 +155,7 @@
         <div v-if="settings.pieceTheme === 'custom'" class="custom-colors">
           <div class="color-picker-group">
             <label>
-              White Pieces Fill
+              White pieces
               <input 
                 type="color" 
                 v-model="customWhitePieceColor"
@@ -170,7 +166,7 @@
           </div>
           <div class="color-picker-group">
             <label>
-              Black Pieces Fill
+              Black pieces
               <input 
                 type="color" 
                 v-model="customBlackPieceColor"
@@ -183,7 +179,7 @@
         <div v-if="settings.pieceTheme === 'custom'" class="custom-colors" style="margin-top: 1rem;">
           <div class="color-picker-group">
             <label>
-              White Pieces Outline
+              White outline
               <div style="display: flex; gap: 0.5rem; align-items: center;">
                 <input 
                   type="color" 
@@ -195,14 +191,14 @@
                   v-model="customWhitePieceOutline"
                   @input="updatePieceOutlines"
                   placeholder="#000000"
-                  style="width: 100px; font-family: monospace;"
+                  style="width: 100px;"
                 />
               </div>
             </label>
           </div>
           <div class="color-picker-group">
             <label>
-              Black Pieces Outline
+              Black outline
               <div style="display: flex; gap: 0.5rem; align-items: center;">
                 <input 
                   type="color" 
@@ -214,7 +210,7 @@
                   v-model="customBlackPieceOutline"
                   @input="updatePieceOutlines"
                   placeholder="#ffffff"
-                  style="width: 100px; font-family: monospace;"
+                  style="width: 100px;"
                 />
               </div>
             </label>
@@ -223,12 +219,12 @@
       </div>
       
       <div class="settings-section">
-        <h3>Arrow Colors</h3>
-        <p class="description">Choose arrow colors for each player.</p>
+        <h3>Arrows</h3>
+        <p class="description">Colours for arrows you draw with a right-click drag.</p>
         <div class="custom-colors">
           <div class="color-picker-group">
             <label>
-              White Player Arrows
+              From white pieces
               <input 
                 type="color" 
                 v-model="whiteArrowColor"
@@ -239,7 +235,7 @@
           </div>
           <div class="color-picker-group">
             <label>
-              Black Player Arrows
+              From black pieces
               <input 
                 type="color" 
                 v-model="blackArrowColor"
@@ -250,7 +246,7 @@
           </div>
           <div class="color-picker-group">
             <label>
-              Empty Square Arrows
+              From empty squares
               <input 
                 type="color" 
                 v-model="emptyArrowColor"
@@ -263,8 +259,8 @@
       </div>
       
       <div class="actions">
-        <button class="secondary" @click="reset">Reset to Defaults</button>
-        <button class="primary" @click="$emit('close')">Close</button>
+        <button class="secondary" @click="reset">Restore defaults</button>
+        <button class="primary" @click="$emit('close')">Done</button>
       </div>
     </div>
   </div>
@@ -382,104 +378,94 @@ const toggleMuteUrl = (url: string) => {
 
 <style scoped>
 .settings-modal {
-  max-width: 600px;
-  max-height: 80vh;
-  overflow-y: auto;
-}
-
-h2 {
-  margin-bottom: 1.5rem;
-  color: var(--dark-color);
+  width: min(100%, 600px);
 }
 
 .settings-section {
-  margin-bottom: 2rem;
+  padding: 1.1rem 0;
+  border-top: 1px solid var(--line);
 }
 
 .settings-section h3 {
-  margin-bottom: 0.5rem;
-  color: var(--dark-color);
-  font-size: 1.1rem;
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
 }
 
 .description {
-  font-size: 0.9rem;
-  color: var(--secondary-color);
-  margin-bottom: 1rem;
+  color: var(--ink-2);
+  font-size: 0.875rem;
+  margin-bottom: 0.75rem;
+  max-width: 60ch;
 }
 
 .url-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
 }
 
-.url-item {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.url-item input {
-  flex: 1;
-}
-
+.url-item,
 .add-url {
   display: flex;
-  gap: 0.5rem;
-  align-items: center;
+  gap: 0.4rem;
 }
 
+.url-item input,
 .add-url input {
   flex: 1;
+  min-width: 0;
+}
+
+.url-item input:disabled {
+  color: var(--line-strong);
+  text-decoration: line-through;
 }
 
 .presets {
-  margin-top: 0.75rem;
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+  margin-top: 0.5rem;
 }
 
-input {
-  width: 100%;
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
 }
 
 .theme-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 1rem;
-  margin-top: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 0.5rem;
 }
 
 .theme-option {
-  border: 2px solid transparent;
-  border-radius: 8px;
-  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
   cursor: pointer;
-  transition: all 0.2s;
-  background: #f8fafc;
+  background: var(--surface);
 }
 
 .theme-option:hover {
-  border-color: var(--primary-color);
-  transform: translateY(-2px);
+  border-color: var(--ink-2);
 }
 
 .theme-option.active {
-  border-color: var(--primary-color);
-  background: #eff6ff;
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
 }
 
 .theme-preview {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  margin-bottom: 0.5rem;
-  border-radius: 4px;
+  height: 34px;
+  border-radius: 3px;
   overflow: hidden;
-  height: 60px;
 }
 
 .theme-square {
@@ -488,59 +474,51 @@ input {
 }
 
 .theme-name {
-  display: block;
-  text-align: center;
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 .custom-colors {
-  margin-top: 1.5rem;
-  padding: 1rem;
-  background: #f8fafc;
-  border-radius: 8px;
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
-}
-
-.color-picker-group {
-  flex: 1;
+  margin-top: 0.75rem;
 }
 
 .color-picker-group label {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  font-weight: 500;
-  font-size: 0.875rem;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 600;
 }
 
-.color-picker-group input[type="color"] {
-  width: 100%;
-  height: 50px;
-  border: 2px solid #e2e8f0;
-  border-radius: 6px;
+.color-picker-group input[type='color'] {
+  width: 56px;
   cursor: pointer;
-  padding: 4px;
-}
-
-.color-picker-group input[type="color"]:hover {
-  border-color: var(--primary-color);
 }
 
 .color-value {
-  font-family: monospace;
-  font-size: 0.875rem;
-  color: #64748b;
-  text-align: center;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-weight: 400;
 }
 
 .actions {
   display: flex;
-  gap: 1rem;
   justify-content: flex-end;
-  margin-top: 2rem;
+  gap: 0.5rem;
   padding-top: 1rem;
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 480px) {
+  .url-item {
+    flex-wrap: wrap;
+  }
+
+  .url-item input {
+    flex-basis: 100%;
+  }
 }
 </style>
