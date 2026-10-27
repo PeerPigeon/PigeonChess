@@ -171,6 +171,15 @@ npm run build
 npm run preview
 ```
 
+## Deploy
+
+PigeonChess is a static site on Cloudflare Workers, served at https://chess.peer.ooo
+(see `wrangler.jsonc`). With wrangler logged in to the account that owns peer.ooo:
+
+```bash
+npm run deploy
+```
+
 ## Troubleshooting
 
 ### Can't connect to peers?
