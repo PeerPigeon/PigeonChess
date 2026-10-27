@@ -282,11 +282,6 @@
             {{ isMyTurn ? 'Your move' : (aiThinking ? 'The computer is thinking' : 'Their move') }}
           </p>
           <p v-if="!hasClock && currentGame?.status !== 'finished'" class="note">No clock in this game.</p>
-          <p v-if="opponentGone && currentGame?.status !== 'finished'" class="note away">
-            Your opponent's connection dropped.
-            <template v-if="!isMyTurn">They have {{ Math.max(0, reconnectWindow - opponentGoneOnTheirTurn) }} s to come back.</template>
-            <template v-else>Their time to come back starts when it's their move.</template>
-          </p>
           <p v-if="currentOpeningName" class="opening">{{ currentOpeningName }}</p>
           <p v-if="showBestMoves && isAIGame" class="legend">
             <span class="key key-1"></span>best
@@ -3861,10 +3856,6 @@ onUnmounted(() => {
 .opening {
   font-style: italic;
   color: var(--ink-2);
-}
-
-.note.away {
-  color: var(--stop);
 }
 
 .note,
