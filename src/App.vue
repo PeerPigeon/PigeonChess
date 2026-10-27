@@ -2082,8 +2082,9 @@ const formatTime = (seconds: number): string => {
   if (currentGameTimeControl.value && currentGameTimeControl.value.minutes === 0) {
     return '∞'
   }
-  const mins = Math.floor(seconds / 60)
-  const secs = seconds % 60
+  const whole = Math.ceil(Math.max(0, seconds))
+  const mins = Math.floor(whole / 60)
+  const secs = whole % 60
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
@@ -2095,29 +2096,32 @@ const startTimer = () => {
     return
   }
   
+  // The clocks run on wall time, not on counted ticks: a background tab or a
+  // busy page gets fewer ticks, and each tick takes off however long it was.
+  // Nothing about the opponent's connection pauses either clock.
+  let lastTick = Date.now()
   timerInterval = setInterval(() => {
     if (!isGameActive.value) {
       if (timerInterval) clearInterval(timerInterval)
       return
     }
-    
+    const now = Date.now()
+    const elapsed = (now - lastTick) / 1000
+    lastTick = now
+
     if (isMyTurn.value) {
-      myTime.value = Math.max(0, myTime.value - 1)
-      
-      // Play warning sound at 20 seconds
-      if (myTime.value === 20 && !lowTimeWarningPlayed.value) {
+      myTime.value = Math.max(0, myTime.value - elapsed)
+
+      if (myTime.value <= 20 && !lowTimeWarningPlayed.value) {
         playLowTimeWarning()
         lowTimeWarningPlayed.value = true
       }
-      
-      if (myTime.value === 0) {
-        // Time ran out - resign
-        handleTimeOut()
-      }
+
+      if (myTime.value <= 0) handleTimeOut()
     } else {
-      opponentTime.value = Math.max(0, opponentTime.value - 1)
+      opponentTime.value = Math.max(0, opponentTime.value - elapsed)
     }
-  }, 1000)
+  }, 250)
 }
 
 const handleTimeOut = async () => {
