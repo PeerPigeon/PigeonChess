@@ -3906,6 +3906,9 @@ onUnmounted(() => {
 
 .board-area {
   grid-area: board;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
   width: var(--board);
   height: var(--board);
 }

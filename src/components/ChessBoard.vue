@@ -1136,6 +1136,11 @@ const handleMouseDown = (event: MouseEvent) => {
 
 <style scoped>
 .chess-board-container {
+  /* Nothing on the board is ever text to select or call out */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1304,6 +1309,7 @@ const handleMouseDown = (event: MouseEvent) => {
   width: 85%;
   height: 85%;
   user-select: none;
+  -webkit-user-select: none;
   pointer-events: none;
   filter: drop-shadow(0 1px 1px rgba(28, 33, 38, 0.18));
   position: relative;
