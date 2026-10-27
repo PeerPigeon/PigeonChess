@@ -23,7 +23,7 @@ export interface Move {
 }
 
 export interface ChessMessage {
-  type: 'move' | 'gameStart' | 'gameEnd' | 'resign' | 'offerDraw' | 'acceptDraw' | 'rejectDraw' | 'challengeRejected' | 'draw_offer' | 'draw_accept' | 'takeback_request' | 'takeback_accept' | 'matchmaking' | 'timer_sync' | 'abandon'
+  type: 'move' | 'gameStart' | 'gameEnd' | 'resign' | 'offerDraw' | 'acceptDraw' | 'rejectDraw' | 'challengeRejected' | 'draw_offer' | 'draw_accept' | 'takeback_request' | 'takeback_accept' | 'matchmaking' | 'timer_sync' | 'abandon' | 'abort' | 'flag'
   gameId?: string
   data?: any
   searching?: boolean
@@ -38,8 +38,8 @@ export interface ChessMessage {
   // Vector clock for causal ordering of timer/move events
   vectorClock?: Record<string, number>
   // Abandonment reason
-  reason?: 'initial_move_timeout' | 'peer_disconnect'
-  /** For 'abandon': the colour that abandoned. */
+  reason?: 'initial_move_timeout' | 'peer_disconnect' | 'long_move'
+  /** For 'abandon' and 'flag': the colour that lost. */
   loser?: 'white' | 'black'
 }
 

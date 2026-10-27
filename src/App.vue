@@ -143,17 +143,16 @@
             <p v-if="showPuzzleMove" class="note">The arrow shows the move. Play it on the board.</p>
           </template>
 
-          <div v-if="puzzleResult === 'correct'" class="verdict verdict-win">
-            <h3>Solved</h3>
-            <p>That's the winning line.</p>
+          <div v-if="puzzleResult === 'correct'" class="result">
+            <p class="result-line">Solved. That's the winning line.</p>
             <div class="row">
               <button class="btn btn-go" @click="loadNextPuzzle">Next puzzle</button>
               <button class="btn" @click="exitPuzzleMode">Leave puzzles</button>
             </div>
           </div>
 
-          <div v-if="puzzleResult === 'incorrect'" class="verdict verdict-loss">
-            <h3>Not that one</h3>
+          <div v-if="puzzleResult === 'incorrect'" class="result">
+            <p class="result-line">Not that one.</p>
             <div class="row">
               <button class="btn btn-go" @click="retryCurrentPuzzle">Try again</button>
               <button class="btn" @click="loadNextPuzzle">Next puzzle</button>
@@ -283,6 +282,11 @@
             {{ isMyTurn ? 'Your move' : (aiThinking ? 'The computer is thinking' : 'Their move') }}
           </p>
           <p v-if="!hasClock && currentGame?.status !== 'finished'" class="note">No clock in this game.</p>
+          <p v-if="opponentGone && currentGame?.status !== 'finished'" class="note away">
+            Your opponent's connection dropped.
+            <template v-if="!isMyTurn">They have {{ Math.max(0, reconnectWindow - opponentGoneOnTheirTurn) }} s to come back.</template>
+            <template v-else>Their time to come back starts when it's their move.</template>
+          </p>
           <p v-if="currentOpeningName" class="opening">{{ currentOpeningName }}</p>
           <p v-if="showBestMoves && isAIGame" class="legend">
             <span class="key key-1"></span>best
@@ -290,8 +294,8 @@
             <span class="key key-3"></span>third
           </p>
 
-          <div v-if="currentGame?.status === 'finished'" class="verdict" :class="resultClass">
-            <h3>{{ getResultText() }}</h3>
+          <div v-if="currentGame?.status === 'finished'" class="result">
+            <p class="result-line">{{ resultLine }}</p>
             <button class="btn btn-go" @click="returnToLobby">Back to the lobby</button>
           </div>
         </div>
@@ -439,13 +443,22 @@
 
     <div v-if="showAbandonmentModal" class="sheet-backdrop">
       <div class="sheet" role="alertdialog" aria-modal="true">
-        <h3>{{ iAbandoned ? 'You lost' : 'You won' }}</h3>
-        <p v-if="abandonmentReason === 'initial_move_timeout'">
-          {{ iAbandoned ? "You didn't" : "Your opponent didn't" }} make a first move in time.
-        </p>
-        <p v-else-if="abandonmentReason === 'peer_disconnect'">
-          {{ iAbandoned ? 'Your connection' : "Your opponent's connection" }} dropped and didn't come back.
-        </p>
+        <template v-if="abandonmentReason === 'aborted'">
+          <h3>Game aborted</h3>
+          <p>{{ iAbandoned ? "You didn't" : "Your opponent didn't" }} make a first move in time. The game doesn't count.</p>
+        </template>
+        <template v-else>
+          <h3>{{ iAbandoned ? 'You lost' : 'You won' }}</h3>
+          <p v-if="abandonmentReason === 'peer_disconnect'">
+            {{ iAbandoned ? 'Your connection' : "Your opponent's connection" }} dropped and didn't come back in time.
+          </p>
+          <p v-else-if="abandonmentReason === 'long_move'">
+            {{ iAbandoned ? 'You' : 'Your opponent' }} spent more than half the clock on one move in the opening.
+          </p>
+          <p v-else-if="abandonmentReason === 'time'">
+            {{ iAbandoned ? 'You ran' : 'Your opponent ran' }} out of time.
+          </p>
+        </template>
         <div class="sheet-actions">
           <button class="btn btn-go" @click="showAbandonmentModal = false; abandonmentReason = null; iAbandoned = false">OK</button>
         </div>
@@ -586,7 +599,9 @@ const stopSearching = () => {
 }
 
 /** Both sides of a match land here: set the clock, colours and opponent, and start. */
+const startMatchedGameReset = () => { endReason.value = null }
 const startMatchedGame = (match: { gameId: string; opponent: string; myColor: 'white' | 'black'; timeControl: { minutes: number; increment: number } }) => {
+  startMatchedGameReset()
   console.log('Matched with', match.opponent, 'as', match.myColor, 'game', match.gameId)
   currentGameTimeControl.value = { minutes: match.timeControl.minutes, increment: match.timeControl.increment }
   resetTimers()
@@ -596,7 +611,7 @@ const startMatchedGame = (match: { gameId: string; opponent: string; myColor: 'w
   hasGameStarted.value = false
   startTimer()
   startTimerSyncBroadcast()
-  startInitialMoveTimer()
+  startWatchdog()
 }
 
 // AI opponent
@@ -657,6 +672,7 @@ const aiLevels = [
 ]
 
 const startAIGame = () => {
+  endReason.value = null
   if (isGameActive.value) return
   
   // Clear last move highlight
@@ -1882,10 +1898,8 @@ const vectorClock = ref<Record<string, number>>({})
 let timerSyncInterval: ReturnType<typeof setInterval> | null = null
 
 // Abandonment timer state
-let initialMoveTimer: ReturnType<typeof setTimeout> | null = null
-let peerDisconnectTimer: ReturnType<typeof setTimeout> | null = null
 const hasGameStarted = ref(false) // Tracks if first move has been made
-const abandonmentReason = ref<'initial_move_timeout' | 'peer_disconnect' | null>(null)
+const abandonmentReason = ref<'aborted' | 'peer_disconnect' | 'long_move' | 'time' | 'initial_move_timeout' | null>(null)
 const showAbandonmentModal = ref(false)
 const iAbandoned = ref(false) // Track if I was the one who abandoned
 
@@ -1937,6 +1951,8 @@ const sendTimerSync = async (toPeer?: string) => {
       currentTurn: currentGame.value.currentTurn,
       lastUpdated: Date.now()
     },
+    // Every sync carries the moves, so a side that missed one catches up.
+    moves: [...currentGame.value.moves],
     vectorClock: vectorClock.value
   }
 
@@ -2107,12 +2123,14 @@ const startTimer = () => {
 const handleTimeOut = async () => {
   if (timerInterval) clearInterval(timerInterval)
   playLoseSound() // Play lose sound when time runs out
+  endReason.value = 'time'
   resign()
   
   if (opponentId.value) {
     const message: ChessMessage = {
-      type: 'resign',
-      gameId: currentGame.value!.id
+      type: 'flag',
+      gameId: currentGame.value!.id,
+      loser: myPlayer.value?.color
     }
     await sendMessage(opponentId.value, JSON.stringify(message))
   }
@@ -2130,139 +2148,189 @@ const resetTimers = () => {
 }
 
 // Abandonment timer functions
-const clearAbandonmentTimers = () => {
-  if (initialMoveTimer) {
-    clearTimeout(initialMoveTimer)
-    initialMoveTimer = null
-  }
-  if (peerDisconnectTimer) {
-    clearTimeout(peerDisconnectTimer)
-    peerDisconnectTimer = null
+const clearAbandonmentTimers = () => stopWatchdog()
+
+// ---------------------------------------------------------------------------
+// Live-game timers, as chess.com runs them
+// (https://support.chess.com/article/338-how-does-game-abandonment-work):
+//
+// - First move: each side has 15 s (bullet), 20 s (blitz) or 60 s (rapid and
+//   longer) for its first move. Missing it aborts the game: no result.
+// - Disconnect: a player whose connection is gone has (base + 40 x increment)
+//   x 10% to come back, at least 30 s and at most 3 min, and the countdown
+//   only runs on their turn. Coming back in time resumes the game.
+// - Long move: in the first 10 moves, spending more than half the base time
+//   on one move abandons the game.
+// - Running out of clock loses on time, whether or not the player is there.
+//
+// "Gone" means nothing has arrived from the opponent for a while (clock syncs
+// arrive every 3 s); a dropped direct link alone is not it, since messages
+// still route through the mesh. While we have no links at all, we are the one
+// offline, so the opponent's countdown does not run.
+// ---------------------------------------------------------------------------
+type TimeControlLike = { minutes: number; increment: number } | null
+
+const OPPONENT_GONE_MS = 8000
+const estimatedSeconds = (tc: TimeControlLike) => (tc ? tc.minutes * 60 + 40 * tc.increment : 0)
+const firstMoveSeconds = (tc: TimeControlLike) => {
+  if (!tc || tc.minutes === 0) return 60
+  const est = estimatedSeconds(tc)
+  return est < 180 ? 15 : est < 600 ? 20 : 60
+}
+const reconnectSeconds = (tc: TimeControlLike) =>
+  Math.min(180, Math.max(30, Math.round(estimatedSeconds(tc) * 0.1)))
+const longMoveSeconds = (tc: TimeControlLike) => (tc && tc.minutes > 0 ? tc.minutes * 60 * 0.5 : null)
+
+let lastHeardFromOpponent = Date.now()
+let turnStartedAt = Date.now()
+let watchdogInterval: ReturnType<typeof setInterval> | null = null
+const opponentGone = ref(false)
+const opponentGoneOnTheirTurn = ref(0) // seconds of their reconnect window used
+const reconnectWindow = computed(() => reconnectSeconds(currentGameTimeControl.value))
+
+const heardFromOpponent = () => {
+  lastHeardFromOpponent = Date.now()
+  if (opponentGone.value) {
+    opponentGone.value = false
+    opponentGoneOnTheirTurn.value = 0
+    // They're back: make sure they have every move.
+    sendTimerSync()
   }
 }
 
-const startInitialMoveTimer = () => {
-  // Clear any existing timer
-  if (initialMoveTimer) clearTimeout(initialMoveTimer)
-  
-  // Skip for casual games (no time control)
-  if (!currentGameTimeControl.value || currentGameTimeControl.value.minutes === 0) {
+/** Apply moves the opponent has that we missed (their list extends ours). */
+const catchUpMoves = (moves: unknown) => {
+  const game = currentGame.value
+  if (!Array.isArray(moves) || !game || game.status !== 'active') return
+  if (moves.length <= game.moves.length) {
+    // They are behind: our next sync carries what they need.
+    if (moves.length < game.moves.length) sendTimerSync()
     return
   }
-  
-  // Determine abandonment threshold based on time control category
-  const timeControlMinutes = currentGameTimeControl.value.minutes
-  let abandonmentThreshold: number
-  
-  if (timeControlMinutes <= 5) {
-    // Bullet/Blitz (up to and including 5 minutes)
-    abandonmentThreshold = 60 // 60 seconds (1 minute)
-  } else if (timeControlMinutes <= 15) {
-    // Rapid (6-15 minutes)
-    abandonmentThreshold = 120 // 2 minutes
-  } else {
-    // Classical (> 15 minutes)
-    abandonmentThreshold = 300 // 5 minutes
+  for (let i = 0; i < game.moves.length; i++) if (moves[i] !== game.moves[i]) return // diverged; leave it
+  for (const san of moves.slice(game.moves.length)) {
+    const before = chess.value.history({ verbose: true }).length
+    if (!receiveMove(String(san))) break
+    const last = chess.value.history({ verbose: true })[before]
+    if (last) lastMove.value = { from: last.from, to: last.to }
+    if (!hasGameStarted.value) { hasGameStarted.value = true; seek.settled() }
   }
-  
-  const abandonmentMs = abandonmentThreshold * 1000
-  
-  console.log(`Starting initial move timer: ${abandonmentThreshold}s for ${timeControlMinutes}-minute game`)
-  
-  initialMoveTimer = setTimeout(() => {
-    console.log('Initial move timer fired. hasGameStarted:', hasGameStarted.value, 'isGameActive:', isGameActive.value)
-    if (!hasGameStarted.value && isGameActive.value) {
-      // Whoever had to make the first move and didn't is the one who abandoned.
-      const sideToMove = chess.value.turn() === 'w' ? 'white' : 'black'
-      const loser = sideToMove === myPlayer.value?.color ? 'me' : 'opponent'
-      console.log('Initial move timeout -', loser === 'me' ? 'I' : 'opponent', 'did not move')
-      abandonGame('initial_move_timeout', loser)
-    } else {
-      console.log('Not abandoning - game has started or is not active')
-    }
-  }, abandonmentMs)
+}
+
+// A new turn starts the first-move and long-move clocks again.
+watch(() => currentGame.value?.moves?.length, () => { turnStartedAt = Date.now() })
+
+const startWatchdog = () => {
+  stopWatchdog()
+  lastHeardFromOpponent = Date.now()
+  turnStartedAt = Date.now()
+  opponentGone.value = false
+  opponentGoneOnTheirTurn.value = 0
+  watchdogInterval = setInterval(watchdogTick, 1000)
+}
+
+const stopWatchdog = () => {
+  if (watchdogInterval) clearInterval(watchdogInterval)
+  watchdogInterval = null
+  opponentGone.value = false
+  opponentGoneOnTheirTurn.value = 0
+}
+
+const watchdogTick = () => {
+  const game = currentGame.value
+  if (!game || game.status !== 'active' || isAIGame.value || !myPlayer.value) return stopWatchdog()
+  const tc = currentGameTimeControl.value
+  const now = Date.now()
+  const plies = game.moves.length
+  const sideToMove = chess.value.turn() === 'w' ? 'white' : 'black'
+  const loserIfStalled: 'me' | 'opponent' = sideToMove === myPlayer.value.color ? 'me' : 'opponent'
+  const onTurnFor = (now - turnStartedAt) / 1000
+
+  // First move of each side
+  if (plies < 2 && onTurnFor > firstMoveSeconds(tc)) {
+    abortGame(loserIfStalled)
+    return
+  }
+
+  // Long move in the first 10 moves
+  const longLimit = longMoveSeconds(tc)
+  if (longLimit !== null && plies < 20 && plies >= 2 && onTurnFor > longLimit) {
+    abandonGame('long_move', loserIfStalled)
+    return
+  }
+
+  // Their clock ran out on their move, and they aren't there to say so
+  if (hasClock.value && !isMyTurn.value && opponentTime.value <= 0) {
+    claimWinOnTime()
+    return
+  }
+
+  // Disconnect: only while we are online, and only on their turn
+  const weAreOnline = connectedPeerIds.value.length > 0
+  opponentGone.value = weAreOnline && now - lastHeardFromOpponent > OPPONENT_GONE_MS
+  if (opponentGone.value && !isMyTurn.value && plies >= 2) {
+    opponentGoneOnTheirTurn.value += 1
+    if (opponentGoneOnTheirTurn.value >= reconnectWindow.value) abandonGame('peer_disconnect', 'opponent')
+  }
+}
+
+/** Nobody made a first move in time: the game is called off and not recorded. */
+const abortGame = async (staller: 'me' | 'opponent') => {
+  const game = currentGame.value
+  if (!game || game.status !== 'active') return
+  stopWatchdog()
+  const gameId = game.id
+  abandonmentReason.value = 'aborted'
+  iAbandoned.value = staller === 'me'
+  showAbandonmentModal.value = true
+  returnToLobby()
+  if (opponentId.value) {
+    sendMessage(opponentId.value, JSON.stringify({ type: 'abort', gameId, staller: staller === 'me' ? myPlayer.value?.color : undefined }))
+      .catch(() => {})
+  }
+}
+
+/** Their clock reached zero on their move. */
+const claimWinOnTime = async () => {
+  if (!currentGame.value || !myPlayer.value || currentGame.value.status !== 'active') return
+  stopWatchdog()
+  if (timerInterval) clearInterval(timerInterval)
+  const myColor = myPlayer.value.color
+  currentGame.value.result = myColor
+  abandonmentReason.value = 'time'
+  endReason.value = 'time'
+  iAbandoned.value = false
+  showAbandonmentModal.value = true
+  endGame()
+  if (opponentId.value) {
+    sendMessage(opponentId.value, JSON.stringify({ type: 'flag', gameId: currentGame.value.id, loser: myColor === 'white' ? 'black' : 'white' }))
+      .catch(() => {})
+  }
 }
 
 /**
- * End the game by abandonment. `loser` is who abandoned: 'me' when I didn't
- * move in time, 'opponent' when they didn't move or their connection is gone.
- * Both sides may reach this; the message carries the loser's colour so they agree.
+ * End the game by abandonment. `loser` is who abandoned. Both sides may reach
+ * this; the message carries the loser's colour so they agree.
  */
-const abandonGame = async (reason: 'initial_move_timeout' | 'peer_disconnect', loser: 'me' | 'opponent') => {
+const abandonGame = async (reason: 'peer_disconnect' | 'long_move', loser: 'me' | 'opponent') => {
   if (!currentGame.value || !myPlayer.value || currentGame.value.status !== 'active') return
-  
-  // NEVER abandon casual games (no timer)
-  if (!currentGameTimeControl.value || currentGameTimeControl.value.minutes === 0) {
-    console.log('Skipping abandonment for casual game (no timer)')
-    return
-  }
-  
-  console.log('Abandoning game due to:', reason)
-  
-  // Clear all timers
-  clearAbandonmentTimers()
+  console.log('Game abandoned:', reason, loser)
+  stopWatchdog()
   if (timerInterval) clearInterval(timerInterval)
-  
-  // Set abandonment info
+
   abandonmentReason.value = reason
+  endReason.value = reason
   showAbandonmentModal.value = true
   iAbandoned.value = loser === 'me'
-  
+
   const myColor = myPlayer.value.color
   const loserColor = loser === 'me' ? myColor : (myColor === 'white' ? 'black' : 'white')
   currentGame.value.result = loserColor === 'white' ? 'black' : 'white'
   endGame()
-  
-  // Send abandon message to opponent (skip for AI games)
+
   if (opponentId.value && !isAIGame.value) {
-    try {
-      const message: ChessMessage = {
-        type: 'abandon',
-        gameId: currentGame.value.id,
-        reason: reason,
-        loser: loserColor
-      }
-      await sendMessage(opponentId.value, JSON.stringify(message))
-    } catch (err) {
-      console.error('Failed to send abandon message:', err)
-    }
-  }
-}
-
-const handleOpponentDisconnect = (disconnectedPeerId: string) => {
-  // Only start timer if this is our opponent and game is active
-  if (disconnectedPeerId === opponentId.value && isGameActive.value) {
-    console.log('Opponent disconnected during active game')
-    
-    // NEVER abandon casual games (no timer)
-    if (!currentGameTimeControl.value || currentGameTimeControl.value.minutes === 0) {
-      console.log('Casual game - not starting disconnect timer')
-      return
-    }
-    
-    console.log('Starting disconnect timer')
-    
-    // Clear any existing timer
-    if (peerDisconnectTimer) clearTimeout(peerDisconnectTimer)
-    
-    // Wait 30 seconds for reconnection
-    const disconnectThreshold = 30000 // 30 seconds
-    
-    peerDisconnectTimer = setTimeout(() => {
-      if (isGameActive.value && opponentId.value === disconnectedPeerId) {
-        console.log('Opponent still disconnected after timeout - abandoning game')
-        abandonGame('peer_disconnect', 'opponent')
-      }
-    }, disconnectThreshold)
-  }
-}
-
-const handleOpponentReconnect = (reconnectedPeerId: string) => {
-  // Clear disconnect timer if opponent reconnects
-  if (reconnectedPeerId === opponentId.value && peerDisconnectTimer) {
-    console.log('Opponent reconnected, clearing disconnect timer')
-    clearTimeout(peerDisconnectTimer)
-    peerDisconnectTimer = null
+    const message: ChessMessage = { type: 'abandon', gameId: currentGame.value.id, reason, loser: loserColor }
+    sendMessage(opponentId.value, JSON.stringify(message)).catch(() => {})
   }
 }
 
@@ -2293,6 +2361,51 @@ const pairMoves = (moves: string[]): string[][] => {
 }
 const capitalise = (word: string) => (word ? word[0].toUpperCase() + word.slice(1) : '')
 const hasClock = computed(() => Boolean(currentGameTimeControl.value && currentGameTimeControl.value.minutes > 0))
+/** Why the game ended, when the board alone can't tell. */
+const endReason = ref<'resign' | 'time' | 'agreement' | 'peer_disconnect' | 'long_move' | null>(null)
+
+/** One sentence: who won and why. */
+const resultLine = computed(() => {
+  const game = currentGame.value
+  if (!game || game.status !== 'finished') return ''
+  const mine = myPlayer.value?.color
+  const outcome = !game.result || game.result === 'draw' ? 'draw' : game.result === mine ? 'win' : 'loss'
+  const c = chess.value
+  const reason = endReason.value
+    || (c.isCheckmate() ? 'checkmate'
+      : c.isStalemate() ? 'stalemate'
+      : c.isInsufficientMaterial() ? 'material'
+      : c.isThreefoldRepetition() ? 'repetition'
+      : c.isDraw() ? 'fifty'
+      : null)
+  const them = isAIGame.value ? 'The computer' : 'Your opponent'
+  if (outcome === 'draw') {
+    return ({
+      stalemate: 'Draw by stalemate.',
+      material: 'Draw. Neither side has enough material to checkmate.',
+      repetition: 'Draw by threefold repetition.',
+      fifty: 'Draw by the 50-move rule.',
+      agreement: 'Draw by agreement.',
+    } as Record<string, string>)[reason || ''] || 'Draw.'
+  }
+  if (outcome === 'win') {
+    return ({
+      checkmate: 'You won by checkmate.',
+      resign: `You won. ${them} resigned.`,
+      time: 'You won on time.',
+      peer_disconnect: "You won. Your opponent left and didn't come back in time.",
+      long_move: 'You won. Your opponent spent more than half their clock on one move in the opening.',
+    } as Record<string, string>)[reason || ''] || 'You won.'
+  }
+  return ({
+    checkmate: 'You lost by checkmate.',
+    resign: 'You resigned.',
+    time: 'You lost on time.',
+    peer_disconnect: "You lost. Your connection dropped and didn't come back in time.",
+    long_move: 'You lost. You spent more than half your clock on one move in the opening.',
+  } as Record<string, string>)[reason || ''] || 'You lost.'
+})
+
 const resultClass = computed(() => {
   const result = currentGame.value?.result
   if (!result || result === 'draw') return 'verdict-draw'
@@ -2612,11 +2725,6 @@ const handleMove = async (from: string, to: string, promotion?: 'q' | 'r' | 'b' 
     if (!hasGameStarted.value) {
       hasGameStarted.value = true
       seek.settled()
-      // Clear the initial move timer since a move was made
-      if (initialMoveTimer) {
-        clearTimeout(initialMoveTimer)
-        initialMoveTimer = null
-      }
     }
     
     // Add increment to my time
@@ -2681,6 +2789,7 @@ const handleResign = async () => {
 }
 
 const confirmResign = async () => {
+  endReason.value = 'resign'
   resign()
   
   // Only send message for human opponents, not AI
@@ -2709,6 +2818,7 @@ const offerDraw = async () => {
     // Set result to draw first so endGame knows it's a draw
     if (currentGame.value) {
       currentGame.value.result = 'draw'
+    endReason.value = 'agreement'
     }
     endGame()
     isAIGame.value = false
@@ -2746,6 +2856,7 @@ const acceptDrawOffer = async () => {
   console.log('Accepting draw offer, calling endGame()')
   if (currentGame.value) {
     currentGame.value.result = 'draw'
+    endReason.value = 'agreement'
     endGame()
   }
   
@@ -3228,6 +3339,8 @@ const handleMessage = async (event: any) => {
     // Seeking and match offers
     if (seek.handle(message, fromPeer)) return
 
+    if (fromPeer && fromPeer === opponentId.value) heardFromOpponent()
+
     const chessMessage: ChessMessage = message
     
     switch (chessMessage.type) {
@@ -3240,11 +3353,6 @@ const handleMessage = async (event: any) => {
           if (!hasGameStarted.value) {
             hasGameStarted.value = true
             seek.settled()
-            // Clear the initial move timer since a move was received
-            if (initialMoveTimer) {
-              clearTimeout(initialMoveTimer)
-              initialMoveTimer = null
-            }
           }
           
           receiveMove(`${chessMessage.data.from}${chessMessage.data.to}`)
@@ -3256,18 +3364,43 @@ const handleMessage = async (event: any) => {
         break
         
       case 'timer_sync':
-        // Dedicated timer sync message
+        catchUpMoves((chessMessage as any).moves)
         if (chessMessage.data && chessMessage.vectorClock) {
           processIncomingTimer(chessMessage.data, chessMessage.vectorClock, fromPeer)
         }
         break
         
+      case 'abort':
+        if (currentGame.value && currentGame.value.id === chessMessage.gameId && currentGame.value.status === 'active') {
+          stopWatchdog()
+          abandonmentReason.value = 'aborted'
+          iAbandoned.value = Boolean((chessMessage as any).staller) && (chessMessage as any).staller === myPlayer.value?.color
+          showAbandonmentModal.value = true
+          returnToLobby()
+        }
+        break
+
+      case 'flag':
+        if (currentGame.value && myPlayer.value && currentGame.value.status === 'active') {
+          stopWatchdog()
+          if (timerInterval) clearInterval(timerInterval)
+          const loser = chessMessage.loser || myPlayer.value.color
+          currentGame.value.result = loser === 'white' ? 'black' : 'white'
+          abandonmentReason.value = 'time'
+          endReason.value = 'time'
+          iAbandoned.value = loser === myPlayer.value.color
+          showAbandonmentModal.value = true
+          endGame()
+        }
+        break
+
       case 'resign':
         // Opponent resigned
-        console.log('Opponent resigned, calling endGame()')
+        console.log('Opponent resigned')
         if (currentGame.value && myPlayer.value) {
           // Set the result before calling endGame so it knows we won
           currentGame.value.result = myPlayer.value.color
+          endReason.value = 'resign'
           endGame()
         }
         break
@@ -3282,6 +3415,7 @@ const handleMessage = async (event: any) => {
         console.log('Draw accepted by opponent, calling endGame()')
         if (currentGame.value) {
           currentGame.value.result = 'draw'
+          endReason.value = 'agreement'
           endGame()
         }
         break
@@ -3320,6 +3454,7 @@ const handleMessage = async (event: any) => {
           currentGame.value.result = loserColor === 'white' ? 'black' : 'white'
           
           abandonmentReason.value = chessMessage.reason || null
+          endReason.value = chessMessage.reason === 'long_move' ? 'long_move' : 'peer_disconnect'
           showAbandonmentModal.value = true
           iAbandoned.value = loserColor === myColor
           
@@ -3359,14 +3494,14 @@ onMounted(async () => {
   if (mesh.value) {
     mesh.value.addEventListener('peerConnected', (e: any) => {
       console.log('Peer connected:', e.peerId)
-      handleOpponentReconnect(e.peerId)
     })
     
     mesh.value.addEventListener('peerDisconnected', (e: any) => {
       console.log('Peer disconnected:', e.peerId)
       // Remove peer from crypto ready set and matchmaking queue
       cryptoReadyPeers.delete(e.peerId)
-      handleOpponentDisconnect(e.peerId)
+      // A dropped link is not a player leaving: moves still route through the
+      // mesh. The game watchdog decides from what actually arrives.
     })
     
     mesh.value.addEventListener('disconnected', () => {
@@ -3724,6 +3859,10 @@ onUnmounted(() => {
   color: var(--ink-2);
 }
 
+.note.away {
+  color: var(--stop);
+}
+
 .note,
 .prompt {
   color: var(--ink-2);
@@ -3764,23 +3903,17 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-.verdict {
-  border-left: 4px solid var(--line-strong);
-  padding: 0.25rem 0 0.25rem 0.9rem;
+.result {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
   align-items: flex-start;
+  gap: 0.6rem;
 }
 
-.verdict h3 {
-  font-stretch: 112%;
-  font-size: 1.5rem;
-  font-weight: 700;
+.result-line {
+  font-weight: 600;
+  font-size: 1.05rem;
 }
-
-.verdict-win { border-color: var(--sheen); }
-.verdict-loss { border-color: var(--stop); }
 
 /* ---------- moves ---------- */
 .moves {
