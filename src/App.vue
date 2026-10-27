@@ -194,14 +194,9 @@
         </div>
 
         <div class="lobby-panel">
-          <template v-if="isConnecting || !isInitialized || !isConnected">
-            <h2 class="lobby-title">Connecting to relays</h2>
-            <p class="lobby-sub">Looking for other players. This usually takes a few seconds.</p>
-            <div class="progress" aria-hidden="true"><span></span></div>
-          </template>
-
-          <template v-else>
+          <template>
             <h2 class="lobby-title">Play someone</h2>
+            <p v-if="!isInitialized || !isConnected" class="lobby-sub">Connecting to relays. You can play the computer while you wait.</p>
 
             <fieldset class="controls">
               <legend>Time control</legend>
@@ -222,7 +217,7 @@
             </fieldset>
 
             <div v-if="!isSearching" class="row">
-              <button class="btn btn-go btn-wide" @click="startSearching">Find a game</button>
+              <button class="btn btn-go btn-wide" :disabled="!isInitialized || !isConnected" @click="startSearching">Find a game</button>
             </div>
             <div v-else class="searching">
               <p><span class="pulse" aria-hidden="true"></span>Looking for an opponent at {{ selectedTimeControlDisplay }}</p>
@@ -4317,27 +4312,6 @@ onUnmounted(() => {
 .lobby-sub {
   color: var(--ink-2);
   max-width: 34ch;
-}
-
-.progress {
-  height: 3px;
-  background: var(--wing);
-  border-radius: 2px;
-  overflow: hidden;
-  max-width: 240px;
-}
-
-.progress span {
-  display: block;
-  width: 40%;
-  height: 100%;
-  background: var(--sheen);
-  animation: slide 1.3s ease-in-out infinite;
-}
-
-@keyframes slide {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(250%); }
 }
 
 .controls {

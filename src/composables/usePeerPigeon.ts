@@ -209,7 +209,9 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     compat.node = node
     bind(node)
     starting = node.start().then(() => {
+      // Started means the relays have us; other players may not be there yet.
       isInitialized.value = true
+      isConnected.value = true
       refreshStatus()
     }).catch((err: unknown) => {
       error.value = err instanceof Error ? err.message : String(err)
