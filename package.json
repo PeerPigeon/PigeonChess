@@ -21,7 +21,7 @@
     "@fontsource-variable/archivo": "^5.3.0",
     "chess.js": "^1.4.0",
     "eventemitter3": "^5.0.4",
-    "freertc": "github:draeder/freertc#81dc05b",
+    "freertc": "github:draeder/freertc#a5b558f",
     "unsea": "^1.1.2",
     "vue": "^3.5.22"
   },
