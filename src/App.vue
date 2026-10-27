@@ -268,6 +268,17 @@
           <img class="seat-colour" :src="`/pieces/${myPlayer?.color === 'white' ? 'b' : 'w'}k.svg`" alt="" />
           <span class="seat-name">
             {{ isAIGame ? `Computer, ${aiLevels[aiDifficulty].name.toLowerCase()}` : formatPeerId(opponentId || 'Opponent') }}
+            <svg
+              v-if="!isAIGame && currentGame?.status !== 'finished'"
+              class="signal"
+              :class="`signal-${connectionStrength}`"
+              viewBox="0 0 16 12"
+              role="img"
+              :aria-label="connectionLabel"
+            >
+              <title>{{ connectionLabel }}</title>
+              <rect v-for="n in 4" :key="n" :x="(n - 1) * 4" :y="12 - n * 3" width="3" :height="n * 3" rx="0.5" :class="{ lit: n <= connectionStrength }" />
+            </svg>
             <small v-if="aiThinking">thinking</small>
           </span>
           <span class="seat-captures">
@@ -2225,6 +2236,7 @@ const startWatchdog = () => {
   turnStartedAt = Date.now()
   opponentGone.value = false
   opponentGoneOnTheirTurn.value = 0
+  opponentRtt.value = null
   watchdogInterval = setInterval(watchdogTick, 1000)
 }
 
@@ -2234,6 +2246,19 @@ const stopWatchdog = () => {
   opponentGone.value = false
   opponentGoneOnTheirTurn.value = 0
 }
+
+/** Round trip to the opponent, from a ping every 3 s; drives the signal icon. */
+const opponentRtt = ref<number | null>(null)
+let lastPingAt = 0
+/** 4 = strong, 0 = nothing heard for a while. */
+const connectionStrength = computed(() => {
+  if (opponentGone.value) return 0
+  const rtt = opponentRtt.value
+  if (rtt === null) return 3
+  return rtt < 150 ? 4 : rtt < 400 ? 3 : rtt < 1000 ? 2 : 1
+})
+const connectionLabel = computed(() =>
+  ['Connection lost', 'Weak connection', 'Fair connection', 'Good connection', 'Strong connection'][connectionStrength.value])
 
 const watchdogTick = () => {
   const game = currentGame.value
@@ -2262,6 +2287,11 @@ const watchdogTick = () => {
   if (hasClock.value && !isMyTurn.value && opponentTime.value <= 0) {
     claimWinOnTime()
     return
+  }
+
+  if (now - lastPingAt >= 3000 && opponentId.value) {
+    lastPingAt = now
+    sendMessage(opponentId.value, JSON.stringify({ type: 'ping', t: now })).catch(() => {})
   }
 
   // Disconnect: only while we are online, and only on their turn
@@ -3338,7 +3368,17 @@ const handleMessage = async (event: any) => {
     // Seeking and match offers
     if (seek.handle(message, fromPeer)) return
 
-    if (fromPeer && fromPeer === opponentId.value) heardFromOpponent()
+    if (fromPeer && fromPeer === opponentId.value) {
+      heardFromOpponent()
+      if (message.type === 'ping') {
+        sendMessage(fromPeer, JSON.stringify({ type: 'pong', t: message.t })).catch(() => {})
+        return
+      }
+      if (message.type === 'pong') {
+        if (typeof message.t === 'number') opponentRtt.value = Date.now() - message.t
+        return
+      }
+    }
 
     const chessMessage: ChessMessage = message
     
@@ -3771,6 +3811,31 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.signal {
+  width: 16px;
+  height: 12px;
+  margin-left: 0.4rem;
+  vertical-align: baseline;
+}
+
+.signal rect {
+  fill: var(--line);
+}
+
+.signal rect.lit {
+  fill: var(--ink-2);
+}
+
+.signal-1 rect.lit {
+  fill: var(--stop);
+}
+
+.signal-0 rect {
+  fill: none;
+  stroke: var(--stop);
+  stroke-width: 0.8;
 }
 
 .seat-name small {
