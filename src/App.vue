@@ -194,57 +194,55 @@
         </div>
 
         <div class="lobby-panel">
-          <template>
-            <h2 class="lobby-title">Play someone</h2>
-            <p v-if="!isInitialized || !isConnected" class="lobby-sub">Connecting to relays. You can play the computer while you wait.</p>
+          <h2 class="lobby-title">Play someone</h2>
+          <p v-if="!isInitialized || !isConnected" class="lobby-sub">Connecting to relays. You can play the computer while you wait.</p>
 
-            <fieldset class="controls">
-              <legend>Time control</legend>
-              <div class="clock-grid">
-                <button
-                  v-for="control in timeControls"
-                  :key="control.id"
-                  class="clock-pick"
-                  :class="{ picked: selectedTimeControl === control.id }"
-                  :aria-pressed="selectedTimeControl === control.id"
-                  :disabled="isSearching"
-                  @click="selectTimeControl(control.id)"
-                >
-                  <span class="pick-time">{{ control.id === 'any' ? 'Any' : (control.minutes === 0 ? 'No clock' : control.display) }}</span>
-                  <span class="pick-name">{{ control.id === 'any' ? 'first free' : control.name.toLowerCase() }}</span>
-                </button>
-              </div>
-            </fieldset>
-
-            <div v-if="!isSearching" class="row">
-              <button class="btn btn-go btn-wide" :disabled="!isInitialized || !isConnected" @click="startSearching">Find a game</button>
-            </div>
-            <div v-else class="searching">
-              <p><span class="pulse" aria-hidden="true"></span>Looking for an opponent at {{ selectedTimeControlDisplay }}</p>
-              <button class="btn" @click="stopSearching">Stop looking</button>
-            </div>
-
-            <h2 class="lobby-title lobby-title-2">Play the computer</h2>
-            <div class="levels" role="radiogroup" aria-label="Computer strength">
+          <fieldset class="controls">
+            <legend>Time control</legend>
+            <div class="clock-grid">
               <button
-                v-for="(label, level) in aiLevels"
-                :key="level"
-                class="level"
-                role="radio"
-                :aria-checked="aiDifficulty === level"
-                :class="{ picked: aiDifficulty === level }"
-                @click="aiDifficulty = level"
+                v-for="control in timeControls"
+                :key="control.id"
+                class="clock-pick"
+                :class="{ picked: selectedTimeControl === control.id }"
+                :aria-pressed="selectedTimeControl === control.id"
+                :disabled="isSearching"
+                @click="selectTimeControl(control.id)"
               >
-                <span class="level-name">{{ label.name }}</span>
-                <span class="level-elo">{{ label.elo }}</span>
+                <span class="pick-time">{{ control.id === 'any' ? 'Any' : (control.minutes === 0 ? 'No clock' : control.display) }}</span>
+                <span class="pick-name">{{ control.id === 'any' ? 'first free' : control.name.toLowerCase() }}</span>
               </button>
             </div>
-            <div class="row">
-              <button class="btn btn-wide" :disabled="isSearching" @click="startAIGame">Start against {{ aiLevels[aiDifficulty].name.toLowerCase() }}</button>
-            </div>
+          </fieldset>
 
-            <p class="you">You are <code :title="myPeerId">{{ formatPeerId(myPeerId) }}</code> on the {{ settings.networkName || 'global' }} network.</p>
-          </template>
+          <div v-if="!isSearching" class="row">
+            <button class="btn btn-go btn-wide" :disabled="!isInitialized || !isConnected" @click="startSearching">Find a game</button>
+          </div>
+          <div v-else class="searching">
+            <p><span class="pulse" aria-hidden="true"></span>Looking for an opponent at {{ selectedTimeControlDisplay }}</p>
+            <button class="btn" @click="stopSearching">Stop looking</button>
+          </div>
+
+          <h2 class="lobby-title lobby-title-2">Play the computer</h2>
+          <div class="levels" role="radiogroup" aria-label="Computer strength">
+            <button
+              v-for="(label, level) in aiLevels"
+              :key="level"
+              class="level"
+              role="radio"
+              :aria-checked="aiDifficulty === level"
+              :class="{ picked: aiDifficulty === level }"
+              @click="aiDifficulty = level"
+            >
+              <span class="level-name">{{ label.name }}</span>
+              <span class="level-elo">{{ label.elo }}</span>
+            </button>
+          </div>
+          <div class="row">
+            <button class="btn btn-wide" :disabled="isSearching" @click="startAIGame">Start against {{ aiLevels[aiDifficulty].name.toLowerCase() }}</button>
+          </div>
+
+          <p class="you">You are <code :title="myPeerId">{{ formatPeerId(myPeerId) }}</code> on the {{ settings.networkName || 'global' }} network.</p>
 
           <p v-if="error" class="alert">{{ error }}</p>
         </div>
