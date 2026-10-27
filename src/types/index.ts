@@ -39,6 +39,8 @@ export interface ChessMessage {
   vectorClock?: Record<string, number>
   // Abandonment reason
   reason?: 'initial_move_timeout' | 'peer_disconnect'
+  /** For 'abandon': the colour that abandoned. */
+  loser?: 'white' | 'black'
 }
 
 export interface MatchmakingRequest {

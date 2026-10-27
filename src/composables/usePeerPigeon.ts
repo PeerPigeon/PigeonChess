@@ -261,7 +261,8 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
   // mesh and kept in IndexedDB. Reads ask the mesh before giving up.
   const dhtPut = async (key: string, value: any, _options: any = {}) => {
     if (!node?.storage) throw new Error('Storage not ready')
-    await node.storage.put('public', key, value)
+    // Plain data only: Vue proxies cannot be stored in IndexedDB.
+    await node.storage.put('public', key, JSON.parse(JSON.stringify(value)))
     return true
   }
 

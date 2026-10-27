@@ -396,16 +396,6 @@
       </div>
     </div>
 
-    <div v-if="incomingChallenge" class="sheet-backdrop">
-      <div class="sheet" role="alertdialog" aria-modal="true">
-        <h3>{{ formatPeerId(incomingChallenge.from) }} wants a game</h3>
-        <div class="sheet-actions">
-          <button class="btn" @click="declineChallenge">Decline</button>
-          <button class="btn btn-go" @click="acceptChallenge">Play</button>
-        </div>
-      </div>
-    </div>
-
     <div v-if="showAlreadyInGameModal" class="sheet-backdrop">
       <div class="sheet" role="alertdialog" aria-modal="true">
         <h3>You're already playing</h3>
@@ -447,19 +437,9 @@
       </div>
     </div>
 
-    <div v-if="showChallengeRejectedModal" class="sheet-backdrop">
-      <div class="sheet" role="alertdialog" aria-modal="true">
-        <h3>They're in another game</h3>
-        <p>Try again when their game ends, or find someone else.</p>
-        <div class="sheet-actions">
-          <button class="btn btn-go" @click="showChallengeRejectedModal = false">OK</button>
-        </div>
-      </div>
-    </div>
-
     <div v-if="showAbandonmentModal" class="sheet-backdrop">
       <div class="sheet" role="alertdialog" aria-modal="true">
-        <h3>{{ iAbandoned ? 'Game abandoned' : 'You win' }}</h3>
+        <h3>{{ iAbandoned ? 'You lost' : 'You won' }}</h3>
         <p v-if="abandonmentReason === 'initial_move_timeout'">
           {{ iAbandoned ? "You didn't" : "Your opponent didn't" }} make a first move in time.
         </p>
@@ -478,7 +458,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Chess } from 'chess.js'
 import { usePeerPigeon } from './composables/usePeerPigeon'
-import { useMatchmaking } from './composables/useMatchmaking'
+import { useSeek } from './composables/useSeek'
 import ChessBoard from './components/ChessBoard.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import GameHistory from './components/GameHistory.vue'
@@ -571,30 +551,22 @@ const timeControls = [
 ]
 const selectedTimeControl = ref('any')
 
-// Matchmaking with PigeonMatch
-const {
-  currentMatch,
-  peers,
-  inQueue,
-  error: matchmakingError,
-  stats,
-  isMatchReady,
-  initialize: initializeMatchmaking,
-  joinQueue,
-  leaveQueue,
-  addPeerToQueue,
-  removePeerFromQueue,
-  getOpponentFromMatch,
-  cleanup: cleanupMatchmaking
-} = useMatchmaking({
-  namespace: 'chess-game',
-  minPeers: 2,
-  maxPeers: 2,
-  matchTimeout: 30000
+// Finding an opponent (see composables/useSeek.ts)
+const seek = useSeek({
+  myPeerId: computed(() => mesh.value?.peerId ?? null),
+  timeControls,
+  selectedTimeControl,
+  broadcast: (message: string) => broadcast(message, false),
+  sendMessage: (peerId: string, message: string) => sendMessage(peerId, message),
+  isPlaying: () => isGameActive.value,
+  onMatched: (match) => startMatchedGame(match),
+  onCancelled: () => {
+    console.log('Opponent withdrew before the first move; searching again')
+    clearAbandonmentTimers()
+    returnToLobby()
+  }
 })
-
-// Alias for backward compatibility
-const isSearching = inQueue
+const isSearching = seek.isSearching
 
 const selectedTimeControlDisplay = computed(() => {
   return timeControls.find(tc => tc.id === selectedTimeControl.value)?.display || ''
@@ -604,126 +576,28 @@ const selectTimeControl = (controlId: string) => {
   selectedTimeControl.value = controlId
 }
 
-const startSearching = async () => {
+const startSearching = () => {
   if (isGameActive.value) return
-  console.log('Starting matchmaking...')
-  // Join queue without adding other peers - they'll be added when they send matchmaking messages
-  joinQueue()
-  
-  // Broadcast our search status to all already-connected crypto-ready peers
-  const message = {
-    type: 'matchmaking',
-    peerId: myPeerId.value,
-    searching: true,
-    timeControl: selectedTimeControl.value
-  }
-  
-  for (const peerId of cryptoReadyPeers) {
-    try {
-      await sendMessage(peerId, JSON.stringify(message))
-      console.log('Sent search status to already-connected peer:', peerId)
-    } catch (err) {
-      console.error('Failed to send search status to peer:', peerId, err)
-    }
-  }
+  seek.start()
 }
 
-const stopSearching = async () => {
-  console.log('Stopping matchmaking...')
-  leaveQueue()
-  
-  // Broadcast that we stopped searching
-  const message = {
-    type: 'matchmaking',
-    peerId: myPeerId.value,
-    searching: false,
-    timeControl: null
-  }
-  
-  for (const peerId of cryptoReadyPeers) {
-    try {
-      await sendMessage(peerId, JSON.stringify(message))
-      console.log('Sent stop-searching status to peer:', peerId)
-    } catch (err) {
-      console.error('Failed to send stop-searching status to peer:', peerId, err)
-    }
-  }
+const stopSearching = () => {
+  seek.stop()
 }
 
-// Watch for match ready and start game
-watch(isMatchReady, async (ready) => {
-  if (ready && currentMatch.value) {
-    console.log('Match ready! Starting game with match:', currentMatch.value)
-    
-    const opponentPeerId = getOpponentFromMatch()
-    if (!opponentPeerId) {
-      console.error('No opponent found in match')
-      return
-    }
-    
-    // Verify opponent is crypto ready
-    if (!cryptoReadyPeers.has(opponentPeerId)) {
-      console.error('Opponent not crypto ready yet, canceling match')
-      alert('Connection not ready. Please try again.')
-      leaveQueue()
-      return
-    }
-    
-    // Determine time control - find the selected one or default to casual (no time)
-    console.log('Selected time control ID:', selectedTimeControl.value)
-    const timeControlObj = timeControls.find(tc => tc.id === selectedTimeControl.value)
-    console.log('Found time control object:', timeControlObj)
-    
-    if (!timeControlObj) {
-      console.error('Time control not found! Using casual as fallback')
-    }
-    
-    const finalTimeControl = timeControlObj || timeControls[1] // Default to casual
-    currentGameTimeControl.value = {
-      minutes: finalTimeControl.minutes,
-      increment: finalTimeControl.increment
-    }
-    
-    // Generate game ID
-    const gameId = currentMatch.value.id
-    
-    // Lower peer ID gets white
-    const isWhite = myPeerId.value < opponentPeerId
-    const whitePlayer = isWhite ? myPeerId.value : opponentPeerId
-    const blackPlayer = isWhite ? opponentPeerId : myPeerId.value
-    
-    // Send gameStart message to opponent
-    const gameStartMessage: ChessMessage = {
-      type: 'gameStart',
-      gameId: gameId,
-      data: {
-        whitePlayer,
-        blackPlayer,
-        timeControl: finalTimeControl
-      }
-    }
-    
-    try {
-      console.log('Sending game start message to:', opponentPeerId)
-      await sendMessage(opponentPeerId, JSON.stringify(gameStartMessage))
-      console.log('Game start message sent successfully')
-      
-      // Start the game locally
-      resetTimers()
-      isAIGame.value = false // Ensure AI mode is disabled for peer games
-      startNewGame(myPeerId.value, opponentPeerId, isWhite ? 'white' : 'black')
-      opponentId.value = opponentPeerId
-      hasGameStarted.value = false
-      startTimer()
-      startTimerSyncBroadcast()
-      startInitialMoveTimer()
-    } catch (err) {
-      console.error('Failed to send game start message:', err)
-      alert('Failed to start game with opponent. Please try searching again.')
-      leaveQueue()
-    }
-  }
-})
+/** Both sides of a match land here: set the clock, colours and opponent, and start. */
+const startMatchedGame = (match: { gameId: string; opponent: string; myColor: 'white' | 'black'; timeControl: { minutes: number; increment: number } }) => {
+  console.log('Matched with', match.opponent, 'as', match.myColor, 'game', match.gameId)
+  currentGameTimeControl.value = { minutes: match.timeControl.minutes, increment: match.timeControl.increment }
+  resetTimers()
+  isAIGame.value = false
+  startNewGame(myPeerId.value, match.opponent, match.myColor)
+  opponentId.value = match.opponent
+  hasGameStarted.value = false
+  startTimer()
+  startTimerSyncBroadcast()
+  startInitialMoveTimer()
+}
 
 // AI opponent
 const isAIGame = ref(false)
@@ -1491,33 +1365,6 @@ const makeAIMove = () => {
 }
 
 
-const broadcastSearchStatus = async () => {
-  const actualPeerId = mesh.value?.peerId
-  if (!actualPeerId) {
-    console.log('Skipping broadcast - peer ID not ready')
-    return
-  }
-  
-  const message = {
-    type: 'matchmaking',
-    peerId: actualPeerId,
-    searching: isSearching.value,
-    timeControl: isSearching.value ? selectedTimeControl.value : null
-  }
-  
-  console.log('Broadcasting search status:', message, 'to all peers in network')
-  
-  try {
-    await broadcast(JSON.stringify(message), false) // Unencrypted
-    console.log('Search status broadcasted to network')
-  } catch (err) {
-    console.error('Failed to broadcast search status:', err)
-  }
-}
-
-// Track which peers are searching and what time control they want
-const peerSearchStatus = ref<Map<string, string | null>>(new Map())
-
 // Track all known peers in the network (direct + indirect via gossip)
 const allKnownPeers = ref<Set<string>>(new Set(loadFromLocalStorage<string[]>('known-peers', [])))
 const peerLastSeen = ref<Map<string, number>>(new Map(Object.entries(loadFromLocalStorage<Record<string, number>>('peer-last-seen', {}))))
@@ -1542,7 +1389,6 @@ const cleanupStalePeers = () => {
     if (peerId && now - lastSeen > staleThreshold) {
       allKnownPeers.value.delete(peerId)
       peerLastSeen.value.delete(peerId)
-      peerSearchStatus.value.delete(peerId)
       console.log('Removed stale peer:', peerId)
     }
   }
@@ -2018,10 +1864,8 @@ const isOpponentKingInCheck = computed(() => {
 })
 
 // Challenge handling
-const incomingChallenge = ref<{ from: string, gameId: string, opponentColor: 'white' | 'black' } | null>(null)
 const showAlreadyInGameModal = ref(false)
 const showResignConfirmModal = ref(false)
-const showChallengeRejectedModal = ref(false)
 
 // Draw and Takeback offers
 const incomingDrawOffer = ref<{ from: string } | null>(null)
@@ -2328,16 +2172,24 @@ const startInitialMoveTimer = () => {
   initialMoveTimer = setTimeout(() => {
     console.log('Initial move timer fired. hasGameStarted:', hasGameStarted.value, 'isGameActive:', isGameActive.value)
     if (!hasGameStarted.value && isGameActive.value) {
-      console.log('Initial move timeout - abandoning game')
-      abandonGame('initial_move_timeout')
+      // Whoever had to make the first move and didn't is the one who abandoned.
+      const sideToMove = chess.value.turn() === 'w' ? 'white' : 'black'
+      const loser = sideToMove === myPlayer.value?.color ? 'me' : 'opponent'
+      console.log('Initial move timeout -', loser === 'me' ? 'I' : 'opponent', 'did not move')
+      abandonGame('initial_move_timeout', loser)
     } else {
       console.log('Not abandoning - game has started or is not active')
     }
   }, abandonmentMs)
 }
 
-const abandonGame = async (reason: 'initial_move_timeout' | 'peer_disconnect') => {
-  if (!currentGame.value || !myPlayer.value) return
+/**
+ * End the game by abandonment. `loser` is who abandoned: 'me' when I didn't
+ * move in time, 'opponent' when they didn't move or their connection is gone.
+ * Both sides may reach this; the message carries the loser's colour so they agree.
+ */
+const abandonGame = async (reason: 'initial_move_timeout' | 'peer_disconnect', loser: 'me' | 'opponent') => {
+  if (!currentGame.value || !myPlayer.value || currentGame.value.status !== 'active') return
   
   // NEVER abandon casual games (no timer)
   if (!currentGameTimeControl.value || currentGameTimeControl.value.minutes === 0) {
@@ -2354,14 +2206,12 @@ const abandonGame = async (reason: 'initial_move_timeout' | 'peer_disconnect') =
   // Set abandonment info
   abandonmentReason.value = reason
   showAbandonmentModal.value = true
-  iAbandoned.value = true // I am the one abandoning
+  iAbandoned.value = loser === 'me'
   
-  // Update game state - opponent wins by abandonment
-  if (currentGame.value && myPlayer.value) {
-    currentGame.value.result = myPlayer.value.color === 'white' ? 'black' : 'white'
-    console.log('I abandoned the game, calling endGame()')
-    endGame()
-  }
+  const myColor = myPlayer.value.color
+  const loserColor = loser === 'me' ? myColor : (myColor === 'white' ? 'black' : 'white')
+  currentGame.value.result = loserColor === 'white' ? 'black' : 'white'
+  endGame()
   
   // Send abandon message to opponent (skip for AI games)
   if (opponentId.value && !isAIGame.value) {
@@ -2369,7 +2219,8 @@ const abandonGame = async (reason: 'initial_move_timeout' | 'peer_disconnect') =
       const message: ChessMessage = {
         type: 'abandon',
         gameId: currentGame.value.id,
-        reason: reason
+        reason: reason,
+        loser: loserColor
       }
       await sendMessage(opponentId.value, JSON.stringify(message))
     } catch (err) {
@@ -2400,7 +2251,7 @@ const handleOpponentDisconnect = (disconnectedPeerId: string) => {
     peerDisconnectTimer = setTimeout(() => {
       if (isGameActive.value && opponentId.value === disconnectedPeerId) {
         console.log('Opponent still disconnected after timeout - abandoning game')
-        abandonGame('peer_disconnect')
+        abandonGame('peer_disconnect', 'opponent')
       }
     }, disconnectThreshold)
   }
@@ -2686,11 +2537,6 @@ const initializeAndConnect = async () => {
     // Start broadcasting presence regardless of signaling server status
     startPresenceBroadcast()
     
-    // Initialize matchmaking with our peer ID
-    if (mesh.value?.peerId) {
-      console.log('Initializing matchmaking with peer ID:', mesh.value.peerId)
-      initializeMatchmaking(mesh.value.peerId)
-    }
   } catch (err) {
     console.error('Failed to initialize PeerPigeon:', err)
     // Only retry on initialization failure, not signaling failure
@@ -2730,39 +2576,6 @@ const formatPeerId = (peerId: string): string => {
   return peerId
 }
 
-const acceptChallenge = () => {
-  if (!incomingChallenge.value) return
-  
-  // Set opponent's color as the opposite of what they chose
-  const myColor = incomingChallenge.value.opponentColor === 'white' ? 'black' : 'white'
-  
-  myPlayer.value = {
-    id: myPeerId.value,
-    color: myColor
-  }
-  
-  opponentId.value = incomingChallenge.value.from
-  
-  chess.value = new Chess()
-  
-  currentGame.value = {
-    id: incomingChallenge.value.gameId,
-    playerWhite: myColor === 'white' ? myPeerId.value : incomingChallenge.value.from,
-    playerBlack: myColor === 'black' ? myPeerId.value : incomingChallenge.value.from,
-    currentTurn: 'white',
-    status: 'active',
-    moves: [],
-    fen: chess.value.fen(),
-    createdAt: Date.now()
-  }
-  
-  incomingChallenge.value = null
-}
-
-const declineChallenge = () => {
-  incomingChallenge.value = null
-}
-
 const handleMove = async (from: string, to: string, promotion?: 'q' | 'r' | 'b' | 'n') => {
   // Special handling for puzzle mode
   if (isPuzzleMode.value && currentPuzzle.value) {
@@ -2798,6 +2611,7 @@ const handleMove = async (from: string, to: string, promotion?: 'q' | 'r' | 'b' 
     // Mark that the game has started (first move made)
     if (!hasGameStarted.value) {
       hasGameStarted.value = true
+      seek.settled()
       // Clear the initial move timer since a move was made
       if (initialMoveTimer) {
         clearTimeout(initialMoveTimer)
@@ -3362,9 +3176,6 @@ const getResultText = (): string => {
   
   if (currentGame.value.result === 'draw') return 'Drawn'
   
-  // Check if game was abandoned
-  if (abandonmentReason.value) return 'Game abandoned'
-  
   const iWon = currentGame.value.result === myPlayer.value?.color
   return iWon ? 'You won' : 'You lost'
 }
@@ -3414,135 +3225,12 @@ const handleMessage = async (event: any) => {
       return // Don't process further
     }
     
-    // Handle matchmaking messages
-    if (message.type === 'matchmaking') {
-      const senderPeerId = message.peerId || fromPeer
-      
-      console.log('Matchmaking message received:', {
-        senderPeerId,
-        myPeerId: myPeerId.value,
-        isSearching: isSearching.value,
-        message
-      })
-      
-      if (!senderPeerId || senderPeerId === myPeerId.value) {
-        console.log('Ignoring own message or message without peer ID')
-        return // Ignore our own messages or messages without peer ID
-      }
-      
-      if (message.searching) {
-        peerSearchStatus.value.set(senderPeerId, message.timeControl)
-        console.log('Peer is searching:', senderPeerId, 'for', message.timeControl)
-        
-        // If we're also searching and they're crypto ready, add them to our matchmaking queue
-        if (inQueue.value && cryptoReadyPeers.has(senderPeerId)) {
-          console.log('Both searching - adding peer to matchmaking queue:', senderPeerId)
-          addPeerToQueue(senderPeerId, { joinedAt: Date.now() })
-        }
-      } else {
-        console.log('Peer stopped searching:', senderPeerId)
-        peerSearchStatus.value.delete(senderPeerId)
-      }
-      return
-    }
-    
+    // Seeking and match offers
+    if (seek.handle(message, fromPeer)) return
+
     const chessMessage: ChessMessage = message
     
     switch (chessMessage.type) {
-      case 'gameStart':
-        console.log('Received gameStart message:', chessMessage)
-        
-        // Reject challenge if already in a game
-        if (currentGame.value && currentGame.value.status === 'active') {
-          console.log('Rejecting - already in active game')
-          // Send rejection message
-          const rejectMessage: ChessMessage = {
-            type: 'challengeRejected',
-            gameId: chessMessage.gameId || 'unknown'
-          }
-          await sendMessage(fromPeer, JSON.stringify(rejectMessage))
-          break
-        }
-        
-        // Check if this is from matchmaking (has whitePlayer and blackPlayer)
-        if (chessMessage.data?.whitePlayer && chessMessage.data?.blackPlayer) {
-          console.log('Accepting matched game from', fromPeer, 'whitePlayer:', chessMessage.data.whitePlayer, 'blackPlayer:', chessMessage.data.blackPlayer)
-          
-          // Stop searching
-          isSearching.value = false
-          
-          // Set up time control
-          const incomingTimeControl = chessMessage.data?.timeControl
-          if (incomingTimeControl) {
-            currentGameTimeControl.value = {
-              minutes: incomingTimeControl.minutes,
-              increment: incomingTimeControl.increment
-            }
-          }
-          resetTimers()
-          
-          // Determine which player is me and which is opponent
-          const amIWhite = chessMessage.data.whitePlayer === myPeerId.value
-          const opponent = amIWhite ? chessMessage.data.blackPlayer : chessMessage.data.whitePlayer
-          const myColor = amIWhite ? 'white' : 'black'
-          
-          // Start the game with the assigned colors
-          isAIGame.value = false // Ensure AI mode is disabled for peer games
-          startNewGame(myPeerId.value, opponent, myColor)
-          opponentId.value = opponent
-          hasGameStarted.value = false // Reset for new game
-          startTimer()
-          startTimerSyncBroadcast()
-          startInitialMoveTimer() // Start abandonment timer
-          broadcastSearchStatus() // Stop broadcasting search
-          break
-        }
-        
-        // Legacy challenge system - check if time control matches
-        const incomingTimeControl = chessMessage.data?.timeControl
-        const myTimeControl = timeControls.find(tc => tc.id === selectedTimeControl.value)
-        
-        if (incomingTimeControl && myTimeControl && incomingTimeControl.id === myTimeControl.id) {
-          // Auto-accept if time controls match
-          console.log('Auto-accepting challenge with matching time control:', incomingTimeControl.id)
-          
-          // Set up time control
-          currentGameTimeControl.value = {
-            minutes: incomingTimeControl.minutes,
-            increment: incomingTimeControl.increment
-          }
-          resetTimers()
-          
-          const myColor = chessMessage.data?.opponentColor || 'black'
-          isAIGame.value = false // Ensure AI mode is disabled for peer games
-          startNewGame(
-            myColor === 'white' ? myPeerId.value : fromPeer,
-            myColor === 'white' ? fromPeer : myPeerId.value
-          )
-          
-          hasGameStarted.value = false // Reset for new game
-          // Start timer
-          startTimer()
-          startTimerSyncBroadcast()
-          startInitialMoveTimer() // Start abandonment timer
-          
-          // No need to send response - both sides start the game
-        } else {
-          // Show challenge modal for non-matching time controls
-          incomingChallenge.value = {
-            from: fromPeer,
-            gameId: chessMessage.gameId || 'unknown',
-            opponentColor: chessMessage.data?.myColor || 'white'
-          }
-        }
-        break
-      
-      case 'challengeRejected':
-        // Challenge was rejected
-        showChallengeRejectedModal.value = true
-        resetGame()
-        break
-        
       case 'move':
         if (chessMessage.data) {
           // Track the last move for highlighting
@@ -3551,6 +3239,7 @@ const handleMessage = async (event: any) => {
           // Mark that the game has started (first move received)
           if (!hasGameStarted.value) {
             hasGameStarted.value = true
+            seek.settled()
             // Clear the initial move timer since a move was received
             if (initialMoveTimer) {
               clearTimeout(initialMoveTimer)
@@ -3620,20 +3309,20 @@ const handleMessage = async (event: any) => {
       
       case 'abandon':
         // Opponent abandoned the game
-        if (currentGame.value && myPlayer.value) {
-          console.log('Opponent abandoned game, reason:', chessMessage.reason)
+        if (currentGame.value && myPlayer.value && currentGame.value.status === 'active') {
+          console.log('Game abandoned, reason:', chessMessage.reason, 'loser:', chessMessage.loser)
           clearAbandonmentTimers()
           if (timerInterval) clearInterval(timerInterval)
           
-          // We win by opponent abandonment
-          currentGame.value.result = myPlayer.value.color
+          // The sender says who abandoned; older clients only sent it when they gave up themselves.
+          const myColor = myPlayer.value.color
+          const loserColor = chessMessage.loser || (myColor === 'white' ? 'black' : 'white')
+          currentGame.value.result = loserColor === 'white' ? 'black' : 'white'
           
-          // Set the reason for display
           abandonmentReason.value = chessMessage.reason || null
           showAbandonmentModal.value = true
-          iAbandoned.value = false // Opponent abandoned, not me
+          iAbandoned.value = loserColor === myColor
           
-          console.log('Opponent abandoned, calling endGame()')
           endGame()
         }
         break
@@ -3664,26 +3353,6 @@ onMounted(async () => {
     allKnownPeers.value.add(peerId)
     peerLastSeen.value.set(peerId, Date.now())
     
-    // DON'T add them to matchmaking yet - wait for them to send a matchmaking message
-    // Only broadcast our status if we're searching
-    
-    // If we're currently searching, broadcast our search status to the new peer
-    if (isSearching.value) {
-      const message = {
-        type: 'matchmaking',
-        peerId: mesh.value.peerId,
-        searching: true,
-        timeControl: selectedTimeControl.value
-      }
-      try {
-        // Give a tiny delay for the connection to stabilize
-        await new Promise(resolve => setTimeout(resolve, 100))
-        await sendMessage(peerId, JSON.stringify(message))
-        console.log('Sent search status to new peer:', peerId)
-      } catch (err) {
-        console.error('Failed to send search status to new peer:', err)
-      }
-    }
   })
   
   // Set up mesh event listeners
@@ -3697,7 +3366,6 @@ onMounted(async () => {
       console.log('Peer disconnected:', e.peerId)
       // Remove peer from crypto ready set and matchmaking queue
       cryptoReadyPeers.delete(e.peerId)
-      removePeerFromQueue(e.peerId)
       handleOpponentDisconnect(e.peerId)
     })
     
@@ -3768,7 +3436,7 @@ onUnmounted(() => {
   clearAbandonmentTimers()
   stopTimerSyncBroadcast()
   stopPresenceBroadcast()
-  cleanupMatchmaking()
+  seek.dispose()
 })
 </script>
 
