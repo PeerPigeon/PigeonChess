@@ -1,11 +1,6 @@
 import { ref } from 'vue'
 
-// Use UnSEA crypto functions from the global window object (loaded via browser bundle)
-declare global {
-  interface Window {
-    __PEERPIGEON_UNSEA__: any
-  }
-}
+import * as unsea from 'unsea'
 
 export function useIdentity() {
   const currentIdentity = ref<any>(null)
@@ -19,11 +14,6 @@ export function useIdentity() {
 
   const initializeIdP = async () => {
     try {
-      // Check if UnSEA is available from the browser bundle
-      if (!window.__PEERPIGEON_UNSEA__) {
-        throw new Error('UnSEA crypto not available')
-      }
-      
       console.log('Identity system initialized with UnSEA')
       
       // Try to restore session from sessionStorage
@@ -88,12 +78,11 @@ export function useIdentity() {
   }
 
   const createIdentity = async (alias: string, password: string, dhtPut?: (key: string, value: any) => Promise<void>) => {
-    if (!window.__PEERPIGEON_UNSEA__) throw new Error('UnSEA not available')
     if (!dhtPut) throw new Error('DHT required for identity storage')
     
     try {
       // Generate new cryptographic keypair using UnSEA
-      const keys = await window.__PEERPIGEON_UNSEA__.generateRandomPair()
+      const keys = await unsea.generateRandomPair()
       currentIdentity.value = keys
       username.value = alias
       publicKeys.value = { pub: keys.pub, epub: keys.epub }
@@ -149,7 +138,7 @@ export function useIdentity() {
       }
       
       // Also save locally for faster access
-      await window.__PEERPIGEON_UNSEA__.saveKeys(alias, keys, password)
+      await unsea.saveKeys(alias, keys, password)
       
       // Save username to localStorage
       localStorage.setItem('chess-username', alias)
@@ -179,14 +168,13 @@ export function useIdentity() {
   }
 
   const loadIdentity = async (alias: string, password: string, dhtGet?: (key: string) => Promise<any>, dhtPut?: (key: string, value: any) => Promise<void>) => {
-    if (!window.__PEERPIGEON_UNSEA__) throw new Error('UnSEA not available')
     
     try {
       // Try to load from local IndexedDB first
       let keys
       let loadedFromLocal = false
       try {
-        keys = await window.__PEERPIGEON_UNSEA__.loadKeys(alias, password)
+        keys = await unsea.loadKeys(alias, password)
         console.log('loadKeys returned:', keys ? 'keys object' : 'null/undefined')
         
         // If loadKeys returned null/undefined, treat it as not found
@@ -265,7 +253,7 @@ export function useIdentity() {
         keys = JSON.parse(decoder.decode(decryptedData))
         
         // Save to local storage for future use
-        await window.__PEERPIGEON_UNSEA__.saveKeys(alias, keys, password)
+        await unsea.saveKeys(alias, keys, password)
         console.log('Identity loaded from DHT and cached locally:', alias)
       }
       

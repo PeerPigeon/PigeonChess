@@ -1,3 +1,4 @@
+import { DEFAULT_SIGNALING_URLS, migrateSignalingUrls } from './usePeerPigeon'
 import { ref, watch } from 'vue'
 import type { Settings, BoardTheme, PieceTheme } from '@/types'
 import { loadFromLocalStorage, saveToLocalStorage } from '@/utils/helpers'
@@ -164,7 +165,7 @@ const getMoveDotColor = (hexColor: string): string => {
 
 const DEFAULT_SETTINGS: Settings = {
   settingsVersion: 2,
-  signalingUrls: ['wss://pigeonhub.fly.dev'],
+  signalingUrls: [...DEFAULT_SIGNALING_URLS],
   mutedSignalingUrls: [],
   networkName: 'global',
   boardTheme: 'blue',
@@ -188,9 +189,7 @@ export function useSettings() {
     ...DEFAULT_SETTINGS,
     ...loaded,
     settingsVersion: DEFAULT_SETTINGS.settingsVersion,
-    signalingUrls: Array.isArray(loaded.signalingUrls) && loaded.signalingUrls.length > 0
-      ? loaded.signalingUrls
-      : DEFAULT_SETTINGS.signalingUrls,
+    signalingUrls: migrateSignalingUrls(Array.isArray(loaded.signalingUrls) ? loaded.signalingUrls : undefined),
     mutedSignalingUrls: Array.isArray(loaded.mutedSignalingUrls)
       ? loaded.mutedSignalingUrls
       : [],

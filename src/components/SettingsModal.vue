@@ -4,7 +4,7 @@
       <h2>Settings</h2>
       
       <div class="settings-section">
-        <h3>Signaling Servers (PigeonHub URIs)</h3>
+        <h3>Signaling relays</h3>
         <p class="description">Configure the WebSocket URLs for peer discovery and signaling.</p>
         
         <div class="url-list">
@@ -12,7 +12,7 @@
             <input 
               type="text" 
               v-model="settings.signalingUrls[index]"
-              placeholder="wss://example.com"
+              placeholder="wss://peer.ooo/ws"
               :disabled="isUrlMuted(url)"
             />
             <button
@@ -362,7 +362,7 @@ const toggleSound = (event: Event) => {
 }
 
 const usePigeonhobbsTo = () => {
-  props.settings.signalingUrls = ['wss://pigeonhobbs.to']
+  props.settings.signalingUrls = ['wss://peer.ooo/ws']
   props.settings.mutedSignalingUrls = []
 }
 

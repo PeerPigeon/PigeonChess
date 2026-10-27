@@ -1242,8 +1242,7 @@ const {
   networkName: settings.value.networkName || 'global',
   maxPeers: 10,
   minPeers: 1,
-  enableCrypto: true,
-  enableWebDHT: true
+  enableCrypto: true
 })
 
 // Get the actual peer ID from the mesh after initialization
@@ -3339,39 +3338,13 @@ const initializeAndConnect = async () => {
   
   isConnecting.value = true
   try {
-    console.log('Auto-initializing PeerPigeon with WebDHT...')
     await init()
-    console.log('PeerPigeon initialized - WebDHT enabled for serverless peer discovery')
     
-    // Try to connect to signaling servers to bootstrap faster, but don't require it
-    let connectedCount = 0
+    // Start on the configured relays; freertc picks the room's relays from there.
     const mutedUrls = new Set(settings.value.mutedSignalingUrls || [])
     const activeSignalingUrls = settings.value.signalingUrls.filter(url => !mutedUrls.has(url))
+    await connect(activeSignalingUrls)
 
-    if (activeSignalingUrls.length === 0) {
-      console.log('All signaling servers are muted - relying on WebDHT for serverless peer discovery')
-    }
-
-    const connectionPromises = activeSignalingUrls.map(async (url) => {
-      try {
-        console.log('Attempting to connect to signaling server:', url)
-        await connect(url)
-        connectedCount++
-        console.log('Connected to signaling server:', url)
-      } catch (err) {
-        console.warn('Failed to connect to signaling server', url, '- WebDHT will handle peer discovery', err)
-      }
-    })
-    
-    // Wait for all connection attempts to complete
-    await Promise.allSettled(connectionPromises)
-    
-    if (connectedCount === 0) {
-      console.log('No signaling servers connected - relying on WebDHT for serverless peer discovery')
-    } else {
-      console.log(`Connected to ${connectedCount} signaling server(s) for faster bootstrapping`)
-    }
-    
     // Reset retry count - we're operational even without signaling servers
     retryAttempts.value = 0
     
