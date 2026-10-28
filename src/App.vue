@@ -4068,8 +4068,8 @@ onUnmounted(() => {
 }
 
 .ply.current {
-  background: var(--violet);
-  color: #fff;
+  background: var(--mark);
+  color: #1c2126;
 }
 
 /* ---------- actions and buttons ---------- */
@@ -4113,8 +4113,8 @@ a.btn {
 }
 
 .btn.on {
-  border-color: var(--violet);
-  color: var(--violet);
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
 }
 
 .btn-go {

@@ -9,7 +9,7 @@ const BOARD_THEMES: BoardTheme[] = [
     name: 'Pigeon slate',
     light: '#d6dce0',
     dark: '#6e7f8d',
-    highlight: 'rgba(122, 92, 153, 0.28)',
+    highlight: 'rgba(214, 178, 52, 0.4)',
     selected: 'rgba(46, 125, 111, 0.45)',
     moveDot: 'rgba(28, 33, 38, 0.22)'
   },

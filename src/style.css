@@ -2,7 +2,7 @@
   PigeonChess, "Pigeon slate".
   Feather greys for the room, slate and pale wing for the board, and the green
   sheen of a pigeon's neck used only for what is live: your move, your clock
-  running, the one button that starts something. Violet marks the last move.
+  running, the one button that starts something. A warm yellow marks the last move.
 */
 :root {
   --paper: #e9ecee;      /* the room */
@@ -16,7 +16,7 @@
   --sheen: #2e7d6f;      /* live: your move, go */
   --sheen-deep: #24665a;
   --sheen-wash: #d3e6e1;
-  --violet: #7a5c99;     /* last move */
+  --mark: #d6b234;       /* last move: a tournament-board yellow */
   --stop: #a8473d;       /* resign, errors */
   --stop-wash: #f1dcd8;
 
@@ -27,7 +27,7 @@
   /* Board variables read by ChessBoard and the theme picker */
   --board-light: var(--wing);
   --board-dark: var(--slate);
-  --board-highlight: rgba(122, 92, 153, 0.28);
+  --board-highlight: rgba(214, 178, 52, 0.4);
   --board-selected: rgba(46, 125, 111, 0.45);
   --board-move-dot: rgba(28, 33, 38, 0.22);
 

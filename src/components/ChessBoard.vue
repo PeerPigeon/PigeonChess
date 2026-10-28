@@ -1258,7 +1258,7 @@ const handleMouseDown = (event: MouseEvent) => {
   content: '';
   position: absolute;
   inset: 0;
-  background-color: rgba(122, 92, 153, 0.32);
+  background-color: rgba(247, 233, 110, 0.72);
   pointer-events: none;
   z-index: 1;
 }
@@ -1267,7 +1267,7 @@ const handleMouseDown = (event: MouseEvent) => {
   content: '';
   position: absolute;
   inset: 0;
-  background-color: rgba(122, 92, 153, 0.42);
+  background-color: rgba(232, 208, 72, 0.7);
   pointer-events: none;
   z-index: 1;
 }
