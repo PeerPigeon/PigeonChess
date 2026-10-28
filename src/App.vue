@@ -10,7 +10,7 @@
         <span class="net-dot" aria-hidden="true"></span>
         <span>{{ statusText }}</span>
         <span v-if="isConnected" class="net-peers">
-          {{ otherPeersCount > 0 ? `${otherPeersCount} ${otherPeersCount === 1 ? 'player' : 'players'} online` : 'Looking for players' }}
+          {{ otherPeersCount }} {{ otherPeersCount === 1 ? 'player' : 'players' }} online
         </span>
       </p>
 
