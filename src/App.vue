@@ -178,6 +178,40 @@
         </div>
       </section>
 
+      <!-- Pigeon preview: unlisted, at /pigeon. The board as in a game, knights drawn as pigeons. -->
+      <section v-else-if="pigeonPreview" class="table">
+        <div class="board-area">
+          <ChessBoard
+            :chess="previewChess"
+            :flipped="previewFlipped"
+            :interactive="true"
+            :last-move="previewLastMove"
+            :analysis-arrows="[]"
+            :piece-colors="pieceColors"
+            :piece-art="{ n: 'g' }"
+            @move="previewMove"
+          />
+        </div>
+        <div class="side-head">
+          <h2 class="side-title">Pigeon preview</h2>
+          <p class="side-meta">The pigeon stands where the knights start and moves like a knight for now. Move either side.</p>
+        </div>
+        <div class="moves">
+          <ol class="move-list">
+            <li v-if="!previewMoves.length" class="empty">No moves yet.</li>
+            <li v-for="(pair, row) in pairMoves(previewMoves)" :key="row">
+              <span class="move-no">{{ row + 1 }}</span>
+              <span v-for="(san, k) in pair" :key="k" class="ply">{{ san }}</span>
+            </li>
+          </ol>
+        </div>
+        <div class="actions">
+          <button class="btn" @click="resetPreview">Start again</button>
+          <button class="btn" @click="previewFlipped = !previewFlipped">Flip board</button>
+          <a class="btn" href="/">Back to PigeonChess</a>
+        </div>
+      </section>
+
       <!-- Lobby -->
       <section v-else-if="!isGameActive && !currentGame" class="table lobby">
         <div class="board-area">
@@ -2375,6 +2409,26 @@ const statusText = computed(() => {
   return 'Connected'
 })
 
+// Unlisted pigeon preview at /pigeon
+const pigeonPreview = typeof window !== 'undefined' && window.location.pathname.replace(/\/+$/, '') === '/pigeon'
+const previewChess = ref(new Chess())
+const previewMoves = ref<string[]>([])
+const previewLastMove = ref<{ from: string; to: string } | null>(null)
+const previewFlipped = ref(false)
+const previewMove = (from: string, to: string, promotion?: 'q' | 'r' | 'b' | 'n') => {
+  try {
+    const result = previewChess.value.move({ from, to, promotion: promotion || 'q' })
+    if (!result) return
+    previewMoves.value = [...previewMoves.value, result.san]
+    previewLastMove.value = { from, to }
+  } catch {}
+}
+const resetPreview = () => {
+  previewChess.value = new Chess()
+  previewMoves.value = []
+  previewLastMove.value = null
+}
+
 // View helpers for the template
 const lobbyChess = new Chess()
 const pieceColors = computed(() => ({
@@ -4086,6 +4140,13 @@ onUnmounted(() => {
   background: var(--surface);
   font-weight: 600;
   font-size: 0.9rem;
+}
+
+a.btn {
+  color: var(--ink);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
 }
 
 .btn:hover:not(:disabled) {

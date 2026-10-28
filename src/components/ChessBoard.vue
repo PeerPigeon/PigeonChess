@@ -250,6 +250,8 @@ interface Props {
   blackArrowColor?: string
   emptyArrowColor?: string
   neutralArrowColor?: string
+  /** Draw a piece type with another piece's art, e.g. { n: 'g' } shows knights as pigeons. */
+  pieceArt?: Record<string, string>
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -455,7 +457,8 @@ const getPieceImageWithColors = async (row: number, col: number): Promise<string
   
   // Always use white piece SVGs as template and recolor them
   const pieceKey = `${piece.color}${piece.type}`
-  const cacheKey = `${pieceKey}-${fillColor}-${strokeColor}`
+  const art = props.pieceArt?.[piece.type] || piece.type
+  const cacheKey = `${pieceKey}-${art}-${fillColor}-${strokeColor}`
   
   // Return cached version if available
   if (coloredSvgCache.value.has(cacheKey)) {
@@ -463,7 +466,7 @@ const getPieceImageWithColors = async (row: number, col: number): Promise<string
   }
   
   // Always fetch white piece as template
-  const templatePath = `/pieces/w${piece.type}.svg`
+  const templatePath = `/pieces/w${art}.svg`
   
   try {
     const response = await fetch(templatePath)
