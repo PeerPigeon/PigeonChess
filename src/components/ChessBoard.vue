@@ -179,6 +179,7 @@
             @touchmove.prevent="handleTouchMove($event)"
             @touchend="handleTouchEnd($event)"
           />
+          <span v-if="isPooped(rowIndex, colIndex)" class="poop" aria-label="pooped on"></span>
           <div v-if="showCoordinates && colIndex === (flipped ? 7 : 0)" class="rank-label">
             {{ 8 - rowIndex }}
           </div>
@@ -457,7 +458,8 @@ const getPieceImageWithColors = async (row: number, col: number): Promise<string
   
   // Always use white piece SVGs as template and recolor them
   const pieceKey = `${piece.color}${piece.type}`
-  const art = props.pieceArt?.[piece.type] || piece.type
+  // In the pigeon variant the knight is a pigeon (public/pieces/wg.svg).
+  const art = props.pieceArt?.[piece.type] || (props.chess?.variant === 'pigeon' && piece.type === 'n' ? 'g' : piece.type)
   const cacheKey = `${pieceKey}-${art}-${fillColor}-${strokeColor}`
   
   // Return cached version if available
@@ -543,6 +545,14 @@ const isLastMoveSquare = (row: number, col: number): boolean => {
   const squareName = getSquareName(row, col)
   return squareName === props.lastMove.from || squareName === props.lastMove.to
 }
+
+/** Pigeon variant: a piece pooped on, which the other side may take from any adjacent square this move. */
+const pooped = computed<Set<string>>(() => {
+  void props.chess.fen()
+  const list = typeof props.chess?.allPoop === 'function' ? props.chess.allPoop() : []
+  return new Set(list.map((p: { square: string }) => p.square))
+})
+const isPooped = (row: number, col: number): boolean => pooped.value.has(getSquareName(row, col))
 
 const isHintSquare = (row: number, col: number): boolean => {
   if (!props.hintSquare) return false
@@ -1157,6 +1167,7 @@ const handleMouseDown = (event: MouseEvent) => {
 }
 
 .chess-board-container.flipped .piece,
+.chess-board-container.flipped .poop,
 .chess-board-container.flipped .rank-label,
 .chess-board-container.flipped .file-label {
   transform: rotate(180deg);
@@ -1255,6 +1266,21 @@ const handleMouseDown = (event: MouseEvent) => {
   background-color: rgba(122, 92, 153, 0.42);
   pointer-events: none;
   z-index: 1;
+}
+
+.poop {
+  position: absolute;
+  top: 7%;
+  right: 9%;
+  width: 22%;
+  height: 22%;
+  z-index: 11;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 60%, #f6f7f8 0 46%, transparent 48%),
+    radial-gradient(circle at 22% 28%, #f6f7f8 0 18%, transparent 20%),
+    radial-gradient(circle at 80% 30%, #f6f7f8 0 14%, transparent 16%);
+  filter: drop-shadow(0 0 1px rgba(28, 33, 38, 0.9));
 }
 
 .square.hint-square::after {

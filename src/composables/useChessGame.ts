@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { Chess } from 'chess.js'
+import { createChess } from '@/utils/variant'
 import type { GameState, Player, Move, GameHistoryEntry } from '@/types'
 import { generateGameId, saveToLocalStorage, loadFromLocalStorage } from '@/utils/helpers'
 import { getOpeningName } from '@/utils/openings'
@@ -12,7 +12,7 @@ export interface ChessGameOptions {
 }
 
 export function useChessGame(options: ChessGameOptions = {}) {
-  const chess = ref<Chess>(new Chess())
+  const chess = ref<any>(createChess())
   const currentGame = ref<GameState | null>(null)
   const myPlayer = ref<Player | null>(null)
   const opponentId = ref<string | null>(null)
@@ -96,7 +96,7 @@ export function useChessGame(options: ChessGameOptions = {}) {
     opponentId.value = opponentPeerId
     
     const gameId = generateGameId()
-    chess.value = new Chess()
+    chess.value = createChess()
     
     currentGame.value = {
       id: gameId,
@@ -277,7 +277,7 @@ export function useChessGame(options: ChessGameOptions = {}) {
   }
 
   const resetGame = () => {
-    chess.value = new Chess()
+    chess.value = createChess()
     currentGame.value = null
     myPlayer.value = null
     opponentId.value = null

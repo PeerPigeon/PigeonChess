@@ -178,40 +178,6 @@
         </div>
       </section>
 
-      <!-- Pigeon preview: unlisted, at /pigeon. The board as in a game, knights drawn as pigeons. -->
-      <section v-else-if="pigeonPreview" class="table">
-        <div class="board-area">
-          <ChessBoard
-            :chess="previewChess"
-            :flipped="previewFlipped"
-            :interactive="true"
-            :last-move="previewLastMove"
-            :analysis-arrows="[]"
-            :piece-colors="pieceColors"
-            :piece-art="{ n: 'g' }"
-            @move="previewMove"
-          />
-        </div>
-        <div class="side-head">
-          <h2 class="side-title">Pigeon preview</h2>
-          <p class="side-meta">The pigeon stands where the knights start and moves like a knight for now. Move either side.</p>
-        </div>
-        <div class="moves">
-          <ol class="move-list">
-            <li v-if="!previewMoves.length" class="empty">No moves yet.</li>
-            <li v-for="(pair, row) in pairMoves(previewMoves)" :key="row">
-              <span class="move-no">{{ row + 1 }}</span>
-              <span v-for="(san, k) in pair" :key="k" class="ply">{{ san }}</span>
-            </li>
-          </ol>
-        </div>
-        <div class="actions">
-          <button class="btn" @click="resetPreview">Start again</button>
-          <button class="btn" @click="previewFlipped = !previewFlipped">Flip board</button>
-          <a class="btn" href="/">Back to PigeonChess</a>
-        </div>
-      </section>
-
       <!-- Lobby -->
       <section v-else-if="!isGameActive && !currentGame" class="table lobby">
         <div class="board-area">
@@ -286,7 +252,7 @@
         <div class="board-area">
           <ChessBoard
             :chess="chess"
-            :flipped="myPlayer?.color === 'black'"
+            :flipped="(myPlayer?.color === 'black') !== boardFlipped"
             :interactive="isMyTurn && isGameActive && viewingMoveIndex === null"
             :last-move="lastMove"
             :analysis-arrows="analysisArrows"
@@ -360,7 +326,8 @@
         <div v-if="currentGame?.status !== 'finished'" class="actions">
           <button class="btn" @click="offerDraw">Offer a draw</button>
           <button class="btn" @click="offerTakeback">Ask to take back</button>
-          <button v-if="isAIGame" class="btn" :aria-pressed="showBestMoves" :class="{ on: showBestMoves }" @click="showBestMoves = !showBestMoves">
+          <button class="btn" :aria-pressed="boardFlipped" @click="boardFlipped = !boardFlipped">Flip board</button>
+          <button v-if="isAIGame && !isPigeonVariant" class="btn" :aria-pressed="showBestMoves" :class="{ on: showBestMoves }" @click="showBestMoves = !showBestMoves">
             {{ showBestMoves ? 'Hide best moves' : 'Show best moves' }}
           </button>
           <button class="btn btn-stop" @click="handleResign">Resign</button>
@@ -510,6 +477,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Chess } from 'chess.js'
+import { createChess, isPigeonVariant } from './utils/variant'
+import { pickPigeonMove } from './utils/pigeonChess'
 import { usePeerPigeon } from './composables/usePeerPigeon'
 import { useSeek } from './composables/useSeek'
 import ChessBoard from './components/ChessBoard.vue'
@@ -572,7 +541,7 @@ const {
   dhtGet
 } = usePeerPigeon({
   // Don't provide a custom peerId - let PeerPigeon generate its own
-  networkName: settings.value.networkName || 'global',
+  networkName: (settings.value.networkName || 'global') + (isPigeonVariant ? ':pigeon' : ''),
   maxPeers: 10,
   minPeers: 1,
   enableCrypto: true
@@ -639,7 +608,7 @@ const stopSearching = () => {
 }
 
 /** Both sides of a match land here: set the clock, colours and opponent, and start. */
-const startMatchedGameReset = () => { endReason.value = null }
+const startMatchedGameReset = () => { endReason.value = null; boardFlipped.value = false }
 const startMatchedGame = (match: { gameId: string; opponent: string; myColor: 'white' | 'black'; timeControl: { minutes: number; increment: number } }) => {
   startMatchedGameReset()
   console.log('Matched with', match.opponent, 'as', match.myColor, 'game', match.gameId)
@@ -713,6 +682,7 @@ const aiLevels = [
 
 const startAIGame = () => {
   endReason.value = null
+  boardFlipped.value = false
   if (isGameActive.value) return
   
   // Clear last move highlight
@@ -884,7 +854,7 @@ const selectEasyMove = (moves: any[], currentFen: string) => {
   // Prefer captures and checks, otherwise random
   const captureMoves = moves.filter(m => m.captured)
   const checkMoves = moves.filter(m => {
-    const testChess = new Chess(currentFen)
+    const testChess = createChess(currentFen)
     testChess.move(m)
     return testChess.inCheck()
   })
@@ -902,7 +872,7 @@ const selectMediumMove = (moves: any[], currentFen: string) => {
   // Score moves based on captures, checks, and center control
   const scoredMoves = moves.map(move => {
     let score = 0
-    const testChess = new Chess(currentFen)
+    const testChess = createChess(currentFen)
     testChess.move(move)
     
     // Prioritize captures by piece value
@@ -940,7 +910,7 @@ const selectHardMove = (moves: any[], currentFen: string) => {
   // Advanced evaluation with deeper lookahead - simplified to avoid reactivity
   const scoredMoves = moves.map(move => {
     // Create isolated chess instance
-    const testChess = new Chess(currentFen)
+    const testChess = createChess(currentFen)
     testChess.move(move)
     
     let score = 0
@@ -1128,8 +1098,8 @@ const makeAIMove = () => {
     return
   }
   
-  // Try to use Stockfish if available
-  if (stockfish && stockfishReady) {
+  // Try to use Stockfish if available (it only knows standard chess)
+  if (stockfish && stockfishReady && !isPigeonVariant) {
     
     // Increment analysis ID FIRST to invalidate any pending responses (including messages in queue)
     currentAnalysisId++
@@ -1207,7 +1177,7 @@ const makeAIMove = () => {
           let legalMoves: any[]
           
           try {
-            testChess = new Chess(currentFen)
+            testChess = createChess(currentFen)
             legalMoves = testChess.moves({ verbose: true })
           } catch (err) {
             console.error('CRITICAL: Failed to create Chess instance with FEN:', currentFen, 'Error:', err)
@@ -1325,7 +1295,9 @@ const makeAIMove = () => {
   // Select move based on difficulty
   let selectedMove
   
-  switch (aiDifficulty.value) {
+  if (isPigeonVariant) {
+    selectedMove = pickPigeonMove(createChess(currentFen), [1, 2, 2, 3][aiDifficulty.value] ?? 2) || moves[0]
+  } else switch (aiDifficulty.value) {
     case 0: // Easy
       selectedMove = selectEasyMove(moves, currentFen)
       break
@@ -1647,7 +1619,7 @@ const goToMove = (moveIndex: number) => {
   
   // Normal viewing mode for replay/regular games
   // Create a new chess instance for viewing
-  viewingChess.value = new Chess()
+  viewingChess.value = createChess()
   
   // Play moves up to the selected index
   let lastMoveObj = null
@@ -1770,7 +1742,7 @@ const goToStart = () => {
     // Make board interactive by setting viewingMoveIndex to null
     viewingMoveIndex.value = null
   } else {
-    viewingChess.value = new Chess()
+    viewingChess.value = createChess()
     chess.value = viewingChess.value
     viewingMoveIndex.value = -1
     
@@ -1798,7 +1770,7 @@ const goToEnd = () => {
       viewingMoveIndex.value = null
       
       // Recreate the current game state
-      const tempChess = new Chess()
+      const tempChess = createChess()
       for (const move of moves) {
         tempChess.move(move)
       }
@@ -2409,28 +2381,8 @@ const statusText = computed(() => {
   return 'Connected'
 })
 
-// Unlisted pigeon preview at /pigeon
-const pigeonPreview = typeof window !== 'undefined' && window.location.pathname.replace(/\/+$/, '') === '/pigeon'
-const previewChess = ref(new Chess())
-const previewMoves = ref<string[]>([])
-const previewLastMove = ref<{ from: string; to: string } | null>(null)
-const previewFlipped = ref(false)
-const previewMove = (from: string, to: string, promotion?: 'q' | 'r' | 'b' | 'n') => {
-  try {
-    const result = previewChess.value.move({ from, to, promotion: promotion || 'q' })
-    if (!result) return
-    previewMoves.value = [...previewMoves.value, result.san]
-    previewLastMove.value = { from, to }
-  } catch {}
-}
-const resetPreview = () => {
-  previewChess.value = new Chess()
-  previewMoves.value = []
-  previewLastMove.value = null
-}
-
 // View helpers for the template
-const lobbyChess = new Chess()
+const lobbyChess = createChess()
 const pieceColors = computed(() => ({
   whiteFill: settings.value.customWhitePieceColor,
   blackFill: settings.value.customBlackPieceColor,
@@ -2444,6 +2396,9 @@ const pairMoves = (moves: string[]): string[][] => {
 }
 const capitalise = (word: string) => (word ? word[0].toUpperCase() + word.slice(1) : '')
 const hasClock = computed(() => Boolean(currentGameTimeControl.value && currentGameTimeControl.value.minutes > 0))
+/** The player turned the board around (Flip board). */
+const boardFlipped = ref(false)
+
 /** Why the game ended, when the board alone can't tell. */
 const endReason = ref<'resign' | 'time' | 'agreement' | 'peer_disconnect' | 'long_move' | null>(null)
 
@@ -3054,7 +3009,7 @@ const startReplayMode = (game: GameHistoryEntry) => {
   replayShowBestMoves.value = false
   
   // Reset the chess board to starting position
-  chess.value = new Chess()
+  chess.value = createChess()
   
   // Create a pseudo game state for display
   currentGame.value = {
