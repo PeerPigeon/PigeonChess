@@ -228,6 +228,26 @@
   </div>
 </template>
 
+<script lang="ts">
+// Shared by every board on the page: each piece SVG is fetched once per visit,
+// and each coloured version is built once, however many boards come and go.
+const pieceTemplates = new Map<string, Promise<string>>()
+const coloredPieces = new Map<string, string>()
+
+function pieceTemplate(path: string): Promise<string> {
+  let text = pieceTemplates.get(path)
+  if (!text) {
+    text = fetch(path).then((response) => {
+      if (!response.ok) throw new Error(`${path}: ${response.status}`)
+      return response.text()
+    })
+    text.catch(() => pieceTemplates.delete(path))
+    pieceTemplates.set(path, text)
+  }
+  return text
+}
+</script>
+
 <script setup lang="ts">
 import { ref, shallowRef, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useSounds } from '../composables/useSounds'
@@ -426,8 +446,7 @@ const getPieceSymbol = (row: number, col: number): string => {
   return PIECE_SYMBOLS[`${piece.color}${piece.type}`] || ''
 }
 
-// Cache for colored SVG data URLs
-const coloredSvgCache = ref(new Map<string, string>())
+// Coloured SVG data URLs live in coloredPieces (module level, above).
 
 // Watch for custom color changes and clear cache
 const customColorsKey = computed(() => {
@@ -435,10 +454,6 @@ const customColorsKey = computed(() => {
   return `${colors.whiteFill}|${colors.blackFill}|${colors.whiteStroke}|${colors.blackStroke}`
 })
 
-watch(customColorsKey, () => {
-  // Clear cache when colors change
-  coloredSvgCache.value.clear()
-})
 
 const getPieceImageWithColors = async (row: number, col: number): Promise<string> => {
   const piece = getPiece(row, col)
@@ -462,16 +477,15 @@ const getPieceImageWithColors = async (row: number, col: number): Promise<string
   const cacheKey = `${pieceKey}-${art}-${fillColor}-${strokeColor}`
   
   // Return cached version if available
-  if (coloredSvgCache.value.has(cacheKey)) {
-    return coloredSvgCache.value.get(cacheKey)!
+  if (coloredPieces.has(cacheKey)) {
+    return coloredPieces.get(cacheKey)!
   }
   
   // Always fetch white piece as template
   const templatePath = `/pieces/w${art}.svg`
   
   try {
-    const response = await fetch(templatePath)
-    const svgText = await response.text()
+    const svgText = await pieceTemplate(templatePath)
     
     // Replace fill and stroke colors in SVG (both attribute and style formats)
     let modifiedSvg = svgText
@@ -489,7 +503,7 @@ const getPieceImageWithColors = async (row: number, col: number): Promise<string
     
     // Convert to data URL
     const dataUrl = 'data:image/svg+xml;base64,' + btoa(modifiedSvg)
-    coloredSvgCache.value.set(cacheKey, dataUrl)
+    coloredPieces.set(cacheKey, dataUrl)
     return dataUrl
   } catch (err) {
     console.error('Failed to load SVG:', err)

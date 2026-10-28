@@ -1,0 +1,9 @@
+# Cloudflare static assets: let browsers keep piece art and sounds instead of
+# asking the server again on every load. Built files under /assets/ have
+# content hashes in their names, so they never change.
+/pieces/*
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400
+/sounds/*
+  Cache-Control: public, max-age=604800, stale-while-revalidate=86400
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
