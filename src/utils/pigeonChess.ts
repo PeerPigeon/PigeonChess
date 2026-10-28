@@ -16,6 +16,8 @@
  * can use either. The pigeon is stored and written as a knight ('n', 'N').
  */
 
+import { markRaw } from 'vue'
+
 export type Color = 'w' | 'b'
 export type PieceType = 'p' | 'n' | 'b' | 'r' | 'q' | 'k'
 export type Piece = { type: PieceType; color: Color }
@@ -324,19 +326,45 @@ function insufficient(s: State): boolean {
 
 export class PigeonChess {
   readonly variant = 'pigeon'
-  private state: State
-  private stack: { state: State; move: Move }[] = []
-  private seen = new Map<string, number>()
+  /**
+   * The game itself lives outside Vue's reactivity (markRaw): the app keeps this
+   * object in a ref, and proxying every square read made move generation slow
+   * enough that pieces drew late. `version` is the one reactive field; every
+   * read touches it and every change bumps it, so views still update.
+   */
+  private version = 0
+  private core: { state: State; stack: { state: State; move: Move }[]; seen: Map<string, number>; legal: { state: State; moves: Raw[] } | null }
 
   constructor(fen: string = START) {
-    this.state = parseFen(fen)
-    this.seen.set(positionKey(this.state), 1)
+    const state = parseFen(fen)
+    this.core = markRaw({ state, stack: [], seen: new Map([[positionKey(state), 1]]), legal: null })
+  }
+
+  private get state(): State {
+    void this.version
+    return this.core.state
+  }
+
+  private set state(next: State) {
+    this.core.state = next
+    this.version++
+  }
+
+  private get stack() { void this.version; return this.core.stack }
+  private get seen() { return this.core.seen }
+
+  /** Legal moves of the current position, worked out once per position. */
+  private legal(): Raw[] {
+    const s = this.state
+    if (this.core.legal?.state !== s) this.core.legal = { state: s, moves: legalRaw(s) }
+    return this.core.legal.moves
   }
 
   load(fen: string) {
-    this.state = parseFen(fen)
-    this.stack = []
-    this.seen = new Map([[positionKey(this.state), 1]])
+    const state = parseFen(fen)
+    this.core.stack = []
+    this.core.seen = new Map([[positionKey(state), 1]])
+    this.state = state
   }
 
   reset() { this.load(START) }
@@ -415,7 +443,7 @@ export class PigeonChess {
 
   moves(options: { square?: string; verbose?: boolean } = {}): any[] {
     const s = this.state
-    const legal = legalRaw(s)
+    const legal = this.legal()
     const list = options.square ? legal.filter((m) => m.from === sqIndex(options.square!)) : legal
     const verbose = list.map((m) => this.toMove(s, m, legal))
     return options.verbose ? verbose : verbose.map((m) => m.san)
@@ -423,7 +451,7 @@ export class PigeonChess {
 
   move(input: string | { from: string; to: string; promotion?: string }): Move {
     const s = this.state
-    const legal = legalRaw(s)
+    const legal = this.legal()
     let found: Raw | undefined
     if (typeof input === 'string') {
       const text = input.trim()
@@ -441,17 +469,18 @@ export class PigeonChess {
     }
     if (!found) throw new Error(`Invalid move: ${typeof input === 'string' ? input : JSON.stringify(input)}`)
     const move = this.toMove(s, found, legal)
-    this.stack.push({ state: s, move })
-    this.state = applyRaw(s, found)
-    const key = positionKey(this.state)
+    const next = applyRaw(s, found)
+    this.core.stack.push({ state: s, move })
+    const key = positionKey(next)
     this.seen.set(key, (this.seen.get(key) || 0) + 1)
+    this.state = next
     return move
   }
 
   undo(): Move | null {
-    const last = this.stack.pop()
+    const last = this.core.stack.pop()
     if (!last) return null
-    const key = positionKey(this.state)
+    const key = positionKey(this.core.state)
     this.seen.set(key, Math.max(0, (this.seen.get(key) || 1) - 1))
     this.state = last.state
     return last.move
@@ -463,10 +492,10 @@ export class PigeonChess {
 
   isCheck(): boolean { return inCheck(this.state) }
   inCheck(): boolean { return this.isCheck() }
-  isCheckmate(): boolean { return this.isCheck() && legalRaw(this.state).length === 0 }
-  isStalemate(): boolean { return !this.isCheck() && legalRaw(this.state).length === 0 }
+  isCheckmate(): boolean { return this.isCheck() && this.legal().length === 0 }
+  isStalemate(): boolean { return !this.isCheck() && this.legal().length === 0 }
   isInsufficientMaterial(): boolean { return insufficient(this.state) }
-  isThreefoldRepetition(): boolean { return (this.seen.get(positionKey(this.state)) || 0) >= 3 }
+  isThreefoldRepetition(): boolean { const s = this.state; return (this.seen.get(positionKey(s)) || 0) >= 3 }
   isDrawByFiftyMoves(): boolean { return this.state.half >= 100 }
   isDraw(): boolean { return this.isStalemate() || this.isInsufficientMaterial() || this.isThreefoldRepetition() || this.isDrawByFiftyMoves() }
   isGameOver(): boolean { return this.isCheckmate() || this.isDraw() }

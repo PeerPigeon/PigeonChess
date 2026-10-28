@@ -168,7 +168,7 @@
           @contextmenu.prevent
         >
           <img 
-            v-if="getPiece(rowIndex, colIndex)" 
+            v-if="getPiece(rowIndex, colIndex) && getPieceImageUrl(rowIndex, colIndex)"
             class="piece"
             :src="getPieceImageUrl(rowIndex, colIndex)"
             :alt="getPieceSymbol(rowIndex, colIndex)"
