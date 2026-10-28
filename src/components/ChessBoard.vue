@@ -1311,6 +1311,8 @@ const handleMouseDown = (event: MouseEvent) => {
 .square.legal-move::after {
   content: '';
   position: absolute;
+  /* Above the piece (z-index 10), so a capture square shows its dot too */
+  z-index: 12;
   width: 30%;
   height: 30%;
   border-radius: 50%;
