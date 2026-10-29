@@ -248,7 +248,7 @@
       </section>
 
       <!-- Game -->
-      <section v-else class="table">
+      <section v-else class="table" :class="{ 'has-chat': canChat }">
         <div class="board-area">
           <ChessBoard
             :chess="chess"
@@ -321,6 +321,20 @@
               <button v-for="(san, k) in pair" :key="k" class="ply" :class="{ current: row * 2 + k === viewingMoveIndex }" @click="goToMove(row * 2 + k)">{{ san }}</button>
             </li>
           </ol>
+        </div>
+
+        <div v-if="canChat" class="chat">
+          <ol ref="chatList" class="chat-list" aria-live="polite">
+            <li v-if="!chatMessages.length" class="empty">Say hello to your opponent.</li>
+            <li v-for="m in chatMessages" :key="m.id" :class="{ mine: m.mine }">
+              <span class="chat-who">{{ m.mine ? 'You' : 'Them' }}</span>
+              <span class="chat-text">{{ m.text }}</span>
+            </li>
+          </ol>
+          <form class="chat-form" @submit.prevent="sendChat">
+            <input v-model="chatDraft" class="chat-input" type="text" :maxlength="CHAT_MAX" placeholder="Message" aria-label="Message your opponent" autocomplete="off" />
+            <button class="btn" type="submit" :disabled="!chatDraft.trim()">Send</button>
+          </form>
         </div>
 
         <div v-if="currentGame?.status !== 'finished'" class="actions">
@@ -608,7 +622,7 @@ const stopSearching = () => {
 }
 
 /** Both sides of a match land here: set the clock, colours and opponent, and start. */
-const startMatchedGameReset = () => { endReason.value = null; boardFlipped.value = false }
+const startMatchedGameReset = () => { endReason.value = null; boardFlipped.value = false; clearChat() }
 const startMatchedGame = (match: { gameId: string; opponent: string; myColor: 'white' | 'black'; timeControl: { minutes: number; increment: number } }) => {
   startMatchedGameReset()
   console.log('Matched with', match.opponent, 'as', match.myColor, 'game', match.gameId)
@@ -2412,6 +2426,29 @@ const hasClock = computed(() => Boolean(currentGameTimeControl.value && currentG
 /** The player turned the board around (Flip board). */
 const boardFlipped = ref(false)
 
+/* In-game chat: plain text, sent straight to the opponent (encrypted like moves), not saved. */
+const CHAT_MAX = 300
+type ChatLine = { id: number; mine: boolean; text: string }
+const chatMessages = ref<ChatLine[]>([])
+const chatDraft = ref('')
+const chatList = ref<HTMLElement | null>(null)
+let chatSeq = 0
+const canChat = computed(() => !isAIGame.value && Boolean(opponentId.value) && Boolean(currentGame.value))
+const addChatLine = (mine: boolean, text: string) => {
+  chatMessages.value.push({ id: ++chatSeq, mine, text })
+  if (chatMessages.value.length > 200) chatMessages.value.splice(0, chatMessages.value.length - 200)
+  nextTick(() => { if (chatList.value) chatList.value.scrollTop = chatList.value.scrollHeight })
+}
+const sendChat = () => {
+  const text = chatDraft.value.trim().slice(0, CHAT_MAX)
+  const to = opponentId.value
+  if (!text || !to) return
+  chatDraft.value = ''
+  addChatLine(true, text)
+  sendMessage(to, JSON.stringify({ type: 'chat', text })).catch((err: unknown) => console.warn('Chat message failed:', err))
+}
+const clearChat = () => { chatMessages.value = []; chatDraft.value = '' }
+
 /** Why the game ended, when the board alone can't tell. */
 const endReason = ref<'resign' | 'time' | 'agreement' | 'peer_disconnect' | 'long_move' | null>(null)
 
@@ -2996,6 +3033,7 @@ const declineTakebackRequest = () => {
 }
 
 const returnToLobby = () => {
+  clearChat()
   if (timerInterval) clearInterval(timerInterval)
   stopTimerSyncBroadcast()
   lastMove.value = null
@@ -3398,6 +3436,12 @@ const handleMessage = async (event: any) => {
       }
       if (message.type === 'pong') {
         if (typeof message.t === 'number') opponentRtt.value = Date.now() - message.t
+        return
+      }
+      if (message.type === 'chat') {
+        if (typeof message.text === 'string' && message.text.trim() && canChat.value) {
+          addChatLine(false, message.text.trim().slice(0, CHAT_MAX))
+        }
         return
       }
     }
@@ -4085,6 +4129,68 @@ onUnmounted(() => {
   color: #1c2126;
 }
 
+/* ---------- chat ---------- */
+.table.has-chat {
+  grid-template-rows: auto auto auto minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    'board head'
+    'board top'
+    'board info'
+    'board moves'
+    'board chat'
+    'board actions'
+    'board bottom';
+}
+
+.chat {
+  grid-area: chat;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--line);
+  padding-top: 0.4rem;
+}
+
+.chat-list {
+  list-style: none;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.92rem;
+}
+
+.chat-list li {
+  overflow-wrap: anywhere;
+}
+
+.chat-list li.empty {
+  color: var(--ink-2);
+}
+
+.chat-who {
+  font-weight: 700;
+  margin-right: 0.4rem;
+  color: var(--ink-2);
+}
+
+.chat-list li.mine .chat-who {
+  color: var(--sheen);
+}
+
+.chat-form {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.5rem 0 0.2rem;
+}
+
+.chat-input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ---------- actions and buttons ---------- */
 .actions {
   grid-area: actions;
@@ -4505,6 +4611,24 @@ a.btn {
 
   .moves {
     max-height: 40vh;
+  }
+
+  .table.has-chat {
+    grid-template-rows: none;
+    grid-template-areas:
+      'head'
+      'top'
+      'board'
+      'bottom'
+      'info'
+      'actions'
+      'chat'
+      'moves';
+  }
+
+  .chat {
+    max-height: 40vh;
+    min-height: 8rem;
   }
 
   .actions {
