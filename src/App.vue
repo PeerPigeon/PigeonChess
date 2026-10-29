@@ -2305,7 +2305,7 @@ const watchdogTick = () => {
 
   // First move of each side
   if (plies < 2 && onTurnFor > firstMoveSeconds(tc)) {
-    abortGame(loserIfStalled)
+    abortGame()
     return
   }
 
@@ -2337,19 +2337,21 @@ const watchdogTick = () => {
 }
 
 /** Nobody made a first move in time: the game is called off and not recorded. */
-const abortGame = async (staller: 'me' | 'opponent') => {
+const abortGame = async () => {
   const game = currentGame.value
   if (!game || game.status !== 'active') return
   stopWatchdog()
   const gameId = game.id
+  // Who stalled follows from the moves made, so both sides name the same player:
+  // no moves, white had the first move; one move, black did.
+  const stallerColor: 'white' | 'black' = game.moves.length === 0 ? 'white' : 'black'
+  const to = opponentId.value
   abandonmentReason.value = 'aborted'
-  iAbandoned.value = staller === 'me'
+  iAbandoned.value = stallerColor === myPlayer.value?.color
   showAbandonmentModal.value = true
+  // Tell them before the game (and who they are) is cleared.
+  if (to) sendMessage(to, JSON.stringify({ type: 'abort', gameId, stallerColor })).catch(() => {})
   returnToLobby()
-  if (opponentId.value) {
-    sendMessage(opponentId.value, JSON.stringify({ type: 'abort', gameId, staller: staller === 'me' ? myPlayer.value?.color : undefined }))
-      .catch(() => {})
-  }
 }
 
 /** Their clock reached zero on their move. */
@@ -3479,7 +3481,9 @@ const handleMessage = async (event: any) => {
         if (currentGame.value && currentGame.value.id === chessMessage.gameId && currentGame.value.status === 'active') {
           stopWatchdog()
           abandonmentReason.value = 'aborted'
-          iAbandoned.value = Boolean((chessMessage as any).staller) && (chessMessage as any).staller === myPlayer.value?.color
+          const named = (chessMessage as any).stallerColor
+          const stallerColor = named === 'white' || named === 'black' ? named : (currentGame.value.moves.length === 0 ? 'white' : 'black')
+          iAbandoned.value = stallerColor === myPlayer.value?.color
           showAbandonmentModal.value = true
           returnToLobby()
         }
