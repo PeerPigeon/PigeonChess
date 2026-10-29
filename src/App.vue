@@ -327,7 +327,7 @@
           <ol ref="chatList" class="chat-list" aria-live="polite">
             <li v-if="!chatMessages.length" class="empty">Say hello to your opponent.</li>
             <li v-for="m in chatMessages" :key="m.id" :class="{ mine: m.mine }">
-              <span class="chat-who">{{ m.mine ? 'You' : 'Them' }}</span>
+              <span class="chat-who">{{ m.mine ? 'You:' : 'Opp:' }}</span>
               <span class="chat-text">{{ m.text }}</span>
             </li>
           </ol>
