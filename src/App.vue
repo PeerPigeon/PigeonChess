@@ -478,7 +478,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Chess } from 'chess.js'
 import { createChess, isPigeonVariant } from './utils/variant'
-import { pickPigeonMove } from './utils/pigeonChess'
+import { pigeonSearch } from './utils/pigeonAi'
 import { usePeerPigeon } from './composables/usePeerPigeon'
 import { useSeek } from './composables/useSeek'
 import ChessBoard from './components/ChessBoard.vue'
@@ -730,13 +730,9 @@ const initStockfish = async () => {
   if (stockfish) return
   
   try {
-    // Load Stockfish from CDN using Web Worker
-    const workerBlob = new Blob([`
-      importScripts('https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js');
-    `], { type: 'application/javascript' })
-    
-    const workerUrl = URL.createObjectURL(workerBlob)
-    stockfish = new Worker(workerUrl)
+    // Stockfish 19 lite, single-threaded WebAssembly, served from this site
+    // (public/stockfish/) so it is cached. It runs in its own worker.
+    stockfish = new Worker('/stockfish/stockfish-19-lite-single.js')
     
     if (stockfish) {
       stockfish.onmessage = (event: MessageEvent) => {
@@ -810,7 +806,7 @@ const analyzePosition = () => {
   stockfish.postMessage('stop')
   stockfish.postMessage('ucinewgame')
   stockfish.postMessage('setoption name MultiPV value 5') // Show top 5 moves
-  stockfish.postMessage('setoption name Hash value 256') // Increase hash table for better analysis
+  stockfish.postMessage('setoption name Hash value 32')
   stockfish.postMessage('position fen ' + currentFen)
   stockfish.postMessage('go depth 22 movetime 8000') // Depth 22 with 8 second limit for much stronger analysis
   
@@ -1274,7 +1270,12 @@ const makeAIMove = () => {
                   aiDifficulty.value === 1 ? 6 :
                   aiDifficulty.value === 2 ? 10 : 15
     
-    // Send commands EXACTLY as before
+    // Most it may think, so a move never takes long.
+    const movetime = [300, 1000, 2000, 3000][aiDifficulty.value] ?? 2000
+
+    // Analysis may have left 5 lines and a bigger hash set; the computer's move needs neither.
+    stockfish.postMessage('setoption name MultiPV value 1')
+    stockfish.postMessage('setoption name Hash value 16')
     stockfish.postMessage('setoption name Skill Level value ' + skillLevel)
     stockfish.postMessage('setoption name UCI_LimitStrength value false')
     stockfish.postMessage('isready')
@@ -1284,7 +1285,7 @@ const makeAIMove = () => {
       expectingAiMove = true // NOW we're expecting an AI bestmove (after delay to clear stale messages)
       stockfish.postMessage('ucinewgame')
       stockfish.postMessage('position fen ' + currentFen)
-      stockfish.postMessage('go depth ' + depth)
+      stockfish.postMessage('go depth ' + depth + ' movetime ' + movetime)
     }, 50)
     return
   }
@@ -1293,11 +1294,21 @@ const makeAIMove = () => {
   console.log('⚠️ FALLBACK AI - Stockfish not available. stockfish:', !!stockfish, 'stockfishReady:', stockfishReady)
   
   // Select move based on difficulty
-  let selectedMove
-  
   if (isPigeonVariant) {
-    selectedMove = pickPigeonMove(createChess(currentFen), [1, 2, 2, 3][aiDifficulty.value] ?? 2) || moves[0]
-  } else switch (aiDifficulty.value) {
+    // The pigeon search runs in a worker so the page stays responsive.
+    const started = Date.now()
+    pigeonSearch(currentFen, [1, 2, 2, 3][aiDifficulty.value] ?? 2).then((found) => {
+      if (!isAIGame.value || !isGameActive.value || chess.value.fen() !== currentFen) {
+        aiThinking.value = false
+        return
+      }
+      playSelected(found || moves[0], Math.max(0, 300 + Math.random() * 500 - (Date.now() - started)))
+    })
+    return
+  }
+
+  let selectedMove
+  switch (aiDifficulty.value) {
     case 0: // Easy
       selectedMove = selectEasyMove(moves, currentFen)
       break
@@ -1313,8 +1324,9 @@ const makeAIMove = () => {
   }
   
   // Delay AI move slightly for realism (300-800ms)
-  const delay = 300 + Math.random() * 500
-  
+  playSelected(selectedMove, 300 + Math.random() * 500)
+
+  function playSelected(selectedMove: any, delay: number) {
   setTimeout(() => {
     if (!isAIGame.value || !isGameActive.value) {
       aiThinking.value = false
@@ -1390,6 +1402,7 @@ const makeAIMove = () => {
       aiThinking.value = false
     }
   }, delay)
+  }
 }
 
 
