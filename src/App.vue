@@ -2226,6 +2226,9 @@ const longMoveSeconds = (tc: TimeControlLike) => (tc && tc.minutes > 0 ? tc.minu
 
 let lastHeardFromOpponent = Date.now()
 let turnStartedAt = Date.now()
+/** The turn whose move-timeout warning has played (its turnStartedAt). */
+let warnedTurnStartedAt = 0
+const MOVE_WARNING_SECONDS = 10
 let watchdogInterval: ReturnType<typeof setInterval> | null = null
 const opponentGone = ref(false)
 const opponentGoneOnTheirTurn = ref(0) // seconds of their reconnect window used
@@ -2302,6 +2305,16 @@ const watchdogTick = () => {
   const sideToMove = chess.value.turn() === 'w' ? 'white' : 'black'
   const loserIfStalled: 'me' | 'opponent' = sideToMove === myPlayer.value.color ? 'me' : 'opponent'
   const onTurnFor = (now - turnStartedAt) / 1000
+
+  // On your turn, the shaker 10 s before a first-move abort or a long-move loss.
+  if (loserIfStalled === 'me' && warnedTurnStartedAt !== turnStartedAt) {
+    const longLimitNow = longMoveSeconds(tc)
+    const limit = plies < 2 ? firstMoveSeconds(tc) : (longLimitNow !== null && plies < 20 ? longLimitNow : null)
+    if (limit !== null && onTurnFor >= limit - MOVE_WARNING_SECONDS) {
+      warnedTurnStartedAt = turnStartedAt
+      playLowTimeWarning()
+    }
+  }
 
   // First move of each side
   if (plies < 2 && onTurnFor > firstMoveSeconds(tc)) {
