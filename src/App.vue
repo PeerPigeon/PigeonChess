@@ -473,9 +473,6 @@
           <p v-if="abandonmentReason === 'peer_disconnect'">
             {{ iAbandoned ? 'Your connection' : "Your opponent's connection" }} dropped and didn't come back in time.
           </p>
-          <p v-else-if="abandonmentReason === 'long_move'">
-            {{ iAbandoned ? 'You' : 'Your opponent' }} spent more than half the clock on one move in the opening.
-          </p>
           <p v-else-if="abandonmentReason === 'time'">
             {{ iAbandoned ? 'You ran' : 'Your opponent ran' }} out of time.
           </p>
@@ -1938,7 +1935,7 @@ let timerSyncInterval: ReturnType<typeof setInterval> | null = null
 
 // Abandonment timer state
 const hasGameStarted = ref(false) // Tracks if first move has been made
-const abandonmentReason = ref<'aborted' | 'peer_disconnect' | 'long_move' | 'time' | 'initial_move_timeout' | null>(null)
+const abandonmentReason = ref<'aborted' | 'peer_disconnect' | 'time' | null>(null)
 const showAbandonmentModal = ref(false)
 const iAbandoned = ref(false) // Track if I was the one who abandoned
 
@@ -2202,8 +2199,8 @@ const clearAbandonmentTimers = () => stopWatchdog()
 // - Disconnect: a player whose connection is gone has (base + 40 x increment)
 //   x 10% to come back, at least 30 s and at most 3 min, and the countdown
 //   only runs on their turn. Coming back in time resumes the game.
-// - Long move: in the first 10 moves, spending more than half the base time
-//   on one move abandons the game.
+// - Long move: in the first 10 moves, a move nearing half the base time gets
+//   the shaker warning. Unlike chess.com, it does not end the game.
 // - Running out of clock loses on time, whether or not the player is there.
 //
 // "Gone" means nothing has arrived from the opponent for a while (clock syncs
@@ -2303,11 +2300,12 @@ const watchdogTick = () => {
   const now = Date.now()
   const plies = game.moves.length
   const sideToMove = chess.value.turn() === 'w' ? 'white' : 'black'
-  const loserIfStalled: 'me' | 'opponent' = sideToMove === myPlayer.value.color ? 'me' : 'opponent'
+  const myMove = sideToMove === myPlayer.value.color
   const onTurnFor = (now - turnStartedAt) / 1000
 
-  // On your turn, the shaker 10 s before a first-move abort or a long-move loss.
-  if (loserIfStalled === 'me' && warnedTurnStartedAt !== turnStartedAt) {
+  // On your turn, the shaker 10 s before a first-move abort, and 10 s before a
+  // long move in the first 10 moves (half the base time). A long move only warns.
+  if (myMove && warnedTurnStartedAt !== turnStartedAt) {
     const longLimitNow = longMoveSeconds(tc)
     const limit = plies < 2 ? firstMoveSeconds(tc) : (longLimitNow !== null && plies < 20 ? longLimitNow : null)
     if (limit !== null && onTurnFor >= limit - MOVE_WARNING_SECONDS) {
@@ -2319,13 +2317,6 @@ const watchdogTick = () => {
   // First move of each side
   if (plies < 2 && onTurnFor > firstMoveSeconds(tc)) {
     abortGame()
-    return
-  }
-
-  // Long move in the first 10 moves
-  const longLimit = longMoveSeconds(tc)
-  if (longLimit !== null && plies < 20 && plies >= 2 && onTurnFor > longLimit) {
-    abandonGame('long_move', loserIfStalled)
     return
   }
 
@@ -2389,7 +2380,7 @@ const claimWinOnTime = async () => {
  * End the game by abandonment. `loser` is who abandoned. Both sides may reach
  * this; the message carries the loser's colour so they agree.
  */
-const abandonGame = async (reason: 'peer_disconnect' | 'long_move', loser: 'me' | 'opponent') => {
+const abandonGame = async (reason: 'peer_disconnect', loser: 'me' | 'opponent') => {
   if (!currentGame.value || !myPlayer.value || currentGame.value.status !== 'active') return
   console.log('Game abandoned:', reason, loser)
   stopWatchdog()
@@ -2465,7 +2456,7 @@ const sendChat = () => {
 const clearChat = () => { chatMessages.value = []; chatDraft.value = '' }
 
 /** Why the game ended, when the board alone can't tell. */
-const endReason = ref<'resign' | 'time' | 'agreement' | 'peer_disconnect' | 'long_move' | null>(null)
+const endReason = ref<'resign' | 'time' | 'agreement' | 'peer_disconnect' | null>(null)
 
 /** One sentence: who won and why. */
 const resultLine = computed(() => {
@@ -2497,7 +2488,6 @@ const resultLine = computed(() => {
       resign: `You won. ${them} resigned.`,
       time: 'You won on time.',
       peer_disconnect: "You won. Your opponent left and didn't come back in time.",
-      long_move: 'You won. Your opponent spent more than half their clock on one move in the opening.',
     } as Record<string, string>)[reason || ''] || 'You won.'
   }
   return ({
@@ -2505,7 +2495,6 @@ const resultLine = computed(() => {
     resign: 'You resigned.',
     time: 'You lost on time.',
     peer_disconnect: "You lost. Your connection dropped and didn't come back in time.",
-    long_move: 'You lost. You spent more than half your clock on one move in the opening.',
   } as Record<string, string>)[reason || ''] || 'You lost.'
 })
 
@@ -3564,7 +3553,8 @@ const handleMessage = async (event: any) => {
         break
       
       case 'abandon':
-        // Opponent abandoned the game
+        // Opponent abandoned the game. A long move no longer ends a game, even when an older page says so.
+        if (chessMessage.reason === 'long_move') break
         if (currentGame.value && myPlayer.value && currentGame.value.status === 'active') {
           console.log('Game abandoned, reason:', chessMessage.reason, 'loser:', chessMessage.loser)
           clearAbandonmentTimers()
@@ -3575,8 +3565,8 @@ const handleMessage = async (event: any) => {
           const loserColor = chessMessage.loser || (myColor === 'white' ? 'black' : 'white')
           currentGame.value.result = loserColor === 'white' ? 'black' : 'white'
           
-          abandonmentReason.value = chessMessage.reason || null
-          endReason.value = chessMessage.reason === 'long_move' ? 'long_move' : 'peer_disconnect'
+          abandonmentReason.value = 'peer_disconnect'
+          endReason.value = 'peer_disconnect'
           showAbandonmentModal.value = true
           iAbandoned.value = loserColor === myColor
           
