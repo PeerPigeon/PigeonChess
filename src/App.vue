@@ -2088,7 +2088,7 @@ const LOW_TIME_SECONDS = 20
  * starts on time; loaded on demand, they started late and ran together.
  */
 const SHAKES = 3
-const SHAKE_GAP_MS = 120
+const SHAKE_GAP_MS = 80
 const shakerCopies = Array.from({ length: SHAKES }, () => {
   const audio = new Audio('/sounds/shaker.mp3')
   audio.preload = 'auto'
@@ -2099,7 +2099,7 @@ const playLowTimeWarning = () => {
   shakerCopies.forEach((audio, i) => {
     setTimeout(() => {
       audio.currentTime = 0
-      audio.playbackRate = 1.5
+      audio.playbackRate = 2
       audio.play().catch((err) => console.error('Low time warning error:', err))
     }, i * SHAKE_GAP_MS)
   })
