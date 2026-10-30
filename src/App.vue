@@ -2106,13 +2106,13 @@ const playLowTimeWarning = () => {
 }
 
 const playWinSound = () => {
-  const audio = new Audio('/sounds/win.mp3')
+  const audio = new Audio('/sounds/win-wood.mp3')
   audio.volume = 0.6
   audio.play().catch((err) => console.error('Win sound error:', err))
 }
 
 const playLoseSound = () => {
-  const audio = new Audio('/sounds/lose.mp3')
+  const audio = new Audio('/sounds/lose-wood.mp3')
   audio.volume = 0.6
   audio.play().catch((err) => console.error('Lose sound error:', err))
 }
