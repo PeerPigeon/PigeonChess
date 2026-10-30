@@ -285,7 +285,7 @@
             <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']" :key="`go-${idx}`" :src="`/pieces/${myPlayer?.color === 'white' ? 'w' : 'b'}${piece}.svg`" :alt="piece" />
             <b v-if="materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] > 0">+{{ materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] }}</b>
           </span>
-          <span v-if="hasClock" class="seat-clock">{{ formatTime(opponentTime) }}</span>
+          <span v-if="hasClock" class="seat-clock" :class="{ low: isLowTime(opponentTime) }">{{ formatTime(opponentTime) }}</span>
         </div>
 
         <div class="side-info">
@@ -354,7 +354,7 @@
             <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black']" :key="`gm-${idx}`" :src="`/pieces/${myPlayer?.color === 'white' ? 'b' : 'w'}${piece}.svg`" :alt="piece" />
             <b v-if="materialAdvantage[myPlayer?.color || 'white'] > 0">+{{ materialAdvantage[myPlayer?.color || 'white'] }}</b>
           </span>
-          <span v-if="hasClock" class="seat-clock">{{ formatTime(myTime) }}</span>
+          <span v-if="hasClock" class="seat-clock" :class="{ low: isLowTime(myTime) }">{{ formatTime(myTime) }}</span>
         </div>
       </section>
     </main>
@@ -2080,19 +2080,29 @@ const processIncomingTimer = (incomingTimer: any, incomingClock: Record<string, 
 }
 
 
+/** Seconds left on the clock when the warning plays and the clock turns yellow. */
+const LOW_TIME_SECONDS = 20
+
+/**
+ * Three quick, separate shakes. The copies are loaded with the page so each
+ * starts on time; loaded on demand, they started late and ran together.
+ */
+const SHAKES = 3
+const SHAKE_GAP_MS = 120
+const shakerCopies = Array.from({ length: SHAKES }, () => {
+  const audio = new Audio('/sounds/shaker.mp3')
+  audio.preload = 'auto'
+  audio.volume = 0.5
+  return audio
+})
 const playLowTimeWarning = () => {
-  // Play the shaker sound 3 times in rapid succession
-  const audio1 = new Audio('/sounds/shaker.mp3')
-  const audio2 = new Audio('/sounds/shaker.mp3')
-  const audio3 = new Audio('/sounds/shaker.mp3')
-  
-  audio1.volume = 0.5
-  audio2.volume = 0.5
-  audio3.volume = 0.5
-  
-  audio1.play().catch((err) => console.error('Low time warning error:', err))
-  setTimeout(() => audio2.play().catch((err) => console.error('Low time warning error:', err)), 150)
-  setTimeout(() => audio3.play().catch((err) => console.error('Low time warning error:', err)), 300)
+  shakerCopies.forEach((audio, i) => {
+    setTimeout(() => {
+      audio.currentTime = 0
+      audio.playbackRate = 1.5
+      audio.play().catch((err) => console.error('Low time warning error:', err))
+    }, i * SHAKE_GAP_MS)
+  })
 }
 
 const playWinSound = () => {
@@ -2118,11 +2128,20 @@ const formatTime = (seconds: number): string => {
   if (currentGameTimeControl.value && currentGameTimeControl.value.minutes === 0) {
     return '∞'
   }
+  // Under the warning point the clock shows tenths, as chess.com does: 0:19.4
+  if (isLowTime(seconds)) {
+    const tenths = Math.floor(Math.max(0, seconds) * 10)
+    const secs = Math.floor(tenths / 10)
+    return `0:${secs.toString().padStart(2, '0')}.${tenths % 10}`
+  }
   const whole = Math.ceil(Math.max(0, seconds))
   const mins = Math.floor(whole / 60)
   const secs = whole % 60
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
+
+/** The clock is in the warning zone: tenths shown, clock yellow. */
+const isLowTime = (seconds: number) => hasClock.value && seconds < LOW_TIME_SECONDS
 
 const startTimer = () => {
   if (timerInterval) clearInterval(timerInterval)
@@ -2148,7 +2167,7 @@ const startTimer = () => {
     if (isMyTurn.value) {
       myTime.value = Math.max(0, myTime.value - elapsed)
 
-      if (myTime.value <= 20 && !lowTimeWarningPlayed.value) {
+      if (myTime.value <= LOW_TIME_SECONDS && !lowTimeWarningPlayed.value) {
         playLowTimeWarning()
         lowTimeWarningPlayed.value = true
       }
@@ -2157,7 +2176,7 @@ const startTimer = () => {
     } else {
       opponentTime.value = Math.max(0, opponentTime.value - elapsed)
     }
-  }, 250)
+  }, 100)
 }
 
 const handleTimeOut = async () => {
@@ -2823,7 +2842,7 @@ const handleMove = async (from: string, to: string, promotion?: 'q' | 'r' | 'b' 
     if (currentGameTimeControl.value) {
       myTime.value += currentGameTimeControl.value.increment
       // Reset warning flag if time goes above 20 again
-      if (myTime.value > 20) {
+      if (myTime.value > LOW_TIME_SECONDS) {
         lowTimeWarningPlayed.value = false
       }
     }
@@ -3962,6 +3981,13 @@ onUnmounted(() => {
 .seat.running .seat-clock {
   color: #fff;
   background: var(--sheen);
+}
+
+/* Under 20 s: yellow, with tenths */
+.seat-clock.low,
+.seat.running .seat-clock.low {
+  color: #1c2126;
+  background: var(--mark);
 }
 
 .seat.check .seat-colour {
