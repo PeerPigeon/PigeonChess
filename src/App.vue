@@ -22,7 +22,7 @@
           <span class="nav-username">{{ identityUsername }}</span>
           <button class="nav-link" @click="handleLogout(); showMenu = false">Log out</button>
         </span>
-        <button v-else class="nav-link nav-login" @click="showLoginModal = true; showMenu = false">Log in</button>
+        <button v-else class="nav-link nav-login" @click="loginMode = 'login'; loginError = ''; showLoginModal = true; showMenu = false">Log in</button>
       </nav>
       <button class="menu-toggle" :aria-expanded="showMenu" @click="showMenu = !showMenu">
         {{ showMenu ? 'Close' : 'Menu' }}
@@ -2793,7 +2793,16 @@ const handleLogin = async () => {
   } catch (error: any) {
     console.error('Login/Register error:', error)
     if (error?.code === 'name-taken') {
-      loginError.value = 'That name is taken. Pick another.'
+      // Maybe it's theirs: try logging in with what they typed.
+      try {
+        await loadIdentity(loginUsername.value, loginPassword.value, dhtGet, dhtPut, relayRequest)
+        showLoginModal.value = false
+        loginMode.value = 'login'
+        loginUsername.value = ''
+        loginPassword.value = ''
+        return
+      } catch { /* not theirs */ }
+      loginError.value = 'That name is taken. If it is yours, log in instead.'
     } else if (loginMode.value === 'register') {
       loginError.value = 'Could not create the account. Try again.'
     } else if (error?.code === 'not-found') {
