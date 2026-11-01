@@ -10,6 +10,23 @@ import { PeerPigeonNode } from '@/vendor/peerpigeon.js'
  * from the start, so listeners can be attached before the node is running.
  */
 
+// Keep the last few peer connections reachable from the console
+// (__pigeonchess.pcs), so a link that never opens can be looked at.
+const recentPcs: RTCPeerConnection[] = []
+if (typeof window !== 'undefined' && window.RTCPeerConnection && !(window as any).__pcWrapped) {
+  const Native = window.RTCPeerConnection
+  const Wrapped = function (this: any, config?: RTCConfiguration) {
+    const pc = new Native(config)
+    recentPcs.push(pc)
+    if (recentPcs.length > 20) recentPcs.shift()
+    return pc
+  } as any
+  Wrapped.prototype = Native.prototype
+  Object.setPrototypeOf(Wrapped, Native)
+  ;(window as any).RTCPeerConnection = Wrapped
+  ;(window as any).__pcWrapped = true
+}
+
 export const DEFAULT_SIGNALING_URLS = ['wss://peer.ooo/ws']
 const RETIRED_SIGNALING_HOSTS = ['pigeonhub.fly.dev', 'pigeonhobbs.to']
 
@@ -207,6 +224,8 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
       storage: {},
     })
     compat.node = node
+    // For looking at a running page from the console; read-only by intent.
+    ;(globalThis as any).__pigeonchess = { node, compat, pcs: recentPcs }
     bind(node)
     starting = node.start().then(() => {
       // Started means the relays have us; other players may not be there yet.
