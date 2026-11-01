@@ -77,8 +77,18 @@ export function useIdentity() {
     console.log('Session cleared')
   }
 
-  const createIdentity = async (alias: string, password: string, dhtPut?: (key: string, value: any) => Promise<void>) => {
+  const createIdentity = async (alias: string, password: string, dhtPut?: (key: string, value: any) => Promise<void>, dhtGet?: (key: string, options?: { waitMs?: number }) => Promise<any>) => {
     if (!dhtPut) throw new Error('DHT required for identity storage')
+    // A name someone already has is not taken over: registering it again
+    // used to overwrite their keys for every device.
+    if (dhtGet) {
+      const existing = await dhtGet(`identity:${alias}:pigeon-chess`, { waitMs: 4000 }).catch(() => null)
+      if (existing) {
+        const error = new Error('That name is already taken')
+        ;(error as any).code = 'name-taken'
+        throw error
+      }
+    }
     
     try {
       // Generate new cryptographic keypair using UnSEA
@@ -167,7 +177,7 @@ export function useIdentity() {
     }
   }
 
-  const loadIdentity = async (alias: string, password: string, dhtGet?: (key: string) => Promise<any>, dhtPut?: (key: string, value: any) => Promise<void>) => {
+  const loadIdentity = async (alias: string, password: string, dhtGet?: (key: string, options?: { waitMs?: number }) => Promise<any>, dhtPut?: (key: string, value: any) => Promise<void>) => {
     
     try {
       // Try to load from local IndexedDB first
@@ -195,11 +205,13 @@ export function useIdentity() {
         }
         
         console.log(`Fetching from DHT: identity-keys:${alias}:pigeon-chess`)
-        const encryptedKeys = await dhtGet(`identity-keys:${alias}:pigeon-chess`)
+        const encryptedKeys = await dhtGet(`identity-keys:${alias}:pigeon-chess`, { waitMs: 15000 })
         console.log('DHT response:', encryptedKeys ? 'Found' : 'Not found', encryptedKeys)
         
         if (!encryptedKeys || !encryptedKeys.encrypted) {
-          throw new Error('Keys not found in DHT')
+          const error = new Error('Keys not found in DHT')
+          ;(error as any).code = 'not-found'
+          throw error
         }
         
         // Decrypt the keys from DHT

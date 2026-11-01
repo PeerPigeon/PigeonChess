@@ -2749,7 +2749,7 @@ const handleLogin = async () => {
   try {
     if (loginMode.value === 'register') {
       // Create new identity with DHT registration
-      await createIdentity(loginUsername.value, loginPassword.value, dhtPut)
+      await createIdentity(loginUsername.value, loginPassword.value, dhtPut, dhtGet)
       showLoginModal.value = false
       loginUsername.value = ''
       loginPassword.value = ''
@@ -2764,10 +2764,14 @@ const handleLogin = async () => {
     }
   } catch (error: any) {
     console.error('Login/Register error:', error)
-    if (loginMode.value === 'register') {
-      loginError.value = 'Failed to create account. Username may already exist.'
+    if (error?.code === 'name-taken') {
+      loginError.value = 'That name is taken. Pick another.'
+    } else if (loginMode.value === 'register') {
+      loginError.value = 'Could not create the account. Try again.'
+    } else if (error?.code === 'not-found') {
+      loginError.value = 'No account by that name was found on the network. It is kept by the players who were online when it was made: try again once one of your other devices is open.'
     } else {
-      loginError.value = 'Invalid username or password.'
+      loginError.value = 'Wrong password.'
     }
   } finally {
     loginLoading.value = false

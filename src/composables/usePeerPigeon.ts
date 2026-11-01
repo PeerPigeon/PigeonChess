@@ -336,10 +336,18 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     return true
   }
 
-  const dhtGet = async (key: string, _options: any = {}) => {
+  // waitMs: keep asking for that long when nobody has answered yet. Right
+  // after the page opens (or a reload) the links to the peers that hold the
+  // record are still forming, and one 3 s ask came back empty.
+  const dhtGet = async (key: string, options: { waitMs?: number } = {}) => {
     if (!node?.storage) throw new Error('Storage not ready')
-    const record = await node.storage.retrieve('public', key, { timeoutMs: 3000 })
-    return record ? record.value : null
+    const deadline = Date.now() + Math.max(0, Number(options.waitMs) || 0)
+    for (;;) {
+      const record = await node.storage.retrieve('public', key, { timeoutMs: 3000 })
+      if (record) return record.value
+      if (Date.now() >= deadline) return null
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
   }
 
   return {
