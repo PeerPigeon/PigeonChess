@@ -200,6 +200,10 @@ export function useIdentity() {
           keys = upgraded.keys
           record = upgraded.record
           await publishRecord(record, dhtPut, relay)
+          // The old copies were sealed with PBKDF2 under the same password;
+          // replace the one pages from before signed records read, so it is
+          // not left out there to guess the password from.
+          if (dhtPut) await dhtPut(`identity-keys:${alias}:${NAMESPACE}`, { migrated: true }).catch(() => {})
         }
       } else if (!record) {
         // An account the relay and mesh do not have (from before relays kept
