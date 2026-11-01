@@ -2092,7 +2092,9 @@ const SHAKE_GAP_MS = 80
 // Through the shared audio context (useSounds), so these play on iOS when the
 // opponent's move or the clock sets them off, not only after a tap.
 const playLowTimeWarning = () => {
-  for (let i = 0; i < SHAKES; i++) playSoundFile('/sounds/shaker.mp3', { delayMs: i * SHAKE_GAP_MS, rate: 2 })
+  // shaker-fast.mp3 is the shaker at double speed with its pitch kept: sped
+  // up here instead, it went up an octave and sounded like wood blocks.
+  for (let i = 0; i < SHAKES; i++) playSoundFile('/sounds/shaker-fast.mp3', { delayMs: i * SHAKE_GAP_MS })
 }
 
 const playWinSound = () => playSoundFile('/sounds/win-wood.mp3', { volume: 0.6 })
@@ -2225,7 +2227,6 @@ const firstMoveSeconds = (tc: TimeControlLike) => {
 }
 const reconnectSeconds = (tc: TimeControlLike) =>
   Math.min(180, Math.max(30, Math.round(estimatedSeconds(tc) * 0.1)))
-const longMoveSeconds = (tc: TimeControlLike) => (tc && tc.minutes > 0 ? tc.minutes * 60 * 0.5 : null)
 
 let lastHeardFromOpponent = Date.now()
 let turnStartedAt = Date.now()
@@ -2322,11 +2323,10 @@ const watchdogTick = () => {
   const myMove = sideToMove === myPlayer.value.color
   const onTurnFor = (now - turnStartedAt) / 1000
 
-  // On your turn, the shaker 10 s before a first-move abort, and 10 s before a
-  // long move in the first 10 moves (half the base time). A long move only warns.
+  // On your first move, the shaker 10 s before the game is aborted. Nothing
+  // else warns mid-game; the low-time shaker covers the clock.
   if (myMove && warnedTurnStartedAt !== turnStartedAt) {
-    const longLimitNow = longMoveSeconds(tc)
-    const limit = plies < 2 ? firstMoveSeconds(tc) : (longLimitNow !== null && plies < 20 ? longLimitNow : null)
+    const limit = plies < 2 ? firstMoveSeconds(tc) : null
     if (limit !== null && onTurnFor >= limit - MOVE_WARNING_SECONDS) {
       warnedTurnStartedAt = turnStartedAt
       playLowTimeWarning()
