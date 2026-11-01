@@ -8,7 +8,14 @@ const commit = (() => { try { return execSync('git rev-parse --short HEAD').toSt
 const builtAt = new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), {
+    // version.json names the build; open pages compare it with their own and
+    // reload when a newer one is out (src/main.ts).
+    name: 'build-version',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: `${commit}, built ${builtAt}` }) })
+    },
+  }],
   define: {
     __BUILD__: JSON.stringify(`${commit}, built ${builtAt}`),
   },

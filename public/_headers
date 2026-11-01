@@ -4,6 +4,8 @@
   Cache-Control: no-cache
 /index.html
   Cache-Control: no-cache
+/version.json
+  Cache-Control: no-store
 # Cloudflare static assets: let browsers keep piece art and sounds instead of
 # asking the server again on every load. Built files under /assets/ have
 # content hashes in their names, so they never change.
