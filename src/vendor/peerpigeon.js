@@ -1,6 +1,9 @@
 // @ts-nocheck
-// PeerPigeon 7d5c704 (https://github.com/PeerPigeon/PeerPigeon), its built dist/index.js.
+// PeerPigeon c2f95de (https://github.com/PeerPigeon/PeerPigeon), its built dist/index.js.
 // Refresh: copy ../PeerPigeon/dist/index.js here and dist/index.d.ts to peerpigeon.d.ts.
+// src/index.ts
+import { isDirectRelayUrl, lookupDirectRelays, directRelayChannel, directoryRecordUrl, DEFAULT_DIRECTORY_NAME } from "freertc/client";
+
 // src/freertc-client-adapter.ts
 import { createSignalingClient, withdrawSignalingIdentity } from "freertc/client";
 var RECOVERY_PROBE_TIMEOUT_MS = 12e3;
@@ -13,7 +16,7 @@ var INITIAL_SIGNALING_HEALTH_DELAY_MS = 1e3;
 var SIGNALING_HEALTH_INTERVAL_MS = 15e3;
 var SIGNALING_HEALTH_MAX_INTERVAL_MS = 5 * 6e4;
 var DISCOVERY_ABSENCE_GRACE_MS = 3e4;
-var DISCOVERY_ACTIVE_MAX_AGE_MS = 18e3;
+var DISCOVERY_ACTIVE_MAX_AGE_MS = 35e3;
 function generateMessageId(bytesLength = 8) {
   const bytes = new Uint8Array(bytesLength);
   const webCrypto = globalThis.window?.crypto ?? globalThis.crypto;
@@ -40,6 +43,9 @@ var Emitter = class {
     }
   }
 };
+function isAttentionChangeOnly(reason) {
+  return /focus|visib/i.test(String(reason || ""));
+}
 var FreeRTCClientAdapter = class {
   constructor(signalUrls, options) {
     this.emitter = new Emitter();
@@ -109,12 +115,33 @@ var FreeRTCClientAdapter = class {
     this.trickleIce = options?.trickleIce ?? true;
     this.meshSignaling = options?.meshSignaling ?? null;
     this.relayOnDemand = (options?.relayOnDemand ?? true) && this.meshSignaling !== null;
+    this.relayHold = options?.relayHold ?? null;
     this.addSelfAlias(this.requestedPeerId);
     this.addSelfAlias(this.previousPeerId);
     for (const peerId of this.retiredPeerIds) this.addSelfAlias(peerId);
   }
   on(event, handler) {
     this.emitter.on(event, handler);
+  }
+  /** The relay this peer signals through now. */
+  get currentSignalUrl() {
+    return this.activeSignalUrl;
+  }
+  /**
+   * Signal through another relay from now on (it goes first in the list).
+   * Open peer channels stay up; only the signaling connection moves.
+   */
+  switchSignalUrl(signalUrl, reason = "relay_switch") {
+    const url = String(signalUrl || "").trim();
+    if (!url || url === this.activeSignalUrl) return false;
+    this.signalUrls = [url, ...this.signalUrls.filter((existing) => existing !== url)];
+    this.activeSignalIndex = 0;
+    this.emitter.emit("signaling:log", { message: `[signal] ${reason}: moving signaling to ${url}` });
+    if (this.client && typeof this.client.switchRelay === "function") {
+      this.ensureRegistrationRecoveryProbe("relay switch");
+      this.client.switchRelay(url, reason);
+    }
+    return true;
   }
   get activeSignalUrl() {
     return this.signalUrls[this.activeSignalIndex % this.signalUrls.length];
@@ -186,7 +213,7 @@ var FreeRTCClientAdapter = class {
       iceServers: this.defaultIceServers ?? void 0,
       trickleIce: this.trickleIce,
       autoConnect: false,
-      relay: this.relayOnDemand ? { mode: "on-demand" } : {},
+      relay: this.relayOnDemand ? { mode: "on-demand", ...this.relayHold ? { hold: this.relayHold } : {} } : {},
       onRelayStateChange: ({ state } = {}) => {
         if (!isCurrentClient()) return;
         this.emitter.emit("signaling:log", { message: `[signal] relay ${String(state)} on ${signalUrl}` });
@@ -239,6 +266,13 @@ var FreeRTCClientAdapter = class {
       onNegotiationFailure: (data) => {
         if (!isCurrentClient()) return;
         this.handleNegotiationFailure(data);
+      },
+      // A relay says no relay has this peer: it has left.
+      onPeerGone: (data) => {
+        if (!isCurrentClient()) return;
+        const peerId = this.normalizePeerId(data?.peerId);
+        if (!peerId || this.isSelfAlias(peerId)) return;
+        this.emitter.emit("peer:gone", { peerId });
       },
       onStatusChange: (status) => {
         if (!isCurrentClient()) return;
@@ -372,7 +406,7 @@ var FreeRTCClientAdapter = class {
     this.lastBootstrapAtMs = 0;
     this.healthProbeMisses = 0;
     this.resetHealthBootstrapWait();
-    this.client?.resetRecoveryBackoffs?.();
+    if (!isAttentionChangeOnly(reason)) this.client?.resetRecoveryBackoffs?.();
     this.emitter.emit("lifecycle:resume", { reason });
     for (const peerId of Array.from(this.connectedPeers)) {
       const entry = this.client?.mesh?.connections?.get?.(peerId);
@@ -475,11 +509,12 @@ var FreeRTCClientAdapter = class {
     const now = Date.now();
     const normalizedCandidates = (Array.isArray(candidates) ? candidates : []).map((candidate) => ({
       peerId: this.normalizePeerId(candidate?.peerId),
-      advertisedAt: Number(candidate?.advertisedAt)
+      advertisedAt: Number(candidate?.advertisedAt),
+      listedAt: Number(candidate?.listedAt)
     })).filter(({ peerId }) => peerId && !this.isSelfAlias(peerId));
     const snapshotPeers = new Set(normalizedCandidates.map(({ peerId }) => peerId));
     const activeSnapshotPeers = /* @__PURE__ */ new Set();
-    for (const { peerId, advertisedAt } of normalizedCandidates) {
+    for (const { peerId, advertisedAt, listedAt } of normalizedCandidates) {
       this.knownPeerLastSeenAtMs.set(peerId, now);
       if (Number.isFinite(advertisedAt)) {
         const previous = this.knownPeerAdvertisedAtMs.get(peerId) ?? Number.NEGATIVE_INFINITY;
@@ -487,7 +522,8 @@ var FreeRTCClientAdapter = class {
       }
       const failedAdvertisementAt = this.failedPeerAdvertisementAtMs.get(peerId);
       const hasNewAdvertisement = failedAdvertisementAt == null || Number.isFinite(advertisedAt) && advertisedAt > failedAdvertisementAt;
-      const isFresh = !Number.isFinite(advertisedAt) || now - advertisedAt <= DISCOVERY_ACTIVE_MAX_AGE_MS;
+      const age = Number.isFinite(listedAt) ? listedAt - advertisedAt : now - advertisedAt;
+      const isFresh = !Number.isFinite(advertisedAt) || age <= DISCOVERY_ACTIVE_MAX_AGE_MS;
       if (hasNewAdvertisement && isFresh) {
         activeSnapshotPeers.add(peerId);
         if (failedAdvertisementAt != null) this.failedPeerAdvertisementAtMs.delete(peerId);
@@ -680,7 +716,7 @@ var FreeRTCClientAdapter = class {
     this.recoveryProbeTimer = setTimeout(() => {
       this.recoveryProbeTimer = null;
       if (this.intentionallyDisconnected) return;
-      if (typeof document !== "undefined" && document.hidden) return;
+      if (typeof document !== "undefined" && document.hidden && this.client?.isRegistered) return;
       if (this.client?.relayIdle === true) return;
       if (recycleOnTimeout) {
         this.healthProbeMisses += 1;
@@ -725,13 +761,13 @@ var FreeRTCClientAdapter = class {
     if (this.signalingHealthTimer) return;
     this.signalingHealthTimer = setInterval(() => {
       if (this.intentionallyDisconnected || this.recyclingSignalingTransport || this.recoveryProbeTimer) return;
-      if (typeof document !== "undefined" && document.hidden) return;
       if (this.client?.relayIdle === true) return;
       if (!this.client?.isRegistered) {
         this.ensureRegistrationRecoveryProbe("health check");
         this.client?.connect?.();
         return;
       }
+      if (typeof document !== "undefined" && document.hidden) return;
       if (Date.now() - this.lastBootstrapAtMs < this.healthBootstrapWaitMs) return;
       this.emitter.emit("signaling:log", {
         message: "[signal] health check: awaiting relay acknowledgement"
@@ -745,13 +781,13 @@ var FreeRTCClientAdapter = class {
     this.initialSignalingHealthTimer = setTimeout(() => {
       this.initialSignalingHealthTimer = null;
       if (this.intentionallyDisconnected || this.recyclingSignalingTransport || this.recoveryProbeTimer) return;
-      if (typeof document !== "undefined" && document.hidden) return;
       if (this.client?.relayIdle === true) return;
       if (!this.client?.isRegistered) {
         this.ensureRegistrationRecoveryProbe("initial health check");
         this.client?.connect?.();
         return;
       }
+      if (typeof document !== "undefined" && document.hidden) return;
       if (this.connectedPeers.size > 0) return;
       this.emitter.emit("signaling:log", {
         message: "[signal] initial health check: awaiting relay acknowledgement"
@@ -768,6 +804,10 @@ var FreeRTCClientAdapter = class {
   }
   recycleStaleSignalingTransport(reason) {
     if (this.intentionallyDisconnected || this.recyclingSignalingTransport || !this.client) return;
+    if (this.client.signalingOpening === true) {
+      this.emitter.emit("signaling:log", { message: `[signal] ${reason}: relay connection still opening; waiting for it` });
+      return;
+    }
     this.recyclingSignalingTransport = true;
     this.signalingConnected = false;
     this.clearRecoveryProbeTimer();
@@ -790,6 +830,23 @@ var FreeRTCClientAdapter = class {
       });
       this.emitter.emit("relay:failed", { signalUrl: previousSignalUrl, reason });
       this.connect();
+      return;
+    }
+    if (this.signalUrls.length > 1 && typeof this.client.switchRelay === "function") {
+      const previousSignalUrl = this.activeSignalUrl;
+      this.activeSignalIndex = (this.activeSignalIndex + 1) % this.signalUrls.length;
+      this.waitingForTransportClose = false;
+      this.emitter.emit("signaling:log", {
+        message: `[signal] ${reason}: ${previousSignalUrl} did not acknowledge; moving to ${this.activeSignalUrl} and keeping peer channels`
+      });
+      this.emitter.emit("relay:failed", { signalUrl: previousSignalUrl, reason });
+      try {
+        this.ensureRegistrationRecoveryProbe("relay switch");
+        this.client.switchRelay(this.activeSignalUrl, reason);
+      } catch (error) {
+        this.emitter.emit("error", error);
+      }
+      this.recyclingSignalingTransport = false;
       return;
     }
     if (typeof this.client.reconnectSignaling === "function") {
@@ -1191,6 +1248,7 @@ var _GossipProtocol = class _GossipProtocol {
         ...message,
         hops: message.hops + 1,
         path: this.extendRoutePath(message.path, peerId),
+        sentAt: [...Array.isArray(message.sentAt) ? message.sentAt.filter((t) => typeof t === "number").slice(-(MAX_ROUTE_TRACE_PEERS - 1)) : [], Date.now()],
         ...deliveryState ? { delivery: this.deliveryEnvelopeForState(deliveryState) } : {}
       };
       try {
@@ -1254,10 +1312,10 @@ var _GossipProtocol = class _GossipProtocol {
     if (this.messageLog.size > this.maxTrackedMessages) {
       this.pruneTracking();
     }
-    this.emit("messageReceived", { message, local: false, fromPeer: fromPeerId, receivedAt });
     if (message.hops < message.maxHops) {
       this.propagate(message, fromPeerId);
     }
+    this.emit("messageReceived", { message, local: false, fromPeer: fromPeerId, receivedAt });
   }
   // ─── Epidemic anti-entropy ────────────────────────────────────────
   retainGossipMessage(message, retainedAt = Date.now()) {
@@ -2852,6 +2910,10 @@ async function virtualIds(nodeId, count = RELAY_VIRTUAL_IDS) {
 function nearest(ids, target) {
   return ids.reduce((best, id) => compareDistance(id, best, target) < 0 ? id : best);
 }
+var FAILURE_HALF_LIFE_MS = 10 * 6e4;
+function failureFade(ageMs) {
+  return ageMs <= 0 ? 1 : 0.5 ** (ageMs / FAILURE_HALF_LIFE_MS);
+}
 function failureRate(m) {
   if (!m || m.attempts <= 0) return 0;
   return Math.min(1, m.failures / m.attempts);
@@ -2880,12 +2942,17 @@ async function chooseRelays(options) {
     return { relay, toRoom: nearest(ids, roomKey), toPeer: nearest(ids, peerKey) };
   }));
   const byRoom = [...placed].sort((a, b) => compareDistance(a.toRoom, b.toRoom, roomKey) || a.relay.url.localeCompare(b.relay.url));
-  const candidates = byRoom.slice(0, Math.max(1, options.candidates ?? RELAY_CANDIDATES));
-  const rest = byRoom.slice(candidates.length).sort((a, b) => compareDistance(a.toPeer, b.toPeer, peerKey) || a.relay.url.localeCompare(b.relay.url));
+  const isDirect = (entry) => entry.relay.url.startsWith("webrtc-direct://") || entry.relay.url.startsWith("ws://127.0.0.1:");
+  const direct = byRoom.filter(isDirect);
+  const others = byRoom.filter((entry) => !isDirect(entry));
+  const othersTaken = Math.max(1, options.candidates ?? RELAY_CANDIDATES);
+  const candidates = [...direct, ...others.slice(0, othersTaken)];
+  const rest = others.slice(othersTaken).sort((a, b) => compareDistance(a.toPeer, b.toPeer, peerKey) || a.relay.url.localeCompare(b.relay.url));
   const ranked = candidates.map((entry) => {
     const m = measure(entry.relay.nodeId);
     const healthy = isHealthy(entry.relay, m);
-    const tier = healthy && entry.relay.kind === "local" ? 0 : healthy ? 1 : 2;
+    const local = entry.relay.kind === "local";
+    const tier = isDirect(entry) ? healthy ? 0 : 1 : local ? healthy ? 2 : 4 : healthy ? 3 : 5;
     return { ...entry, tier, score: relayScore(entry.relay, m) };
   }).sort((a, b) => a.tier - b.tier || a.score - b.score || compareDistance(a.toPeer, b.toPeer, peerKey));
   if (options.previousUrl) {
@@ -2918,8 +2985,8 @@ function freshMeasurement(m, now) {
   if (!value || typeof value !== "object") return null;
   const at = Number(value.at);
   if (!Number.isFinite(at) || now - at > SCORE_MAX_AGE_MS || at > now + 6e4) return null;
-  const attempts = Math.max(0, Math.min(1e6, Math.floor(Number(value.attempts) || 0)));
-  const failures = Math.max(0, Math.min(attempts, Math.floor(Number(value.failures) || 0)));
+  const attempts = Math.max(0, Math.min(1e6, Number(value.attempts) || 0));
+  const failures = Math.max(0, Math.min(attempts, Number(value.failures) || 0));
   const joinMs = value.joinMs === null || value.joinMs === void 0 ? null : Number(value.joinMs);
   return {
     joinMs: joinMs !== null && Number.isFinite(joinMs) && joinMs >= 0 ? Math.min(6e4, joinMs) : null,
@@ -2960,6 +3027,11 @@ var RelayScoreBook = class _RelayScoreBook {
     if (!NODE_ID_RE.test(nodeId)) return;
     const entry = this.entry(nodeId);
     const own = entry.own ?? { joinMs: null, attempts: 0, failures: 0, at: 0 };
+    if (own.at > 0) {
+      const fade = failureFade(this.now() - own.at);
+      own.attempts *= fade;
+      own.failures *= fade;
+    }
     own.attempts += 1;
     if (!result.ok) own.failures += 1;
     const joinMs = Number(result.joinMs);
@@ -3007,8 +3079,9 @@ var RelayScoreBook = class _RelayScoreBook {
     let joinWeight = 0;
     let at = 0;
     for (const { m, weight } of parts) {
+      const fade = failureFade(now - m.at);
       attempts += m.attempts * weight;
-      failures += m.failures * weight;
+      failures += m.failures * weight * fade;
       if (m.joinMs !== null) {
         joinSum += m.joinMs * weight;
         joinWeight += weight;
@@ -3148,7 +3221,11 @@ var IndexedDbStorageDriver = class _IndexedDbStorageDriver {
     });
   }
 };
-var RETRIEVE_ANSWER_MIN_INTERVAL_MS = 1e4;
+var RETRIEVE_ANSWER_MIN_INTERVAL_MS = 1e3;
+var RETRIEVE_RETRY_ANSWER_MIN_INTERVAL_MS = 250;
+var RETRIEVE_RETRY_MS = 1200;
+var RETRIEVE_FIRST_WAIT_MS = 1500;
+var RETRIEVE_MIN_WAIT_MS = 600;
 var DIGEST_MAX_ENTRIES = 4e3;
 var DIGEST_MAX_PUSHES = 1e3;
 var PeerPigeonStorage = class {
@@ -3159,6 +3236,8 @@ var PeerPigeonStorage = class {
     this.subscribedKeys = /* @__PURE__ */ new Set();
     this.subscribedEntries = /* @__PURE__ */ new Map();
     this.retrieveAnsweredAt = /* @__PURE__ */ new Map();
+    // How long recent Gets took to be answered (ms), newest last.
+    this.retrieveAnswerTimes = [];
     this.pendingRetrieveRequests = /* @__PURE__ */ new Map();
     this.closed = false;
     this.instanceId = `storage-${Math.random().toString(36).slice(2, 11)}`;
@@ -3305,19 +3384,52 @@ var PeerPigeonStorage = class {
       timestamp: Date.now(),
       ...this.peerId ? { origin: this.peerId } : {}
     };
-    const timeoutMs = Math.max(100, Math.floor(Number(options.timeoutMs ?? 2e3)));
+    const fullTimeoutMs = Math.max(100, Math.floor(Number(options.timeoutMs ?? 2e3)));
+    if (existing) {
+      void this.broadcastSyncPayload(request).catch(() => {
+      });
+      return existing;
+    }
+    const timeoutMs = Math.min(fullTimeoutMs, this.expectedAnswerMs());
+    const askedAt = Date.now();
     return await new Promise(async (resolve) => {
       const timeout = setTimeout(async () => {
         this.pendingRetrieveRequests.delete(reqId);
         const latest = await this.get(space, normalizedKey);
-        resolve(latest);
+        done(latest);
       }, timeoutMs);
+      let retry = null;
+      const done = (value) => {
+        if (retry) clearInterval(retry);
+        resolve(value);
+      };
       this.pendingRetrieveRequests.set(reqId, {
-        resolve: (value) => resolve(value),
+        resolve: (value) => {
+          if (value) this.noteAnswerTime(Date.now() - askedAt);
+          done(value);
+        },
         timeout
       });
       await this.broadcastSyncPayload(request);
+      retry = setInterval(() => {
+        if (!this.pendingRetrieveRequests.has(reqId)) {
+          if (retry) clearInterval(retry);
+          return;
+        }
+        void this.broadcastSyncPayload({ ...request, timestamp: Date.now(), retry: true }).catch(() => {
+        });
+      }, Math.min(RETRIEVE_RETRY_MS, Math.max(300, Math.floor(timeoutMs / 2))));
+      retry.unref?.();
     });
+  }
+  /** How long to wait for a Get's answer: twice the slowest recent answer, within bounds. */
+  expectedAnswerMs() {
+    if (this.retrieveAnswerTimes.length < 3) return RETRIEVE_FIRST_WAIT_MS;
+    return Math.max(RETRIEVE_MIN_WAIT_MS, 2 * Math.max(...this.retrieveAnswerTimes));
+  }
+  noteAnswerTime(ms) {
+    this.retrieveAnswerTimes.push(ms);
+    if (this.retrieveAnswerTimes.length > 8) this.retrieveAnswerTimes.shift();
   }
   async delete(space, key) {
     const mutation = await this.applyLocalDelete(space, key, false);
@@ -3763,9 +3875,11 @@ var PeerPigeonStorage = class {
       timestamp: Date.now(),
       record: existing
     };
-    const answerKey = `${request.origin ?? request.actorId}:${request.space}:${request.key}`;
+    const asker = `${request.origin ?? request.actorId}:${request.space}:${request.key}`;
+    const answerKey = request.retry ? `${asker}:${request.reqId}` : asker;
+    const minInterval = request.retry ? RETRIEVE_RETRY_ANSWER_MIN_INTERVAL_MS : RETRIEVE_ANSWER_MIN_INTERVAL_MS;
     const answeredAt = this.retrieveAnsweredAt.get(answerKey) ?? 0;
-    if (Date.now() - answeredAt < RETRIEVE_ANSWER_MIN_INTERVAL_MS) return;
+    if (Date.now() - answeredAt < minInterval) return;
     this.retrieveAnsweredAt.set(answerKey, Date.now());
     if (this.retrieveAnsweredAt.size > 2048) {
       for (const [key, at] of this.retrieveAnsweredAt) {
@@ -4601,6 +4715,15 @@ function isMeshSignalPayload(value) {
   const candidate = value;
   return candidate.__ppType === MESH_SIGNAL_PAYLOAD_TYPE && !!candidate.envelope && typeof candidate.envelope === "object";
 }
+var LOCAL_RELAY_CHECK_MS = 6e4;
+var PEER_GONE_BACKOFF_MS = 6e4;
+var FILL_REFUSED_WINDOW_MS = 6e4;
+var FILL_BACKOFF_MIN_MS = 15e3;
+var FILL_BACKOFF_MAX_MS = 12e4;
+var RENEWAL_FORWARD_MS = 300;
+var LEAVE_FLUSH_MS = 250;
+var BRIDGE_GRACE_MS = 8e3;
+var BRIDGE_DIAL_INTERVAL_MS = 5e3;
 var DEFAULT_SIGNALING_SERVERS = Object.freeze([
   "wss://peer.ooo/ws",
   "wss://decentralize.ooo/ws",
@@ -4620,9 +4743,30 @@ var NEGOTIATION_OFFER_DEADLINE_MS = 2e4;
 var MEMBERSHIP_BROADCAST_MIN_INTERVAL_MS = 1e3;
 var DISCOVERY_REFRESH_MIN_MS = 2e3;
 var DISCOVERY_REFRESH_MAX_MS = 5 * 6e4;
+var LINK_LOG_MAX = 200;
+var NEEDY_UNREPORTED_MS = 15e3;
+function directRelaySupported() {
+  if (typeof navigator === "undefined" || typeof navigator.userAgent !== "string") return true;
+  return !/Firefox\//.test(navigator.userAgent);
+}
+function canonicalDirectRelayUrl(value) {
+  const [base, query = ""] = value.split("?");
+  if (!isDirectRelayUrl(base)) return null;
+  const params = new URLSearchParams(query);
+  const out = new URLSearchParams();
+  const lan = (params.get("lan") || "").split(",").filter((part) => /^\d{1,3}(\.\d{1,3}){3}:\d{1,5}$/.test(part));
+  if (lan.length) out.set("lan", lan.slice(0, 4).join(","));
+  const tunnel = params.get("tunnel");
+  const canonicalTunnel = tunnel ? canonicalSignalingUrl(tunnel) : null;
+  if (canonicalTunnel) out.set("tunnel", canonicalTunnel);
+  const text = out.toString();
+  return text ? `${base}?${text}` : base;
+}
 function canonicalSignalingUrl(value) {
+  const text = String(value || "").trim();
+  if (text.startsWith("webrtc-direct://")) return canonicalDirectRelayUrl(text);
   try {
-    const url = new URL(String(value || "").trim());
+    const url = new URL(text);
     if (url.protocol === "https:") url.protocol = "wss:";
     if (url.protocol === "http:") url.protocol = "ws:";
     if (url.protocol !== "wss:" && url.protocol !== "ws:") return null;
@@ -4683,6 +4827,71 @@ async function selectClosestSignalingServer(peerId, relayUrls) {
   return ranked[0];
 }
 async function discoverSignalingRelays(options) {
+  const directLookup = options.directory === false || !directRelaySupported() ? Promise.resolve([]) : lookupDirectRelays({ name: options.directory || DEFAULT_DIRECTORY_NAME, fetchImpl: options.fetchImpl }).then((records) => records.map((record) => ({
+    url: canonicalSignalingUrl(directoryRecordUrl(record)),
+    nodeId: record.node_id,
+    kind: "local",
+    connections: 0,
+    capacity: Number(record.capacity || 0),
+    tunnelOnly: false
+  })).filter((relay) => Boolean(relay.url))).catch(() => []);
+  const onThisMachine = typeof globalThis.location !== "undefined" && !directRelaySupported() ? findRelayOnThisMachine(options.fetchImpl) : Promise.resolve(null);
+  const fromRegistry = (await discoverRegistryRelays(options)).filter((relay) => reachableFromThisPage(relay.url));
+  const mine = await onThisMachine;
+  if (mine) fromRegistry.unshift(mine);
+  const direct = await directLookup;
+  if (direct.length === 0) return fromRegistry;
+  const directIds = new Set(direct.map((relay) => relay.nodeId));
+  return [...direct, ...fromRegistry.filter((relay) => !directIds.has(relay.nodeId))];
+}
+async function findRelayOnThisMachine(_fetchImpl) {
+  const url = "ws://127.0.0.1:8788/ws";
+  const WS = globalThis.WebSocket;
+  if (typeof WS !== "function") return null;
+  const open = await new Promise((resolve) => {
+    let socket = null;
+    const timer = setTimeout(() => {
+      try {
+        socket?.close();
+      } catch {
+      }
+      resolve(false);
+    }, 1500);
+    try {
+      socket = new WS(`${url}?probe=1`);
+      socket.onopen = () => {
+        clearTimeout(timer);
+        try {
+          socket?.close(1e3, "probe");
+        } catch {
+        }
+        resolve(true);
+      };
+      socket.onerror = () => {
+        clearTimeout(timer);
+        resolve(false);
+      };
+    } catch {
+      clearTimeout(timer);
+      resolve(false);
+    }
+  });
+  if (!open) return null;
+  const ranking = await relayRankingId(url, null);
+  const nodeId = Array.from(ranking, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return { url, nodeId, kind: "local", connections: 0, capacity: 0, tunnelOnly: false };
+}
+function reachableFromThisPage(url) {
+  const page = globalThis.location;
+  if (page?.protocol !== "https:" || !String(url).startsWith("ws://")) return true;
+  try {
+    const host = new URL(url).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    return host === "localhost" || host.endsWith(".localhost") || host === "::1" || /^127\./.test(host);
+  } catch {
+    return false;
+  }
+}
+async function discoverRegistryRelays(options) {
   const bootstrap = canonicalSignalingUrl(options.bootstrapServer);
   if (!bootstrap) throw new Error(`Invalid FreeRTC bootstrap URL: ${options.bootstrapServer}`);
   const records = /* @__PURE__ */ new Map([[bootstrap, {}]]);
@@ -4745,7 +4954,11 @@ async function discoverClosestSignalingServers(options) {
       measurements: options.measurements,
       previousUrl: options.previousUrl ? canonicalSignalingUrl(options.previousUrl) : null
     });
-    return ordered.slice(0, limit);
+    const chosen = ordered.slice(0, limit);
+    for (const url of ordered) {
+      if ((url.startsWith("webrtc-direct://") || url.startsWith("ws://127.0.0.1:")) && !chosen.includes(url)) chosen.push(url);
+    }
+    return chosen;
   }
   const bootstrap = canonicalSignalingUrl(options.bootstrapServer);
   if (!bootstrap) throw new Error(`Invalid FreeRTC bootstrap URL: ${options.bootstrapServer}`);
@@ -4773,7 +4986,7 @@ async function discoverClosestSignalingServers(options) {
       const body = await response.json();
       for (const record of Array.isArray(body?.relays) ? body.relays : []) {
         const normalized = canonicalSignalingUrl(typeof record === "string" ? record : String(record?.url || ""));
-        if (!normalized) continue;
+        if (!normalized || !reachableFromThisPage(normalized)) continue;
         const nodeId = typeof record === "string" ? null : record?.node_id ?? null;
         if (!candidates.has(normalized) || nodeId && !candidates.get(normalized)) candidates.set(normalized, nodeId);
       }
@@ -4811,6 +5024,9 @@ var PartialMesh = class {
     /** First local observation of FreeRTC negotiations not tracked by PartialMesh. */
     this.orphanRtcFirstSeenAtMs = /* @__PURE__ */ new Map();
     this.peerConnectedAtMs = /* @__PURE__ */ new Map();
+    // Every link that opened or closed, with why it closed: the last
+    // LINK_LOG_MAX, newest last. See getLinkLog().
+    this.linkLog = [];
     this.discoveredAtMs = /* @__PURE__ */ new Map();
     /** Peers present in the relay's latest un-graced discovery snapshot. */
     this.activeSignalingPeers = /* @__PURE__ */ new Set();
@@ -4830,6 +5046,11 @@ var PartialMesh = class {
     this.dialBackoffUntilMs = /* @__PURE__ */ new Map();
     this.rebalanceCooldownUntilMs = 0;
     this.rebalanceAttemptAtMs = /* @__PURE__ */ new Map();
+    // Links to peers outside our membership when they formed: a bridge to a
+    // separate part of the mesh, kept past maxPeers until membership merges.
+    this.bridgeGraceUntilMs = /* @__PURE__ */ new Map();
+    this.lastBridgeDialAtMs = 0;
+    this.bridgeTrimTimer = null;
     this.pendingRebalanceDropByTarget = /* @__PURE__ */ new Map();
     /** Converged global peer membership — populated via in-band membership gossip. */
     this.globalPeers = /* @__PURE__ */ new Set();
@@ -4840,6 +5061,10 @@ var PartialMesh = class {
     this.membershipSequence = 0;
     /** Relayed per-peer capacity used to give scarce, underfilled peers priority. */
     this.peerCapacityById = /* @__PURE__ */ new Map();
+    this.fillBackoffMs = 0;
+    this.localRelayTimer = null;
+    this.localRelayCheckRunning = false;
+    this.fillBackoffUntilMs = 0;
     /** Relayed adjacency snapshots used to reconstruct the known network graph. */
     this.peerTopologyById = /* @__PURE__ */ new Map();
     this.localCapacityUpdatedAtMs = Date.now();
@@ -4853,6 +5078,16 @@ var PartialMesh = class {
     // the window closes, so nothing is lost, only coalesced.
     this.membershipBroadcastAtMs = 0;
     this.membershipBroadcastTimer = null;
+    // Lease renewals must cross the whole mesh well inside a lease. Riding
+    // each peer's own five-second round, one hop per round, they did not: on
+    // a ring of forty a renewal took longer to reach the far side than the
+    // lease lasted, live peers dropped out of membership there, and each
+    // dropout was answered with a bridge dial and a shed link, all day. Each
+    // newer record we merge is forwarded to our neighbours as a small update
+    // within RENEWAL_FORWARD_MS. A record is forwarded only when it is newer
+    // than ours, so each version crosses each link at most once.
+    this.renewalForwardIds = /* @__PURE__ */ new Set();
+    this.renewalForwardTimer = null;
     const automaticSignalingServer = config.automaticSignalingServer ?? !config.signalingServer;
     const bootstrapServer = String(config.signalingServer || DEFAULT_SIGNALING_SERVERS[0]).trim();
     const configuredSignalingServers = Array.from(new Set((config.signalingServers != null ? [bootstrapServer, ...config.signalingServers] : automaticSignalingServer ? DEFAULT_SIGNALING_SERVERS : [bootstrapServer]).map((url) => String(url || "").trim()).filter(Boolean)));
@@ -4864,6 +5099,8 @@ var PartialMesh = class {
       signalingServer: bootstrapServer,
       signalingServers,
       automaticSignalingServer,
+      relayDirectory: config.relayDirectory ?? DEFAULT_DIRECTORY_NAME,
+      debug: config.debug === true,
       networkId: config.networkId ?? config.sessionId ?? "peerpigeon",
       sessionId: config.sessionId ?? "default-session",
       autoDiscover: config.autoDiscover ?? true,
@@ -4933,12 +5170,19 @@ var PartialMesh = class {
     return (peerId ?? "").trim();
   }
   normalizeSignalingUrl(rawUrl) {
+    if (String(rawUrl).trim().startsWith("webrtc-direct://")) {
+      const direct = canonicalSignalingUrl(rawUrl);
+      if (!direct) throw new Error(`Invalid direct relay URL: ${rawUrl}`);
+      return direct;
+    }
     const url = new URL(rawUrl);
     const hostname = url.hostname.toLowerCase();
     const isLocalDevelopmentHost = hostname === "localhost" || hostname === "::1" || hostname.endsWith(".local") || /^127\./.test(hostname) || /^10\./.test(hostname) || /^192\.168\./.test(hostname) || /^169\.254\./.test(hostname) || /^172\.(1[6-9]|2\d|3[01])\./.test(hostname);
+    const isIpAddress = /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname.startsWith("[");
+    const keepsPlainWs = isLocalDevelopmentHost || isIpAddress;
     if (url.protocol === "https:") url.protocol = "wss:";
-    if (url.protocol === "http:") url.protocol = isLocalDevelopmentHost ? "ws:" : "wss:";
-    if (url.protocol === "ws:" && !isLocalDevelopmentHost) url.protocol = "wss:";
+    if (url.protocol === "http:") url.protocol = keepsPlainWs ? "ws:" : "wss:";
+    if (url.protocol === "ws:" && !keepsPlainWs) url.protocol = "wss:";
     if (url.protocol !== "ws:" && url.protocol !== "wss:") {
       throw new Error(`Unsupported signaling protocol: ${url.protocol}`);
     }
@@ -4964,9 +5208,31 @@ var PartialMesh = class {
     this.discoveryRefreshWaitMs = DISCOVERY_REFRESH_MIN_MS;
     this.lastDiscoveryRefreshAtMs = 0;
   }
+  /**
+   * A peer that said it was leaving (its own 'left' membership record, which
+   * only a newer 'alive' record from it overrides). Relay lists and gossip
+   * can still name it for a while; it is not rediscovered or dialled.
+   */
+  hasLeft(peerId) {
+    return this.membershipRecordsById.get(peerId)?.state === "left";
+  }
+  /** Drop every trace of a peer that left, so nothing dials it again. */
+  forgetDepartedPeer(peerId) {
+    this.discoveredPeers.delete(peerId);
+    this.discoveredAtMs.delete(peerId);
+    this.activeSignalingPeers.delete(peerId);
+    if (this.connecting.has(peerId) && !this.peers.get(peerId)?.connected) {
+      this.connecting.delete(peerId);
+      this.peers.delete(peerId);
+      try {
+        this.signalingClient?.closeConnection?.(peerId);
+      } catch {
+      }
+    }
+  }
   addDiscoveredPeer(peerId) {
     const id = this.normalizePeerId(peerId);
-    if (!id || this.isSelfAlias(id) || this.retiredPeerIds.has(id)) return;
+    if (!id || this.isSelfAlias(id) || this.retiredPeerIds.has(id) || this.hasLeft(id)) return;
     if (this.discoveredPeers.has(id)) return;
     this.discoveredPeers.add(id);
     this.discoveredAtMs.set(id, Date.now());
@@ -5289,21 +5555,106 @@ var PartialMesh = class {
     }
     return bridgePeerIds;
   }
+  /**
+   * A peer prefers a local relay (one in the DNS relay directory, reached
+   * directly). While it signals through any other relay it looks the
+   * directory up again every LOCAL_RELAY_CHECK_MS (a DNS-over-HTTPS lookup,
+   * no relay request), and when a listed relay answers a test connection it
+   * moves its signaling there; open peer channels stay up. So a peer that
+   * fell back to a cloud relay while the local one was down goes back to it
+   * once it is up.
+   */
+  startLocalRelayReturn() {
+    if (!this.config.automaticSignalingServer || this.config.relayDirectory === false || !directRelaySupported()) return;
+    if (typeof globalThis.RTCPeerConnection !== "function") return;
+    if (this.localRelayTimer) clearInterval(this.localRelayTimer);
+    this.localRelayTimer = setInterval(() => {
+      void this.returnToLocalRelay();
+    }, LOCAL_RELAY_CHECK_MS);
+    this.localRelayTimer.unref?.();
+  }
+  async returnToLocalRelay() {
+    const adapter = this.signalingClient;
+    if (!adapter || this.localRelayCheckRunning) return;
+    const current = adapter.currentSignalUrl;
+    if (isDirectRelayUrl(String(current).split("?")[0])) return;
+    this.localRelayCheckRunning = true;
+    try {
+      const records = await lookupDirectRelays({
+        name: this.config.relayDirectory || DEFAULT_DIRECTORY_NAME,
+        network: this.config.networkId,
+        room: this.config.sessionId
+      });
+      for (const record of records.slice(0, 2)) {
+        const url = canonicalSignalingUrl(directoryRecordUrl(record));
+        if (!url) continue;
+        try {
+          const { pc } = await directRelayChannel(url, { timeoutMs: 5e3 });
+          try {
+            pc.close();
+          } catch {
+          }
+        } catch {
+          continue;
+        }
+        if (record.node_id) this.relayNodeIds.set(url, record.node_id);
+        adapter.switchSignalUrl(url, "local relay is reachable");
+        return;
+      }
+    } catch {
+    } finally {
+      this.localRelayCheckRunning = false;
+    }
+  }
   trimExcessPeers() {
     const connectedPeers = this.getConnectedPeers();
     const overflow = connectedPeers.length - this.config.maxPeers;
     if (overflow <= 0) return;
+    const now = Date.now();
+    for (const [peerId, until] of this.bridgeGraceUntilMs) {
+      if (until <= now || !connectedPeers.includes(peerId)) this.bridgeGraceUntilMs.delete(peerId);
+    }
+    if (this.bridgeGraceUntilMs.size > 0 && overflow <= this.config.tolerantPeers) {
+      if (!this.bridgeTrimTimer) {
+        const wait = Math.max(...this.bridgeGraceUntilMs.values()) - now + 50;
+        this.bridgeTrimTimer = setTimeout(() => {
+          this.bridgeTrimTimer = null;
+          this.trimExcessPeers();
+        }, wait);
+      }
+      return;
+    }
     this.rebalanceCooldownUntilMs = Math.max(this.rebalanceCooldownUntilMs, Date.now() + 2e3);
     const protectedPeerIds = this.cecrProtectedConnectedPeerIds();
+    const coordinatePeerIds = this.cecrCoordinateNeighbors();
     const bridgePeerIds = this.localBridgeConnectedPeerIds();
     const dropOrder = connectedPeers.map((peerId) => ({
       peerId,
       connectedAt: this.peerConnectedAtMs.get(peerId) ?? 0,
+      coordinate: coordinatePeerIds.has(peerId),
       cecrProtected: protectedPeerIds.has(peerId),
-      graphBridge: bridgePeerIds.has(peerId)
+      graphBridge: bridgePeerIds.has(peerId),
+      // Links the neighbour has beyond its minimum (unknown counts as none).
+      spare: (() => {
+        const capacity = this.freshPeerCapacity(peerId);
+        return capacity ? Math.max(0, capacity.connectedPeers - this.config.minPeers) : 0;
+      })(),
+      // A neighbour that would be left at or below its minimum: it reported
+      // minPeers links or fewer (this one included), or it connected just
+      // now and has not said (a peer dialling in from none). Shedding it
+      // sent it dialling the next full peer, which shed it too; a browser
+      // tab bled out to no links that way, one fresh link at a time.
+      needy: (() => {
+        const capacity = this.freshPeerCapacity(peerId);
+        if (capacity) return capacity.connectedPeers <= this.config.minPeers;
+        return now - (this.peerConnectedAtMs.get(peerId) ?? 0) < NEEDY_UNREPORTED_MS;
+      })()
     })).sort((a, b) => {
+      if (a.needy !== b.needy) return a.needy ? 1 : -1;
+      if (a.coordinate !== b.coordinate) return a.coordinate ? 1 : -1;
       if (a.graphBridge !== b.graphBridge) return a.graphBridge ? 1 : -1;
       if (a.cecrProtected !== b.cecrProtected) return a.cecrProtected ? 1 : -1;
+      if (a.spare !== b.spare) return b.spare - a.spare;
       if (a.connectedAt !== b.connectedAt) return a.connectedAt - b.connectedAt;
       return a.peerId.localeCompare(b.peerId);
     });
@@ -5368,31 +5719,51 @@ var PartialMesh = class {
   }
   cecrCoordinateNeighbors() {
     const selfId = this.normalizePeerId(this.clientId);
-    const liveIds = Array.from(/* @__PURE__ */ new Set([selfId, ...this.globalPeers])).filter(Boolean);
+    const relayListed = this.hasActiveSignalingSnapshot ? Array.from(this.activeSignalingPeers).filter((peerId) => this.discoveredPeers.has(peerId)) : [];
+    const liveIds = Array.from(/* @__PURE__ */ new Set([selfId, ...this.globalPeers, ...relayListed])).filter((peerId) => peerId && !this.retiredPeerIds.has(peerId) && (peerId === selfId || !this.isSelfAlias(peerId)));
     const numeric = liveIds.map((peerId) => ({ peerId, value: this.cecrNumericPeerId(peerId) })).filter((peer) => peer.value != null).sort((left, right) => left.value < right.value ? -1 : left.value > right.value ? 1 : left.peerId.localeCompare(right.peerId));
     const selfIndex = numeric.findIndex((peer) => peer.peerId === selfId);
     const required = /* @__PURE__ */ new Set();
-    if (selfIndex > 0) required.add(numeric[selfIndex - 1].peerId);
-    if (selfIndex >= 0 && selfIndex + 1 < numeric.length) required.add(numeric[selfIndex + 1].peerId);
+    if (selfIndex < 0 || numeric.length < 2) return required;
+    const count = numeric.length;
+    required.add(numeric[(selfIndex - 1 + count) % count].peerId);
+    required.add(numeric[(selfIndex + 1) % count].peerId);
+    required.delete(selfId);
     return required;
+  }
+  /**
+   * 0: a coordinate neighbour (the next peer either side in ID order). Those
+   *    links alone join every peer into one line, so they come before
+   *    anything else: with maxPeers 2 they are the whole topology.
+   * 1: a peer in a distance bucket none of our links covers yet.
+   * 2: anyone else.
+   */
+  /** True while one of this peer's coordinate neighbours is not connected. */
+  missingCoordinateNeighbour() {
+    const connected = new Set(this.getConnectedPeers());
+    for (const peerId of this.cecrCoordinateNeighbors()) {
+      if (!connected.has(peerId)) return true;
+    }
+    return false;
   }
   cecrOverlayDialPriority(peerId) {
     const selfId = this.normalizePeerId(this.clientId);
     const self = this.cecrNumericPeerId(selfId);
     const candidate = this.cecrNumericPeerId(peerId);
-    if (self == null || candidate == null || !this.globalPeers.has(peerId)) return 1;
     if (this.cecrCoordinateNeighbors().has(peerId)) return 0;
+    if (self == null || candidate == null || !this.globalPeers.has(peerId)) return 2;
     const candidateRank = this.cecrBucketRank(self ^ candidate);
     const bucketCovered = this.getConnectedPeers().some((connectedPeerId) => {
       const connected = this.cecrNumericPeerId(connectedPeerId);
       return connected != null && this.cecrBucketRank(self ^ connected) === candidateRank;
     });
-    return bucketCovered ? 1 : 0;
+    return bucketCovered ? 2 : 1;
   }
   cecrProtectedConnectedPeerIds() {
     const protectedIds = this.cecrCoordinateNeighbors();
     const self = this.cecrNumericPeerId(this.clientId ?? "");
     if (self == null) return protectedIds;
+    if (this.config.maxPeers <= protectedIds.size) return protectedIds;
     const representativeByBucket = /* @__PURE__ */ new Map();
     for (const peerId of this.getConnectedPeers().slice().sort()) {
       const peer = this.cecrNumericPeerId(peerId);
@@ -5449,11 +5820,15 @@ var PartialMesh = class {
     if (!closestCandidate || !farthestConnected) {
       return false;
     }
+    if (farthestConnected.cecrProtected) {
+      return false;
+    }
     const connectedAgeMs = now - (farthestConnected.connectedAt || 0);
     if (connectedAgeMs < 4e3) {
       return false;
     }
-    const repairsCecrOverlay = this.cecrOverlayDialPriority(closestCandidate.peerId) === 0;
+    const candidatePriority = this.cecrOverlayDialPriority(closestCandidate.peerId);
+    const repairsCecrOverlay = candidatePriority === 0 || candidatePriority === 1 && this.config.maxPeers > this.cecrCoordinateNeighbors().size;
     const materiallyCloser = repairsCecrOverlay || closestCandidate.distance * 4n < farthestConnected.distance * 3n;
     if (!materiallyCloser) {
       return false;
@@ -5507,7 +5882,8 @@ var PartialMesh = class {
       previousUrl: previousPeerSignalUrls[0] ?? null,
       onRelays: (relays) => {
         for (const relay of relays) relayNodeIds.set(relay.url, relay.nodeId);
-      }
+      },
+      directory: this.config.relayDirectory
     }) : [this.normalizeSignalingUrl(this.config.signalingServer)];
     this.relayNodeIds = relayNodeIds;
     this.rememberBrowserPeerSignalUrls(signalingUrls.slice(0, 1));
@@ -5527,6 +5903,10 @@ var PartialMesh = class {
       retiredPeerIds,
       iceServers: this.config.iceServers,
       trickleIce: this.config.trickleIce,
+      // Stay reachable on the relay while a coordinate neighbour is not yet
+      // linked. That neighbour may sit in another part of the mesh, where
+      // only the relay can carry the offer; both ends hold until it forms.
+      relayHold: () => this.missingCoordinateNeighbour(),
       meshSignaling: {
         canRoute: (peerId) => this.meshCanSignal(peerId),
         send: (envelope) => {
@@ -5538,6 +5918,7 @@ var PartialMesh = class {
         }
       }
     });
+    this.startLocalRelayReturn();
     this.relayAttemptStartedAt = Date.now();
     this.signalingClient.on("relay:failed", (data) => {
       const nodeId = this.relayNodeIds.get(String(data?.signalUrl || ""));
@@ -5631,7 +6012,11 @@ var PartialMesh = class {
       peerConnection.connected = true;
       this.peerConnectedAtMs.set(peerId, Date.now());
       this.connecting.delete(peerId);
+      if (!this.globalPeers.has(peerId)) {
+        this.bridgeGraceUntilMs.set(peerId, Date.now() + BRIDGE_GRACE_MS);
+      }
       this.noteLocalCapacityChanged();
+      this.noteLink(peerId, "up", "local", "connected");
       this.emit("peer:connected", peerId);
       const rebalanceDropPeerId = this.pendingRebalanceDropByTarget.get(peerId);
       if (rebalanceDropPeerId) {
@@ -5671,7 +6056,12 @@ var PartialMesh = class {
         this.peers.delete(peerId);
         this.peerConnectedAtMs.delete(peerId);
         this.connecting.delete(peerId);
+        if (data.reason === "capacity_shed" && peerConnection.initiator && connectedAt > 0 && Date.now() - connectedAt < FILL_REFUSED_WINDOW_MS) {
+          this.fillBackoffMs = Math.min(FILL_BACKOFF_MAX_MS, Math.max(FILL_BACKOFF_MIN_MS, this.fillBackoffMs * 2));
+          this.fillBackoffUntilMs = Date.now() + this.fillBackoffMs;
+        }
         if (wasConnected) {
+          this.noteLink(peerId, "down", "remote", data.reason || "unknown");
           this.noteTransportDisconnect(peerId, connectedAt, data.reason);
           this.noteLocalCapacityChanged();
           this.emit("peer:disconnected", peerId);
@@ -5687,6 +6077,16 @@ var PartialMesh = class {
       if (!peerId || this.isSelfAlias(peerId)) return;
       this.noteDialFailure(peerId);
       this.activeSignalingPeers.delete(peerId);
+    });
+    this.signalingClient.on("peer:gone", (data) => {
+      const peerId = this.normalizePeerId(data?.peerId);
+      if (!peerId || this.isSelfAlias(peerId) || this.peers.get(peerId)?.connected) return;
+      this.activeSignalingPeers.delete(peerId);
+      this.discoveredPeers.delete(peerId);
+      this.connecting.delete(peerId);
+      if (this.peers.has(peerId)) this.peers.delete(peerId);
+      this.dialBackoffUntilMs.set(peerId, Date.now() + PEER_GONE_BACKOFF_MS);
+      this.emit("signaling:log", { message: `[signal] ${peerId.slice(0, 12)} is on no relay: no longer dialling it` });
     });
     this.signalingClient.on("rtc:data", (data) => {
       const msg = this.tryParseMembership(data.data);
@@ -5764,8 +6164,10 @@ var PartialMesh = class {
   }
   recoverMeshAfterInactivity(reason) {
     const now = Date.now();
-    this.dialFailureCount.clear();
-    this.dialBackoffUntilMs.clear();
+    if (!isAttentionChangeOnly(reason)) {
+      this.dialFailureCount.clear();
+      this.dialBackoffUntilMs.clear();
+    }
     this.rebalanceAttemptAtMs.clear();
     this.rebalanceCooldownUntilMs = 0;
     this.lastUnderConnectedRecoveryAtMs = 0;
@@ -5978,6 +6380,14 @@ var PartialMesh = class {
       this.dialFailureCount.delete(peerId);
     }
   }
+  noteLink(peerId, event, by, reason) {
+    this.linkLog.push({ at: Date.now(), peer: peerId, event, by, reason, links: this.getConnectedPeers().length });
+    if (this.linkLog.length > LINK_LOG_MAX) this.linkLog.splice(0, this.linkLog.length - LINK_LOG_MAX);
+  }
+  /** The last links that opened or closed, newest last: when, which peer, and why it closed. */
+  getLinkLog() {
+    return this.linkLog.map((entry) => ({ ...entry }));
+  }
   noteTransportDisconnect(peerId, connectedAt, reason) {
     if (reason === "local_close" || reason === "capacity_shed") return;
     const connectedForMs = connectedAt > 0 ? Date.now() - connectedAt : 0;
@@ -6044,7 +6454,7 @@ var PartialMesh = class {
       }
     }
     try {
-      console.warn(`[PartialMesh] hardReset(${reason}) clientId=${this.clientId ?? ""} discovered=${this.discoveredPeers.size}`);
+      if (this.config.debug) console.warn(`[PartialMesh] hardReset(${reason}) clientId=${this.clientId ?? ""} discovered=${this.discoveredPeers.size}`);
     } catch {
     }
   }
@@ -6087,7 +6497,7 @@ var PartialMesh = class {
       }
     }
     return Array.from(candidates).filter(
-      (peerId) => !this.isSelfAlias(peerId) && !this.retiredPeerIds.has(peerId)
+      (peerId) => !this.isSelfAlias(peerId) && !this.retiredPeerIds.has(peerId) && !this.hasLeft(peerId)
     );
   }
   maintainPeerConnections() {
@@ -6109,6 +6519,13 @@ var PartialMesh = class {
       const sorted = available.slice().sort((a, b) => this.compareDialCandidates(a, b));
       return sorted.slice(0, Math.min(count, sorted.length));
     };
+    const livePendingCount = Array.from(this.peers.values()).filter((peer) => !peer.connected && (this.activeSignalingPeers.has(peer.id) || this.meshCanSignal(peer.id))).length;
+    if (connectedCount < this.config.minPeers && connectedCount + livePendingCount < this.config.minPeers && available.length > 0) {
+      for (const peerId of pickCandidates(Math.max(1, this.config.minPeers - connectedCount))) {
+        this.connectToPeerInternal(peerId, true);
+      }
+      return;
+    }
     if (totalInProgress < this.config.minPeers) {
       const needed = this.config.minPeers - totalInProgress;
       const emergencyBurst = emergencyIsolated ? Math.min(3, Math.max(2, available.length)) : 0;
@@ -6118,15 +6535,37 @@ var PartialMesh = class {
         this.connectToPeer(peerId);
       }
     } else if (totalInProgress < this.config.maxPeers && available.length > 0) {
-      if (now < this.rebalanceCooldownUntilMs) {
+      if (now < this.rebalanceCooldownUntilMs || now < this.fillBackoffUntilMs) {
         return;
       }
-      for (const peerId of pickCandidates(1)) {
+      if (this.fillBackoffMs > 0 && now - this.fillBackoffUntilMs > FILL_BACKOFF_MAX_MS) this.fillBackoffMs = 0;
+      const withRoom = (peerId) => {
+        const capacity = this.freshPeerCapacity(peerId);
+        if (this.cecrOverlayDialPriority(peerId) === 0) return true;
+        if (!capacity) return !this.globalPeers.has(peerId);
+        return capacity.connectedPeers < capacity.maxPeers;
+      };
+      const fill = pickCandidates(available.length).filter(withRoom).slice(0, 1);
+      for (const peerId of fill) {
         this.connectToPeer(peerId);
       }
     } else if (connectedCount > this.config.maxPeers) {
       this.trimExcessPeers();
     } else if (connectedCount >= this.config.maxPeers && pendingCount < this.config.tolerantPeers && available.length > 0) {
+      const selfId = this.normalizePeerId(this.clientId);
+      const ourListed = [selfId, ...Array.from(this.globalPeers).filter((peerId) => this.activeSignalingPeers.has(peerId))];
+      const weAreNearest = (peerId) => {
+        const mine = this.peerDistance(selfId, peerId);
+        return ourListed.every((member) => member === selfId || this.peerDistance(member, peerId) > mine);
+      };
+      const foreign = available.filter((peerId) => !this.globalPeers.has(peerId) && this.activeSignalingPeers.has(peerId) && weAreNearest(peerId));
+      if (foreign.length > 0 && now - this.lastBridgeDialAtMs >= BRIDGE_DIAL_INTERVAL_MS) {
+        this.lastBridgeDialAtMs = now;
+        const target = foreign.slice().sort((a, b) => this.compareDialCandidates(a, b))[0];
+        this.emit("signaling:log", { message: `[bridge] dial ${target.slice(0, 8)}: listed by the relay, not in our membership` });
+        this.connectToPeerInternal(target, true);
+        return;
+      }
       if (this.maybeRebalanceForCloserPeer(available)) {
         return;
       }
@@ -6222,6 +6661,7 @@ var PartialMesh = class {
         this.discoveredPeers.delete(peerId);
       }
       if (wasConnected) {
+        this.noteLink(peerId, "down", "local", reason);
         this.noteLocalCapacityChanged();
         this.emit("peer:disconnected", peerId);
         this.broadcastMembership();
@@ -6514,7 +6954,7 @@ var PartialMesh = class {
         try {
           handler(...args);
         } catch (err) {
-          console.error(`Error in event handler for ${event}:`, err);
+          if (this.config.debug) console.error(`Error in event handler for ${event}:`, err);
         }
       });
     }
@@ -6661,6 +7101,34 @@ var PartialMesh = class {
     } catch {
     }
   }
+  forwardMembershipRecords(peerIds) {
+    for (const peerId of peerIds) this.renewalForwardIds.add(peerId);
+    if (this.renewalForwardTimer) return;
+    this.renewalForwardTimer = setTimeout(() => {
+      this.renewalForwardTimer = null;
+      const ids = Array.from(this.renewalForwardIds);
+      this.renewalForwardIds.clear();
+      const all = this.membershipRecordsForWire();
+      const records = {};
+      for (const peerId of ids) if (all[peerId]) records[peerId] = all[peerId];
+      if (Object.keys(records).length === 0) return;
+      const payload = JSON.stringify({
+        __membership: true,
+        peers: [],
+        retiredPeers: [],
+        records,
+        capacities: {},
+        topology: {}
+      });
+      for (const peerId of this.getConnectedPeers()) {
+        try {
+          this.signalingClient?.send(peerId, payload);
+        } catch {
+        }
+      }
+    }, RENEWAL_FORWARD_MS);
+    this.renewalForwardTimer.unref?.();
+  }
   broadcastMembership(exceptPeerId) {
     const now = Date.now();
     const elapsed = now - this.membershipBroadcastAtMs;
@@ -6703,9 +7171,12 @@ var PartialMesh = class {
     let topologyChanged = false;
     let departureMerged = false;
     const now = Date.now();
+    const renewed = [];
+    const returning = [];
     for (const [rawPeerId, rawRecord] of Object.entries(records || {})) {
       const peerId = this.normalizePeerId(rawPeerId);
       if (!peerId || !Array.isArray(rawRecord) || rawRecord.length < 5) continue;
+      const wasMember = this.globalPeers.has(peerId);
       const record = {
         peerId,
         incarnation: Math.floor(Number(rawRecord[0])),
@@ -6716,7 +7187,13 @@ var PartialMesh = class {
       };
       if (this.mergeMembershipRecord(record, now)) {
         membershipChanged = true;
-        if (record.state === "left") departureMerged = true;
+        if (record.state === "left") {
+          departureMerged = true;
+          this.forgetDepartedPeer(peerId);
+        } else {
+          renewed.push(peerId);
+          if (!wasMember) returning.push(peerId);
+        }
       }
     }
     const normalizedFromPeerId = this.normalizePeerId(fromPeerId);
@@ -6732,6 +7209,7 @@ var PartialMesh = class {
       };
       if (this.mergeMembershipRecord(left, now)) {
         membershipChanged = true;
+        this.forgetDepartedPeer(normalizedFromPeerId);
         departureMerged = true;
       }
     }
@@ -6751,6 +7229,13 @@ var PartialMesh = class {
     }
     const viewChanged = this.rebuildGlobalMembership(false);
     if (viewChanged) membershipChanged = true;
+    for (const peerId of returning) {
+      if (!this.globalPeers.has(peerId)) continue;
+      this.dialFailureCount.delete(peerId);
+      this.lastDialFailureAtMs.delete(peerId);
+      this.dialBackoffUntilMs.delete(peerId);
+    }
+    if (renewed.length > 0) this.forwardMembershipRecords(renewed);
     for (const [rawPeerId, rawState] of Object.entries(capacities || {})) {
       const peerId = this.normalizePeerId(rawPeerId);
       if (!peerId || this.isSelfAlias(peerId) || this.retiredPeerIds.has(peerId)) continue;
@@ -6789,9 +7274,58 @@ var PartialMesh = class {
     }
   }
   /**
-   * Disconnect from all peers and close signaling connection
+   * Tell our neighbours we are leaving: a CECR 'left' record for ourselves,
+   * which each of them merges and forwards. Without it the network keeps us
+   * as a member until our lease runs out (up to membershipLeaseMs): peers
+   * keep us as a ring neighbour, keep dialling us, and keep counting the
+   * links our last report listed. A peer that dies without saying goodbye
+   * still ages out by its lease. Returns whether anyone was told.
+   */
+  announceLeave() {
+    const self = this.normalizePeerId(this.clientId);
+    const neighbours = this.getConnectedPeers();
+    if (!self || neighbours.length === 0 || !this.signalingClient) return false;
+    this.membershipSequence += 1;
+    const now = Date.now();
+    const left = [this.membershipIncarnation, this.membershipSequence, "left", now, null];
+    this.membershipRecordsById.set(self, {
+      peerId: self,
+      incarnation: this.membershipIncarnation,
+      sequence: this.membershipSequence,
+      state: "left",
+      issuedAt: now,
+      validUntil: null
+    });
+    const payload = JSON.stringify({
+      __membership: true,
+      peers: [],
+      retiredPeers: [],
+      records: { [self]: left },
+      capacities: {},
+      topology: {}
+    });
+    let told = false;
+    for (const peerId of neighbours) {
+      try {
+        this.signalingClient.send(peerId, payload);
+        told = true;
+      } catch {
+      }
+    }
+    return told;
+  }
+  /**
+   * Disconnect from all peers and close signaling connection. Neighbours are
+   * told we are leaving first (see announceLeave), and the links close
+   * LEAVE_FLUSH_MS later so that frame is not dropped with them. Returns how
+   * long the links stay open (0 when nobody was told); a caller about to end
+   * the process should wait that long.
    */
   destroy() {
+    if (this.localRelayTimer) {
+      clearInterval(this.localRelayTimer);
+      this.localRelayTimer = null;
+    }
     if (this.maintenanceTimer) {
       clearInterval(this.maintenanceTimer);
       this.maintenanceTimer = null;
@@ -6800,12 +7334,23 @@ var PartialMesh = class {
       clearInterval(this.membershipTimer);
       this.membershipTimer = null;
     }
-    for (const peerId of this.peers.keys()) {
-      try {
-        this.signalingClient?.closeConnection(peerId);
-      } catch {
-      }
+    if (this.renewalForwardTimer) {
+      clearTimeout(this.renewalForwardTimer);
+      this.renewalForwardTimer = null;
     }
+    this.renewalForwardIds.clear();
+    const announced = this.announceLeave();
+    const closingClient = this.signalingClient;
+    const closingPeerIds = Array.from(this.peers.keys());
+    const closeLinks = () => {
+      for (const peerId of closingPeerIds) {
+        try {
+          closingClient?.closeConnection(peerId);
+        } catch {
+        }
+      }
+      closingClient?.disconnect();
+    };
     this.peers.clear();
     this.connecting.clear();
     this.discoveredPeers.clear();
@@ -6832,13 +7377,17 @@ var PartialMesh = class {
     this.rebalanceCooldownUntilMs = 0;
     this.dialFailureCount.clear();
     this.dialBackoffUntilMs.clear();
-    if (this.signalingClient) {
-      this.signalingClient.disconnect();
-      this.signalingClient = null;
+    this.signalingClient = null;
+    if (announced) {
+      const timer = setTimeout(closeLinks, LEAVE_FLUSH_MS);
+      timer.unref?.();
+    } else {
+      closeLinks();
     }
     for (const handlers of this.eventHandlers.values()) {
       handlers.clear();
     }
+    return announced ? LEAVE_FLUSH_MS : 0;
   }
 };
 var RELAY_SCORES_PAYLOAD_TYPE = "pp-relay-scores";
@@ -6853,11 +7402,17 @@ var PeerPigeonNode = class {
     this.mesh = new PartialMesh(meshOptions);
     this.gossip = new GossipProtocol(this.mesh, gossip);
     this.storageOptions = storage;
+    const meshReaches = (peerId) => {
+      if (!this.gossip.canRouteDirect(peerId)) return false;
+      if (this.mesh.getConnectedPeers().includes(peerId)) return true;
+      const hops = this.mesh.getHopDistance(peerId);
+      return hops != null && hops > 0;
+    };
     this.mesh.setMeshSignaling({
-      canRoute: (peerId) => this.gossip.canRouteDirect(peerId),
+      canRoute: (peerId) => meshReaches(peerId),
       send: (envelope) => {
         const to = String(envelope?.to ?? "").trim();
-        if (!to || !this.gossip.canRouteDirect(to)) return false;
+        if (!to || !meshReaches(to)) return false;
         return this.gossip.sendDirect(to, { __ppType: MESH_SIGNAL_PAYLOAD_TYPE, envelope }) !== null;
       }
     });
@@ -6936,6 +7491,9 @@ var PeerPigeonNode = class {
   getConnectedPeers() {
     return this.mesh.getConnectedPeers();
   }
+  getLinkLog() {
+    return this.mesh.getLinkLog();
+  }
   getDiscoveredPeers() {
     return this.mesh.getDiscoveredPeers();
   }
@@ -7009,8 +7567,9 @@ var PeerPigeonNode = class {
     this.storage = null;
     this.crypto?.destroy();
     this.gossip.destroy();
-    this.mesh.destroy();
+    const flushMs = this.mesh.destroy();
     this.started = false;
+    if (flushMs > 0) await new Promise((resolve) => setTimeout(resolve, flushMs));
     for (const callbacks of Object.values(this.callbacks)) callbacks?.clear();
   }
   bindComponentEvents() {
@@ -7141,12 +7700,14 @@ export {
   RelayScoreBook,
   chooseRelays,
   index_default as default,
+  directRelaySupported,
   discoverClosestSignalingServer,
   discoverClosestSignalingServers,
   discoverSignalingRelays,
   isHealthy,
   isMeshSignalPayload,
   rankSignalingServersByDistance,
+  reachableFromThisPage,
   relayScore,
   roomRoutingKey,
   selectClosestSignalingServer,

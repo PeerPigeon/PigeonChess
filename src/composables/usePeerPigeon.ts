@@ -232,7 +232,9 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     isConnected.value = false
     status.value = null
     if (current) {
-      current.destroy().catch(() => {})
+      // destroy() tells neighbours we are leaving, then closes the links;
+      // it returns a number, not a promise.
+      try { current.destroy() } catch {}
       compat.emit('disconnected')
     }
   }
