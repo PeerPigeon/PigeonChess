@@ -248,6 +248,7 @@
           </div>
 
           <p class="you">You are <code :title="myPeerId">{{ formatPeerId(myPeerId) }}</code> on the {{ settings.networkName || 'global' }} network.</p>
+          <p class="you build">Build {{ BUILD }}</p>
 
           <p v-if="error" class="alert">{{ error }}</p>
         </div>
@@ -505,6 +506,9 @@ import { useChessGame } from './composables/useChessGame'
 import { useSettings } from './composables/useSettings'
 import { useSounds, playSoundFile } from './composables/useSounds'
 import { timed } from './composables/stallRecorder'
+
+declare const __BUILD__: string
+const BUILD = __BUILD__
 import { useIdentity } from './composables/useIdentity'
 import type { ChessMessage, GameHistoryEntry } from './types'
 import { saveToLocalStorage, loadFromLocalStorage } from './utils/helpers'
@@ -4573,6 +4577,12 @@ a.btn {
   padding-top: 1rem;
   font-size: 0.85rem;
   color: var(--ink-2);
+}
+
+.you.build {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  margin-top: 0.25rem;
 }
 
 /* ---------- sheets (dialogs) ---------- */
