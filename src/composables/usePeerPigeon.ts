@@ -350,7 +350,14 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     }
   }
 
+  // A request to the relay this page is on (PigeonIdP accounts on a local relay).
+  const relayRequest = async (body: Record<string, unknown>) => {
+    if (!node?.mesh?.relayRequest) throw new Error('not on a relay')
+    return node.mesh.relayRequest(body, { timeoutMs: 5000 })
+  }
+
   return {
+    relayRequest,
     mesh,
     isConnected,
     isInitialized,

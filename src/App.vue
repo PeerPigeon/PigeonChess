@@ -562,7 +562,8 @@ const {
   onMessage,
   onPeerConnect,
   dhtPut,
-  dhtGet
+  dhtGet,
+  relayRequest
 } = usePeerPigeon({
   // Don't provide a custom peerId - let PeerPigeon generate its own
   networkName: (settings.value.networkName || 'global') + (isPigeonVariant ? ':pigeon' : ''),
@@ -2749,14 +2750,14 @@ const handleLogin = async () => {
   try {
     if (loginMode.value === 'register') {
       // Create new identity with DHT registration
-      await createIdentity(loginUsername.value, loginPassword.value, dhtPut, dhtGet)
+      await createIdentity(loginUsername.value, loginPassword.value, dhtPut, dhtGet, relayRequest)
       showLoginModal.value = false
       loginUsername.value = ''
       loginPassword.value = ''
       console.log('Identity created successfully!')
     } else {
       // Load existing identity (with DHT fallback for cross-device login)
-      await loadIdentity(loginUsername.value, loginPassword.value, dhtGet, dhtPut)
+      await loadIdentity(loginUsername.value, loginPassword.value, dhtGet, dhtPut, relayRequest)
       showLoginModal.value = false
       loginUsername.value = ''
       loginPassword.value = ''

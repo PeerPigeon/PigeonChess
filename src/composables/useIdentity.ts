@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 
 import * as unsea from 'unsea'
+import { aliasKey, createAccountRecord, decryptKeys, openAccountRecord, verifyAccountRecord } from 'pigeonidp/records'
 
 export function useIdentity() {
   const currentIdentity = ref<any>(null)
@@ -77,294 +78,128 @@ export function useIdentity() {
     console.log('Session cleared')
   }
 
-  const createIdentity = async (alias: string, password: string, dhtPut?: (key: string, value: any) => Promise<void>, dhtGet?: (key: string, options?: { waitMs?: number }) => Promise<any>) => {
-    if (!dhtPut) throw new Error('DHT required for identity storage')
-    // A name someone already has is not taken over: registering it again
-    // used to overwrite their keys for every device.
-    if (dhtGet) {
-      const existing = await dhtGet(`identity:${alias}:pigeon-chess`, { waitMs: 4000 }).catch(() => null)
-      if (existing) {
-        const error = new Error('That name is already taken')
-        ;(error as any).code = 'name-taken'
-        throw error
-      }
-    }
-    
+  // Accounts are signed records (pigeonidp/records): name, public keys, and
+  // the private keys encrypted with the password, signed with the account's
+  // own key. The relay this page is on keeps them (a local freertc relay is a
+  // PigeonIdP server, and its store survives restarts), and so does the mesh.
+  // A relay keeps a name for the key that registered it first, so registering
+  // a taken name is refused, and a record from the mesh is only used when its
+  // signature checks out.
+  type DhtGet = (key: string, options?: { waitMs?: number }) => Promise<any>
+  type DhtPut = (key: string, value: any) => Promise<any>
+  type RelayRequest = (body: Record<string, unknown>) => Promise<any>
+  const NAMESPACE = 'pigeon-chess'
+  const meshKey = (alias: string) => `account:${aliasKey(alias)}:${NAMESPACE}`
+
+  const askRelay = async (relay: RelayRequest | undefined, body: Record<string, unknown>) => {
+    if (!relay) return null
     try {
-      // Generate new cryptographic keypair using UnSEA
-      const keys = await unsea.generateRandomPair()
-      currentIdentity.value = keys
-      username.value = alias
-      publicKeys.value = { pub: keys.pub, epub: keys.epub }
-      isAuthenticated.value = true
-      
-      // Encrypt the full keypair with password using UnSEA's encryption
-      const subtle = crypto.subtle
-      const salt = crypto.getRandomValues(new Uint8Array(16))
-      const iv = crypto.getRandomValues(new Uint8Array(12))
-      
-      // Derive encryption key from password
-      const encoder = new TextEncoder()
-      const passwordKey = await subtle.importKey(
-        'raw',
-        encoder.encode(password),
-        'PBKDF2',
-        false,
-        ['deriveBits', 'deriveKey']
-      )
-      
-      const derivedKey = await subtle.deriveKey(
-        {
-          name: 'PBKDF2',
-          salt: salt,
-          iterations: 100000,
-          hash: 'SHA-256'
-        },
-        passwordKey,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['encrypt']
-      )
-      
-      // Encrypt the keypair
-      const keyData = encoder.encode(JSON.stringify(keys))
-      const encryptedData = await subtle.encrypt(
-        { name: 'AES-GCM', iv },
-        derivedKey,
-        keyData
-      )
-      
-      // Convert to base64 for storage
-      const bufToB64 = (buf: Uint8Array | ArrayBuffer) => {
-        const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
-        return btoa(String.fromCharCode(...bytes))
-      }
-      
-      const encryptedKeys = {
-        encrypted: true,
-        salt: bufToB64(salt),
-        iv: bufToB64(iv),
-        data: bufToB64(encryptedData)
-      }
-      
-      // Also save locally for faster access
-      await unsea.saveKeys(alias, keys, password)
-      
-      // Save username to localStorage
-      localStorage.setItem('chess-username', alias)
-      
-      // Save session for auto-login
-      saveSession(alias, keys)
-      
-      // Store encrypted keys in DHT for cross-device access
-      await dhtPut(`identity-keys:${alias}:pigeon-chess`, encryptedKeys)
-      
-      // Register public identity in DHT
-      const publicKeyData = {
-        pub: keys.pub,
-        epub: keys.epub,
-        alias,
-        namespace: 'pigeon-chess',
-        created: Date.now()
-      }
-      await dhtPut(`identity:${alias}:pigeon-chess`, publicKeyData)
-      
-      console.log('Identity created and registered in DHT:', alias)
-      return keys
-    } catch (error) {
-      console.error('Failed to create identity:', error)
-      throw error
+      const answer = await relay(body)
+      return answer?.error === 'unsupported' ? null : answer
+    } catch {
+      return null // not on a relay, or one too old to answer
     }
   }
 
-  const loadIdentity = async (alias: string, password: string, dhtGet?: (key: string, options?: { waitMs?: number }) => Promise<any>, dhtPut?: (key: string, value: any) => Promise<void>) => {
-    
-    try {
-      // Try to load from local IndexedDB first
-      let keys
-      let loadedFromLocal = false
-      try {
-        keys = await unsea.loadKeys(alias, password)
-        console.log('loadKeys returned:', keys ? 'keys object' : 'null/undefined')
-        
-        // If loadKeys returned null/undefined, treat it as not found
-        if (!keys) {
-          console.log('loadKeys returned null, treating as not found locally')
-          throw new Error('Keys not found or invalid password')
-        }
-        
-        loadedFromLocal = true
-        console.log('Identity loaded from local storage:', alias)
-        console.log('Keys structure:', { hasPub: !!keys.pub, hasEpub: !!keys.epub, hasEpriv: !!keys.epriv, hasPriv: !!keys.priv })
-      } catch (localError) {
-        console.log('Local keys not found, attempting to load from DHT...')
-        
-        // If local load fails and DHT is available, try loading from DHT
-        if (!dhtGet) {
-          throw new Error('Keys not found locally and DHT not available')
-        }
-        
-        console.log(`Fetching from DHT: identity-keys:${alias}:pigeon-chess`)
-        const encryptedKeys = await dhtGet(`identity-keys:${alias}:pigeon-chess`, { waitMs: 15000 })
-        console.log('DHT response:', encryptedKeys ? 'Found' : 'Not found', encryptedKeys)
-        
-        if (!encryptedKeys || !encryptedKeys.encrypted) {
-          const error = new Error('Keys not found in DHT')
+  /** Put a record wherever it is kept. Returns 'taken' when the relay has the name for another key. */
+  const publishRecord = async (record: any, dhtPut?: DhtPut, relay?: RelayRequest) => {
+    const answer = await askRelay(relay, { action: 'idp-put', record })
+    if (answer?.ok === false && answer.error === 'taken') return 'taken'
+    if (dhtPut) await dhtPut(meshKey(record.alias), record).catch(() => {})
+    return 'ok'
+  }
+
+  /** The verified record for a name: from the relay first, then the mesh. */
+  const findRecord = async (alias: string, dhtGet?: DhtGet, relay?: RelayRequest, waitMs = 0) => {
+    const answer = await askRelay(relay, { action: 'idp-get', namespace: NAMESPACE, alias })
+    if (answer?.record && await verifyAccountRecord(answer.record)) return answer.record
+    if (!dhtGet) return null
+    // A relay that answered is the authority on names: the mesh is asked once,
+    // without waiting for links, only for accounts made before relays kept them.
+    const record = await dhtGet(meshKey(alias), { waitMs: answer?.ok ? 0 : waitMs }).catch(() => null)
+    return record && await verifyAccountRecord(record) && aliasKey(record.alias) === aliasKey(alias) ? record : null
+  }
+
+  const signIn = (alias: string, keys: any) => {
+    currentIdentity.value = keys
+    username.value = alias
+    publicKeys.value = { pub: keys.pub, epub: keys.epub }
+    isAuthenticated.value = true
+    localStorage.setItem('chess-username', alias)
+    saveSession(alias, keys)
+  }
+
+  const nameTaken = () => {
+    const error = new Error('That name is already taken')
+    ;(error as any).code = 'name-taken'
+    return error
+  }
+
+  const createIdentity = async (alias: string, password: string, dhtPut?: DhtPut, dhtGet?: DhtGet, relay?: RelayRequest) => {
+    if (!dhtPut && !relay) throw new Error('No place to keep the account')
+    // Already someone's: refused before making keys. The relay is the
+    // authority when there is one; the mesh is asked as well, for accounts
+    // made before relays kept them.
+    if (await findRecord(alias, dhtGet, relay, 4000)) throw nameTaken()
+    if (dhtGet && await dhtGet(`identity:${alias}:${NAMESPACE}`, { waitMs: relay ? 0 : 4000 }).catch(() => null)) throw nameTaken()
+
+    const keys = await unsea.generateRandomPair()
+    const record = await createAccountRecord({ alias, namespace: NAMESPACE, keys, password })
+    if (await publishRecord(record, dhtPut, relay) === 'taken') throw nameTaken()
+    await unsea.saveKeys(alias, keys, password)
+    // Read by pages from before signed records.
+    if (dhtPut) {
+      await dhtPut(`identity-keys:${alias}:${NAMESPACE}`, { encrypted: true, ...record.keys }).catch(() => {})
+      await dhtPut(`identity:${alias}:${NAMESPACE}`, { pub: keys.pub, epub: keys.epub, alias, namespace: NAMESPACE, created: record.created }).catch(() => {})
+    }
+    signIn(alias, keys)
+    return keys
+  }
+
+  const loadIdentity = async (alias: string, password: string, dhtGet?: DhtGet, dhtPut?: DhtPut, relay?: RelayRequest) => {
+    // This device first: keys saved here at registration or an earlier login.
+    let keys: any = null
+    try { keys = await unsea.loadKeys(alias, password) } catch { keys = null }
+
+    let record: any = null
+    if (!keys) {
+      // Another device's account: the signed record from the relay or the mesh.
+      // Right after the page opens the links that hold it may still be forming.
+      record = await findRecord(alias, dhtGet, relay, 15000)
+      if (record) {
+        keys = await openAccountRecord(record, password) // throws on a wrong password
+      } else if (dhtGet) {
+        // An account from before signed records: the old encrypted blob.
+        const blob = await dhtGet(`identity-keys:${alias}:${NAMESPACE}`, { waitMs: 3000 }).catch(() => null)
+        if (!blob?.encrypted) {
+          const error = new Error('Account not found')
           ;(error as any).code = 'not-found'
           throw error
         }
-        
-        // Decrypt the keys from DHT
-        const subtle = crypto.subtle
-        const encoder = new TextEncoder()
-        const decoder = new TextDecoder()
-        
-        // Convert base64 back to ArrayBuffer
-        const b64ToBuf = (b64: string) => {
-          const binary = atob(b64)
-          const bytes = new Uint8Array(binary.length)
-          for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i)
-          }
-          return bytes.buffer
-        }
-        
-        const salt = b64ToBuf(encryptedKeys.salt)
-        const iv = b64ToBuf(encryptedKeys.iv)
-        const encryptedData = b64ToBuf(encryptedKeys.data)
-        
-        // Derive decryption key from password
-        const passwordKey = await subtle.importKey(
-          'raw',
-          encoder.encode(password),
-          'PBKDF2',
-          false,
-          ['deriveBits', 'deriveKey']
-        )
-        
-        const derivedKey = await subtle.deriveKey(
-          {
-            name: 'PBKDF2',
-            salt: new Uint8Array(salt),
-            iterations: 100000,
-            hash: 'SHA-256'
-          },
-          passwordKey,
-          { name: 'AES-GCM', length: 256 },
-          false,
-          ['decrypt']
-        )
-        
-        // Decrypt the keypair
-        const decryptedData = await subtle.decrypt(
-          { name: 'AES-GCM', iv: new Uint8Array(iv) },
-          derivedKey,
-          encryptedData
-        )
-        
-        keys = JSON.parse(decoder.decode(decryptedData))
-        
-        // Save to local storage for future use
-        await unsea.saveKeys(alias, keys, password)
-        console.log('Identity loaded from DHT and cached locally:', alias)
+        keys = await decryptKeys(blob, password) // throws on a wrong password
+      } else {
+        const error = new Error('Account not found')
+        ;(error as any).code = 'not-found'
+        throw error
       }
-      
-      // MIGRATION: If keys were loaded from local storage and DHT is available,
-      // check if they exist in DHT and upload if not (for backward compatibility)
-      if (loadedFromLocal && dhtGet && dhtPut) {
-        try {
-          console.log(`Checking DHT for existing keys: identity-keys:${alias}:pigeon-chess`)
-          const existingDHTKeys = await dhtGet(`identity-keys:${alias}:pigeon-chess`)
-          console.log('DHT check result:', existingDHTKeys ? 'Keys already exist' : 'Keys not found, will migrate')
-          
-          if (!existingDHTKeys) {
-            console.log('Migrating existing account to DHT...')
-            
-            // Encrypt and upload to DHT
-            const subtle = crypto.subtle
-            const encoder = new TextEncoder()
-            const salt = crypto.getRandomValues(new Uint8Array(16))
-            const iv = crypto.getRandomValues(new Uint8Array(12))
-            
-            const passwordKey = await subtle.importKey(
-              'raw',
-              encoder.encode(password),
-              'PBKDF2',
-              false,
-              ['deriveBits', 'deriveKey']
-            )
-            
-            const derivedKey = await subtle.deriveKey(
-              {
-                name: 'PBKDF2',
-                salt: salt,
-                iterations: 100000,
-                hash: 'SHA-256'
-              },
-              passwordKey,
-              { name: 'AES-GCM', length: 256 },
-              false,
-              ['encrypt']
-            )
-            
-            const keyData = encoder.encode(JSON.stringify(keys))
-            const encryptedData = await subtle.encrypt(
-              { name: 'AES-GCM', iv },
-              derivedKey,
-              keyData
-            )
-            
-            const bufToB64 = (buf: Uint8Array | ArrayBuffer) => {
-              const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
-              return btoa(String.fromCharCode(...bytes))
-            }
-            
-            const encryptedKeys = {
-              encrypted: true,
-              salt: bufToB64(salt),
-              iv: bufToB64(iv),
-              data: bufToB64(encryptedData)
-            }
-            
-            await dhtPut(`identity-keys:${alias}:pigeon-chess`, encryptedKeys)
-            console.log('Uploaded encrypted keys to DHT')
-            
-            // Also register public identity
-            const publicKeyData = {
-              pub: keys.pub,
-              epub: keys.epub,
-              alias,
-              namespace: 'pigeon-chess',
-              created: Date.now()
-            }
-            await dhtPut(`identity:${alias}:pigeon-chess`, publicKeyData)
-            console.log('Uploaded public identity to DHT')
-            
-            console.log('Successfully migrated account to DHT for cross-device access')
-          }
-        } catch (migrationError) {
-          console.warn('Failed to migrate account to DHT (non-fatal):', migrationError)
-        }
-      }
-      
-      currentIdentity.value = keys
-      username.value = alias
-      console.log('About to set publicKeys, keys:', keys ? { hasPub: !!keys.pub, hasEpub: !!keys.epub } : 'null/undefined')
-      publicKeys.value = { pub: keys.pub, epub: keys.epub }
-      isAuthenticated.value = true
-      
-      // Save username to localStorage
-      localStorage.setItem('chess-username', alias)
-      
-      // Save session for auto-login on reload
-      saveSession(alias, keys)
-      
-      console.log('Identity loaded successfully:', alias)
-      return keys
-    } catch (error) {
-      console.error('Failed to load identity:', error)
-      throw error
+      await unsea.saveKeys(alias, keys, password)
     }
+
+    // An account the relay does not have yet (made before relays kept
+    // accounts, or on another relay) is given to it now, signed.
+    if (!record) {
+      try {
+        const existing = await findRecord(alias, dhtGet, relay, 0)
+        if (!existing || existing.pub !== keys.pub) {
+          const fresh = await createAccountRecord({ alias, namespace: NAMESPACE, keys, password })
+          if (!existing) await publishRecord(fresh, dhtPut, relay)
+          else await askRelay(relay, { action: 'idp-put', record: fresh })
+        }
+      } catch { /* best effort */ }
+    }
+
+    signIn(record?.alias || alias, keys)
+    return keys
   }
 
   const logout = async () => {
