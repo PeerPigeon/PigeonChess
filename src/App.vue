@@ -197,8 +197,14 @@
           <p v-if="!isInitialized || !isConnected" class="lobby-sub">Connecting to relays. You can play the computer while you wait.</p>
 
           <fieldset class="controls">
-            <legend>Time control</legend>
-            <div class="clock-grid">
+            <legend>
+              <button class="controls-toggle" :aria-expanded="timeControlsOpen" @click="timeControlsOpen = !timeControlsOpen">
+                <span>Time control</span>
+                <span class="controls-picked">{{ selectedTimeControlLabel }}</span>
+                <span class="controls-chevron" aria-hidden="true">{{ timeControlsOpen ? '▴' : '▾' }}</span>
+              </button>
+            </legend>
+            <div v-show="timeControlsOpen" class="clock-grid">
               <button
                 v-for="control in timeControls"
                 :key="control.id"
@@ -604,6 +610,16 @@ const isSearching = seek.isSearching
 
 const selectedTimeControlDisplay = computed(() => {
   return timeControls.find(tc => tc.id === selectedTimeControl.value)?.display || ''
+})
+
+// Collapsed by default on a phone-sized screen, where the grid takes most of
+// the view; open on wider screens. The header shows the current pick.
+const timeControlsOpen = ref(typeof window === 'undefined' || !window.matchMedia('(max-width: 860px)').matches)
+const selectedTimeControlLabel = computed(() => {
+  const tc = timeControls.find((c) => c.id === selectedTimeControl.value)
+  if (!tc) return ''
+  if (tc.id === 'any') return 'Any'
+  return tc.minutes === 0 ? 'No clock' : `${tc.display} ${tc.name.toLowerCase()}`
 })
 
 const selectTimeControl = (controlId: string) => {
@@ -4364,10 +4380,35 @@ a.btn {
 }
 
 .controls legend {
-  font-weight: 600;
+  width: 100%;
   margin-bottom: 0.5rem;
-  color: var(--ink-2);
+  padding: 0;
+}
+
+.controls-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 600;
   font-size: 0.875rem;
+  color: var(--ink-2);
+  cursor: pointer;
+  text-align: left;
+}
+
+.controls-picked {
+  color: var(--ink);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.controls-chevron {
+  margin-left: auto;
 }
 
 .clock-grid {
