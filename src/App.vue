@@ -2103,6 +2103,13 @@ const playLoseSound = () => playSoundFile('/sounds/lose-wood.mp3', { volume: 0.6
 // loss's falling one: a draw, an abort or an abandoned game.
 const playDrawSound = () => playSoundFile('/sounds/draw-wood.mp3', { volume: 0.6 })
 
+// Three quick even knocks when a game begins, however it began (matched,
+// accepted challenge, against the computer).
+const playStartSound = () => playSoundFile('/sounds/start-wood.mp3', { volume: 0.6 })
+watch(() => currentGame.value?.id, (id, previous) => {
+  if (id && id !== previous && currentGame.value?.status === 'active' && !currentGame.value.moves?.length) playStartSound()
+})
+
 const formatTime = (seconds: number): string => {
   // Show infinity symbol for casual games
   if (currentGameTimeControl.value && currentGameTimeControl.value.minutes === 0) {
