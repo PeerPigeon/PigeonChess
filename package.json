@@ -24,7 +24,7 @@
     "freertc": "github:draeder/freertc#56c5a13",
     "unsea": "https://codeload.github.com/draeder/unsea/tar.gz/5425b41d39cea5aa2116241af0fed82865ffea29",
     "vue": "^3.5.22",
-    "pigeonidp": "https://codeload.github.com/PeerPigeon/PigeonIdP/tar.gz/e2cb00da70af87b15e660a80d2dae474f294b76e"
+    "pigeonidp": "https://codeload.github.com/PeerPigeon/PigeonIdP/tar.gz/4c18a43d150167c5a15b1bbe2cc9d7a8dcd3b5b1"
   },
   "devDependencies": {
     "@types/node": "^20.19.24",

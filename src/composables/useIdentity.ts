@@ -114,9 +114,9 @@ export function useIdentity() {
     const answer = await askRelay(relay, { action: 'idp-get', namespace: NAMESPACE, alias })
     if (answer?.record && await verifyAccountRecord(answer.record)) return answer.record
     if (!dhtGet) return null
-    // A relay that answered is the authority on names: the mesh is asked once,
-    // without waiting for links, only for accounts made before relays kept them.
-    const record = await dhtGet(meshKey(alias), { waitMs: answer?.ok ? 0 : waitMs }).catch(() => null)
+    // Not on this relay (nor the local relays it federates with): other
+    // players may still hold a copy, so give the mesh its full wait too.
+    const record = await dhtGet(meshKey(alias), { waitMs }).catch(() => null)
     return record && await verifyAccountRecord(record) && aliasKey(record.alias) === aliasKey(alias) ? record : null
   }
 
