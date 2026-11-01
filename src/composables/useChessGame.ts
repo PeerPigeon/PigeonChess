@@ -9,6 +9,7 @@ export interface ChessGameOptions {
   dhtGet?: (key: string, options?: any) => Promise<any>
   peerId?: string
   username?: () => string | undefined  // Function to get current user's username if logged in
+  opponentUsername?: () => string | null | undefined  // The opponent's verified account name, when they are logged in
 }
 
 export function useChessGame(options: ChessGameOptions = {}) {
@@ -217,6 +218,7 @@ export function useChessGame(options: ChessGameOptions = {}) {
         isAI: isAIOpponent.value,
         aiDifficulty: aiDifficultyLevel.value,
         myUsername: (username && username.trim()) ? username : undefined, // Only save if not empty
+        opponentUsername: options.opponentUsername?.() || undefined,
         opening: getOpeningName(currentGame.value.moves) // Detect and save opening
       }
       
@@ -264,6 +266,7 @@ export function useChessGame(options: ChessGameOptions = {}) {
         isAI: isAIOpponent.value,
         aiDifficulty: aiDifficultyLevel.value,
         myUsername: (username && username.trim()) ? username : undefined, // Only save if not empty
+        opponentUsername: options.opponentUsername?.() || undefined,
         opening: getOpeningName(currentGame.value.moves) // Detect and save opening
       }
       

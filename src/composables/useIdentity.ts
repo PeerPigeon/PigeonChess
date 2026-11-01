@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 
 import * as unsea from 'unsea'
-import { aliasKey, createAccountRecord, decryptKeys, openAccountRecord, verifyAccountRecord } from 'pigeonidp/records'
+import { aliasKey, createAccountRecord, decryptKeys, openAccountRecord, validAlias, verifyAccountRecord } from 'pigeonidp/records'
 
 export function useIdentity() {
   const currentIdentity = ref<any>(null)
@@ -202,6 +202,36 @@ export function useIdentity() {
     return keys
   }
 
+  // Who the opponent is: a page that is logged in tells its opponent its
+  // name with a signature over this game and its peer id, made with the
+  // account key. The other side shows the name only when the signature checks
+  // out and the account record for that name has the same key, so nobody can
+  // show up under someone else's name.
+  const claimText = (gameId: string, peerId: string, alias: string) =>
+    JSON.stringify(['pigeonchess-player', gameId, peerId, aliasKey(alias)])
+
+  const signPlayerClaim = async (gameId: string, peerId: string) => {
+    const keys = currentIdentity.value
+    if (!isAuthenticated.value || !keys?.priv || !username.value) return null
+    return {
+      name: username.value,
+      pub: keys.pub,
+      sig: await unsea.signMessage(claimText(gameId, peerId, username.value), keys.priv),
+    }
+  }
+
+  const verifyPlayerClaim = async (claim: any, gameId: string, peerId: string, dhtGet?: DhtGet, relay?: RelayRequest) => {
+    if (!claim || typeof claim.name !== 'string' || typeof claim.pub !== 'string' || typeof claim.sig !== 'string') return null
+    if (!validAlias(claim.name)) return null
+    try {
+      if (!await unsea.verifyMessage(claimText(gameId, peerId, claim.name), claim.sig, claim.pub)) return null
+      const record = await findRecord(claim.name, dhtGet, relay, 5000)
+      return record && record.pub === claim.pub ? record.alias : null
+    } catch {
+      return null
+    }
+  }
+
   const logout = async () => {
     username.value = ''
     currentIdentity.value = null
@@ -233,6 +263,8 @@ export function useIdentity() {
     createIdentity,
     loadIdentity,
     logout,
-    lookupPlayer
+    lookupPlayer,
+    signPlayerClaim,
+    verifyPlayerClaim
   }
 }

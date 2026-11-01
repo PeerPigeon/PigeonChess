@@ -273,7 +273,7 @@
         <div class="seat seat-top" :class="{ running: !isMyTurn && currentGame?.status !== 'finished', check: isOpponentKingInCheck }">
           <img class="seat-colour" :src="`/pieces/${myPlayer?.color === 'white' ? 'b' : 'w'}k.svg`" alt="" />
           <span class="seat-name">
-            {{ isAIGame ? `Computer, ${aiLevels[aiDifficulty].name.toLowerCase()}` : formatPeerId(opponentId || 'Opponent') }}
+            {{ isAIGame ? `Computer, ${aiLevels[aiDifficulty].name.toLowerCase()}` : (opponentName || formatPeerId(opponentId || 'Opponent')) }}
             <svg
               v-if="!isAIGame && currentGame?.status !== 'finished'"
               class="signal"
@@ -523,8 +523,14 @@ const {
   initializeIdP,
   createIdentity,
   loadIdentity,
-  logout: logoutIdentity
+  logout: logoutIdentity,
+  signPlayerClaim,
+  verifyPlayerClaim
 } = useIdentity()
+
+// The opponent's account name, once their signed claim checks out (see
+// useIdentity: signPlayerClaim / verifyPlayerClaim). Null shows their peer id.
+const opponentName = ref<string | null>(null)
 
 const showLoginModal = ref(false)
 const loginMode = ref<'login' | 'register'>('login')
@@ -643,7 +649,7 @@ const stopSearching = () => {
 }
 
 /** Both sides of a match land here: set the clock, colours and opponent, and start. */
-const startMatchedGameReset = () => { endReason.value = null; boardFlipped.value = false; clearChat() }
+const startMatchedGameReset = () => { endReason.value = null; boardFlipped.value = false; opponentName.value = null; clearChat() }
 const startMatchedGame = (match: { gameId: string; opponent: string; myColor: 'white' | 'black'; timeControl: { minutes: number; increment: number } }) => {
   startMatchedGameReset()
   console.log('Matched with', match.opponent, 'as', match.myColor, 'game', match.gameId)
@@ -656,7 +662,26 @@ const startMatchedGame = (match: { gameId: string; opponent: string; myColor: 'w
   startTimer()
   startTimerSyncBroadcast()
   startWatchdog()
+  introduceMyself()
 }
+
+// Tell the opponent who we are (when logged in). Sent at the start and twice
+// more over the first seconds, since the first copy can go out before their
+// keys or the link are ready; also when logging in mid-game.
+let introduceTimers: ReturnType<typeof setTimeout>[] = []
+const sendPlayerClaim = async () => {
+  const game = currentGame.value
+  const to = opponentId.value
+  const me = myPeerId.value
+  if (!game || !to || !me || isAIGame.value || game.status !== 'active') return
+  const claim = await signPlayerClaim(game.id, me).catch(() => null)
+  if (claim) sendMessage(to, JSON.stringify({ type: 'player', gameId: game.id, ...claim })).catch(() => {})
+}
+const introduceMyself = () => {
+  introduceTimers.forEach(clearTimeout)
+  introduceTimers = [0, 3000, 10000].map((ms) => setTimeout(() => { void sendPlayerClaim() }, ms))
+}
+watch(() => identityUsername.value, () => { if (isGameActive.value) void sendPlayerClaim() })
 
 // AI opponent
 const isAIGame = ref(false)
@@ -740,6 +765,7 @@ const startAIGame = () => {
   console.log('Starting AI game - Player color:', playerColor)
   
   // Start game with random color
+  opponentName.value = null
   startNewGame(myPeerId.value, 'AI-Opponent', playerColor)
   
   // If player is black, AI makes first move
@@ -1583,7 +1609,8 @@ const {
   dhtPut,
   dhtGet,
   peerId: computed(() => mesh.value?.peerId).value,
-  username: () => identityUsername.value
+  username: () => identityUsername.value,
+  opponentUsername: () => opponentName.value
 })
 
 // Set up the game end callback to play win/lose sounds
@@ -3523,6 +3550,15 @@ const handleMessage = async (event: any) => {
       }
       if (message.type === 'pong') {
         if (typeof message.t === 'number') opponentRtt.value = Date.now() - message.t
+        return
+      }
+      if (message.type === 'player') {
+        const game = currentGame.value
+        if (game && message.gameId === game.id) {
+          void verifyPlayerClaim(message, game.id, fromPeer, dhtGet, relayRequest).then((name) => {
+            if (name && currentGame.value?.id === game.id && opponentId.value === fromPeer) opponentName.value = name
+          })
+        }
         return
       }
       if (message.type === 'chat') {
