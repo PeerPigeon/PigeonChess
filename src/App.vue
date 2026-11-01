@@ -553,6 +553,7 @@ const {
   isConnected,
   isInitialized,
   connectedPeerIds,
+  onlinePeerIds,
   error,
   init,
   connect,
@@ -1444,13 +1445,11 @@ const allKnownPeers = ref<Set<string>>(new Set(loadFromLocalStorage<string[]>('k
 const peerLastSeen = ref<Map<string, number>>(new Map(Object.entries(loadFromLocalStorage<Record<string, number>>('peer-last-seen', {}))))
 
 // Computed: peer count excluding self
-const otherPeersCount = computed(() => {
-  let count = allKnownPeers.value.size
-  if (allKnownPeers.value.has(myPeerId.value)) {
-    count--
-  }
-  return count
-})
+// Players online: the room's membership as PeerPigeon keeps it (records
+// expire on their own, and a peer that leaves is dropped at once), the same
+// count the PeerPigeon demo shows. The old count came from presence pings and
+// a list kept in localStorage, so players long gone stayed in it.
+const otherPeersCount = computed(() => onlinePeerIds.value.length)
 
 // Clean up stale peers every 10 seconds
 let staleCheckInterval: ReturnType<typeof setInterval> | null = null

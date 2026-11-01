@@ -133,6 +133,10 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
   const isConnected = ref(false)
   const isInitialized = ref(false)
   const connectedPeerIds = ref<string[]>([])
+  // Everyone in the room right now, as the PeerPigeon demo counts them: the
+  // mesh's membership (leased records that expire, and peers that said
+  // goodbye removed at once) plus our own links, without us.
+  const onlinePeerIds = ref<string[]>([])
   const error = ref<string | null>(null)
   const status = ref<any>(null)
 
@@ -144,11 +148,35 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
   // Listeners attached before the node runs (App.vue does this) must still fire.
   mesh.value = compat
 
+  const refreshOnline = () => {
+    if (!node) {
+      onlinePeerIds.value = []
+      return
+    }
+    const self = String(node.getClientId?.() ?? '')
+    const members: string[] = node.mesh?.getGlobalPeers?.() ?? node.getGlobalPeers?.() ?? []
+    const ids = [...new Set([...members, ...compat.getConnectedPeerIds()])].filter((id) => id && id !== self).sort()
+    if (ids.join() !== onlinePeerIds.value.join()) onlinePeerIds.value = ids
+  }
+  const onlineTimer = setInterval(refreshOnline, 2000)
+  onUnmounted(() => clearInterval(onlineTimer))
+
+  // A tab closing or navigating away tells its neighbours, as the PeerPigeon
+  // demo does, so other players' counts drop it now instead of when its
+  // membership lease runs out.
+  const onPageHide = (event: PageTransitionEvent) => {
+    if (event.persisted) return
+    try { node?.mesh?.announceLeave?.() } catch { /* best effort */ }
+  }
+  if (typeof window !== 'undefined') window.addEventListener('pagehide', onPageHide)
+  onUnmounted(() => { if (typeof window !== 'undefined') window.removeEventListener('pagehide', onPageHide) })
+
   const refreshStatus = () => {
     if (!node) return
     // peerId is a getter on the node; let computed values that read it update.
     triggerRef(mesh)
     connectedPeerIds.value = compat.getConnectedPeerIds()
+    refreshOnline()
     isConnected.value = connectedPeerIds.value.length > 0 || isConnected.value
     status.value = {
       connected: isConnected.value,
@@ -319,6 +347,7 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     isConnected,
     isInitialized,
     connectedPeerIds,
+    onlinePeerIds,
     error,
     status,
     init,
