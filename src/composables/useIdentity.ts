@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 
 import * as unsea from 'unsea'
-import { aliasKey, createAccountRecord, decryptKeys, openAccountRecord, validAlias, verifyAccountRecord } from 'pigeonidp/records'
+import { aliasKey, createAccountRecord, decryptKeys, isPostQuantumRecord, openAccountRecord, upgradeAccountRecord, validAlias, verifyAccountRecord } from 'pigeonidp/records'
 
 export function useIdentity() {
   const currentIdentity = ref<any>(null)
@@ -29,7 +29,7 @@ export function useIdentity() {
             console.log('Restoring session for:', session.alias)
             currentIdentity.value = session.keys
             username.value = session.alias
-            publicKeys.value = { pub: session.keys.pub, epub: session.keys.epub }
+            publicKeys.value = unsea.publicKeysOf(session.keys)
             isAuthenticated.value = true
             localStorage.setItem('chess-username', session.alias)
             console.log('Session restored successfully')
@@ -85,6 +85,11 @@ export function useIdentity() {
   // A relay keeps a name for the key that registered it first, so registering
   // a taken name is refused, and a record from the mesh is only used when its
   // signature checks out.
+  //
+  // Accounts are post-quantum (version 2 records, unsea 3): the key pair has
+  // ML-DSA-65 and ML-KEM-768 keys next to its P-256 ones, records and player
+  // claims are signed with both, and keys are sealed with Argon2id. An older
+  // account is moved over at its next login, keeping its name and P-256 key.
   type DhtGet = (key: string, options?: { waitMs?: number }) => Promise<any>
   type DhtPut = (key: string, value: any) => Promise<any>
   type RelayRequest = (body: Record<string, unknown>) => Promise<any>
@@ -123,7 +128,7 @@ export function useIdentity() {
   const signIn = (alias: string, keys: any) => {
     currentIdentity.value = keys
     username.value = alias
-    publicKeys.value = { pub: keys.pub, epub: keys.epub }
+    publicKeys.value = unsea.publicKeysOf(keys)
     isAuthenticated.value = true
     localStorage.setItem('chess-username', alias)
     saveSession(alias, keys)
@@ -140,18 +145,13 @@ export function useIdentity() {
     // Already someone's: refused before making keys. The relay is the
     // authority when there is one; the mesh is asked as well, for accounts
     // made before relays kept them.
-    if (await findRecord(alias, dhtGet, relay, 4000)) throw nameTaken()
+    if (await findRecord(alias, dhtGet, relay, relay ? 1000 : 4000)) throw nameTaken()
     if (dhtGet && await dhtGet(`identity:${alias}:${NAMESPACE}`, { waitMs: relay ? 0 : 4000 }).catch(() => null)) throw nameTaken()
 
-    const keys = await unsea.generateRandomPair()
+    const keys = await unsea.generateRandomPair() // with post-quantum keys
     const record = await createAccountRecord({ alias, namespace: NAMESPACE, keys, password })
     if (await publishRecord(record, dhtPut, relay) === 'taken') throw nameTaken()
     await unsea.saveKeys(alias, keys, password)
-    // Read by pages from before signed records.
-    if (dhtPut) {
-      await dhtPut(`identity-keys:${alias}:${NAMESPACE}`, { encrypted: true, ...record.keys }).catch(() => {})
-      await dhtPut(`identity:${alias}:${NAMESPACE}`, { pub: keys.pub, epub: keys.epub, alias, namespace: NAMESPACE, created: record.created }).catch(() => {})
-    }
     signIn(alias, keys)
     return keys
   }
@@ -161,6 +161,7 @@ export function useIdentity() {
     let keys: any = null
     try { keys = await unsea.loadKeys(alias, password) } catch { keys = null }
 
+    const hadKeys = keys
     let record: any = null
     if (!keys) {
       // Another device's account: the signed record from the relay or the mesh.
@@ -182,22 +183,35 @@ export function useIdentity() {
         ;(error as any).code = 'not-found'
         throw error
       }
-      await unsea.saveKeys(alias, keys, password)
     }
 
-    // An account the relay does not have yet (made before relays kept
-    // accounts, or on another relay) is given to it now, signed.
-    if (!record) {
-      try {
-        const existing = await findRecord(alias, dhtGet, relay, 0)
-        if (!existing || existing.pub !== keys.pub) {
-          const fresh = await createAccountRecord({ alias, namespace: NAMESPACE, keys, password })
-          if (!existing) await publishRecord(fresh, dhtPut, relay)
-          else await askRelay(relay, { action: 'idp-put', record: fresh })
+    // Bring the account up to date: post-quantum keys, and a version 2 record
+    // wherever accounts are kept.
+    try {
+      if (!record) record = await findRecord(alias, dhtGet, relay, 0)
+      if (record && record.pub === keys.pub) {
+        if (isPostQuantumRecord(record)) {
+          // Upgraded already (maybe from another device): use those keys.
+          if (keys.qpub !== record.qpub || !keys.qpriv || !keys.kpriv) keys = await openAccountRecord(record, password)
+        } else {
+          // Signed by the P-256 key and the new post-quantum key together,
+          // while P-256 still holds.
+          const upgraded = await upgradeAccountRecord(record, password)
+          keys = upgraded.keys
+          record = upgraded.record
+          await publishRecord(record, dhtPut, relay)
         }
-      } catch { /* best effort */ }
+      } else if (!record) {
+        // An account the relay and mesh do not have (from before relays kept
+        // accounts, or kept elsewhere): given to them now, post-quantum.
+        if (!unsea.hasPostQuantumKeys(keys)) keys = unsea.upgradePair(keys)
+        await publishRecord(await createAccountRecord({ alias, namespace: NAMESPACE, keys, password }), dhtPut, relay)
+      }
+    } catch (error) {
+      console.warn('Could not bring the account up to date:', error)
     }
 
+    if (keys !== hadKeys) await unsea.saveKeys(alias, keys, password).catch(() => {})
     signIn(record?.alias || alias, keys)
     return keys
   }
@@ -216,17 +230,24 @@ export function useIdentity() {
     return {
       name: username.value,
       pub: keys.pub,
-      sig: await unsea.signMessage(claimText(gameId, peerId, username.value), keys.priv),
+      ...(unsea.hasPostQuantumKeys(keys) ? { qpub: keys.qpub } : {}),
+      // A hybrid (ECDSA + ML-DSA) signature when the account is post-quantum.
+      sig: await unsea.signMessage(claimText(gameId, peerId, username.value), keys),
     }
   }
 
   const verifyPlayerClaim = async (claim: any, gameId: string, peerId: string, dhtGet?: DhtGet, relay?: RelayRequest) => {
     if (!claim || typeof claim.name !== 'string' || typeof claim.pub !== 'string' || typeof claim.sig !== 'string') return null
     if (!validAlias(claim.name)) return null
+    if (claim.qpub !== undefined && typeof claim.qpub !== 'string') return null
     try {
-      if (!await unsea.verifyMessage(claimText(gameId, peerId, claim.name), claim.sig, claim.pub)) return null
       const record = await findRecord(claim.name, dhtGet, relay, 5000)
-      return record && record.pub === claim.pub ? record.alias : null
+      if (!record || record.pub !== claim.pub) return null
+      // A post-quantum account's claim must be signed with its post-quantum
+      // key too (verifyMessage refuses a plain signature once qpub is given).
+      const keys = isPostQuantumRecord(record) ? { pub: record.pub, qpub: record.qpub } : record.pub
+      if (!await unsea.verifyMessage(claimText(gameId, peerId, claim.name), claim.sig, keys)) return null
+      return record.alias
     } catch {
       return null
     }
