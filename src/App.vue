@@ -2928,24 +2928,46 @@ const handleResign = async () => {
   showResignConfirmModal.value = true
 }
 
+// A resignation is sent until the opponent confirms it. Sent once, a resign
+// that was lost (a link dropping, no route for a moment) left the other side
+// playing a game that had ended, its clock still running.
+const RESIGN_RETRY_MS = 2000
+const RESIGN_GIVE_UP_MS = 60_000
+let resignRetry: ReturnType<typeof setInterval> | null = null
+let resignAwaitingAck: string | null = null
+// Games this page resigned: if the other side is still playing one later (its
+// phone was asleep through every resend), it is told again.
+const resignedGameIds = new Set<string>()
+
+const sendResignUntilAcknowledged = (to: string, gameId: string) => {
+  if (resignRetry) clearInterval(resignRetry)
+  resignAwaitingAck = gameId
+  const startedAt = Date.now()
+  const send = () => {
+    if (resignAwaitingAck !== gameId || Date.now() - startedAt > RESIGN_GIVE_UP_MS) {
+      if (resignRetry) clearInterval(resignRetry)
+      resignRetry = null
+      return
+    }
+    const message: ChessMessage = { type: 'resign', gameId }
+    sendMessage(to, JSON.stringify(message)).catch((err) => console.warn('Resign not delivered yet:', err))
+  }
+  send()
+  resignRetry = setInterval(send, RESIGN_RETRY_MS)
+}
+
 const confirmResign = async () => {
+  const gameId = currentGame.value?.id
+  const to = opponentId.value
   endReason.value = 'resign'
   resign()
-  
-  // Only send message for human opponents, not AI
-  if (opponentId.value && !isAIGame.value) {
-    const message: ChessMessage = {
-      type: 'resign',
-      gameId: currentGame.value!.id
-    }
-    
-    try {
-      await sendMessage(opponentId.value, JSON.stringify(message))
-    } catch (err) {
-      console.error('Failed to send resign message:', err)
-    }
+
+  // Only human opponents are told; the computer needs no message.
+  if (to && gameId && !isAIGame.value) {
+    resignedGameIds.add(gameId)
+    sendResignUntilAcknowledged(to, gameId)
   }
-  
+
   showResignConfirmModal.value = false
 }
 
@@ -3499,7 +3521,14 @@ const handleMessage = async (event: any) => {
     }
 
     const chessMessage: ChessMessage = message
-    
+
+    // Still playing a game we resigned: say so again.
+    if (fromPeer && chessMessage.gameId && resignedGameIds.has(chessMessage.gameId)
+      && (chessMessage.type === 'timer_sync' || chessMessage.type === 'move')) {
+      sendMessage(fromPeer, JSON.stringify({ type: 'resign', gameId: chessMessage.gameId })).catch(() => {})
+      return
+    }
+
     switch (chessMessage.type) {
       case 'move':
         if (chessMessage.data) {
@@ -3556,13 +3585,26 @@ const handleMessage = async (event: any) => {
         break
 
       case 'resign':
-        // Opponent resigned
-        console.log('Opponent resigned')
-        if (currentGame.value && myPlayer.value) {
+        // Opponent resigned. Confirm every copy, even one for a game already
+        // over here, so they stop resending.
+        if (chessMessage.gameId) {
+          sendMessage(fromPeer, JSON.stringify({ type: 'resign_ack', gameId: chessMessage.gameId })).catch(() => {})
+        }
+        if (currentGame.value && myPlayer.value && currentGame.value.status === 'active'
+          && (!chessMessage.gameId || chessMessage.gameId === currentGame.value.id)) {
+          console.log('Opponent resigned')
           // Set the result before calling endGame so it knows we won
           currentGame.value.result = myPlayer.value.color
           endReason.value = 'resign'
           endGame()
+        }
+        break
+
+      case 'resign_ack':
+        if (chessMessage.gameId && chessMessage.gameId === resignAwaitingAck) {
+          resignAwaitingAck = null
+          if (resignRetry) clearInterval(resignRetry)
+          resignRetry = null
         }
         break
         
