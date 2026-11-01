@@ -7,8 +7,8 @@
       </div>
 
       <p class="net" :class="statusClass" role="status">
-        <span class="net-dot" aria-hidden="true"></span>
-        <span>{{ statusText }}</span>
+        <span class="net-dot" aria-hidden="true" :title="statusText"></span>
+        <span class="net-text">{{ statusText }}</span>
         <span v-if="isConnected" class="net-peers">
           {{ otherPeersCount }} {{ otherPeersCount === 1 ? 'player' : 'players' }} online
         </span>
@@ -4694,8 +4694,19 @@ a.btn {
     font-size: 0.8rem;
   }
 
+  /* On a phone the dot says connected; the room is the number that matters. */
+  .net-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
   .net-peers {
-    display: none;
+    padding-left: 0;
+    border-left: 0;
   }
 
   .menu-toggle {
