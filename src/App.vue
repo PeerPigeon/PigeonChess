@@ -2086,15 +2086,26 @@ const processIncomingTimer = (incomingTimer: any, incomingClock: Record<string, 
 /** Seconds left on the clock when the warning plays and the clock turns yellow. */
 const LOW_TIME_SECONDS = 20
 
-/** Three quick, separate shakes, scheduled on the audio clock so they stay apart. */
+/**
+ * Three quick, separate shakes. The copies are loaded with the page so each
+ * starts on time; loaded on demand, they started late and ran together.
+ */
 const SHAKES = 3
 const SHAKE_GAP_MS = 80
-// Through the shared audio context (useSounds), so these play on iOS when the
-// opponent's move or the clock sets them off, not only after a tap.
+const shakerCopies = Array.from({ length: SHAKES }, () => {
+  const audio = new Audio('/sounds/shaker.mp3')
+  audio.preload = 'auto'
+  audio.volume = 0.5
+  return audio
+})
 const playLowTimeWarning = () => {
-  // shaker-fast.mp3 is the shaker at double speed with its pitch kept: sped
-  // up here instead, it went up an octave and sounded like wood blocks.
-  for (let i = 0; i < SHAKES; i++) playSoundFile('/sounds/shaker-fast.mp3', { delayMs: i * SHAKE_GAP_MS })
+  shakerCopies.forEach((audio, i) => {
+    setTimeout(() => {
+      audio.currentTime = 0
+      audio.playbackRate = 2
+      audio.play().catch((err) => console.error('Low time warning error:', err))
+    }, i * SHAKE_GAP_MS)
+  })
 }
 
 const playWinSound = () => playSoundFile('/sounds/win-wood.mp3', { volume: 0.6 })
