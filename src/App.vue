@@ -498,6 +498,7 @@ import GameHistory from './components/GameHistory.vue'
 import { useChessGame } from './composables/useChessGame'
 import { useSettings } from './composables/useSettings'
 import { useSounds, playSoundFile } from './composables/useSounds'
+import { timed } from './composables/stallRecorder'
 import { useIdentity } from './composables/useIdentity'
 import type { ChessMessage, GameHistoryEntry } from './types'
 import { saveToLocalStorage, loadFromLocalStorage } from './utils/helpers'
@@ -2155,7 +2156,7 @@ const startTimer = () => {
   // busy page gets fewer ticks, and each tick takes off however long it was.
   // Nothing about the opponent's connection pauses either clock.
   let lastTick = Date.now()
-  timerInterval = setInterval(() => {
+  timerInterval = setInterval(() => timed('clock tick', () => {
     if (!isGameActive.value) {
       if (timerInterval) clearInterval(timerInterval)
       return
@@ -2176,7 +2177,7 @@ const startTimer = () => {
     } else {
       opponentTime.value = Math.max(0, opponentTime.value - elapsed)
     }
-  }, 100)
+  }), 100)
 }
 
 const handleTimeOut = async () => {
@@ -2301,7 +2302,7 @@ const startWatchdog = () => {
   opponentGone.value = false
   opponentGoneOnTheirTurn.value = 0
   opponentRtt.value = null
-  watchdogInterval = setInterval(watchdogTick, 1000)
+  watchdogInterval = setInterval(() => timed('watchdog tick', watchdogTick), 1000)
 }
 
 const stopWatchdog = () => {

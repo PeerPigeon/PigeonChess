@@ -1,5 +1,6 @@
 import { ref, shallowRef, triggerRef, onUnmounted } from 'vue'
 import { PeerPigeonNode } from '@/vendor/peerpigeon.js'
+import { noteWork, startStallRecorder, timed } from './stallRecorder'
 
 /**
  * PigeonChess on PeerPigeon (PeerPigeonNode) with freertc signaling.
@@ -164,12 +165,14 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
       compat.emit('connected')
     })
     instance.on('peerConnected', (peerId: string) => {
+      noteWork(`link up ${String(peerId).slice(0, 8)}`)
       isConnected.value = true
       refreshStatus()
       compat.emit('peerConnected', { peerId })
       peerConnectHandlers.forEach((handler) => handler(peerId))
     })
     instance.on('peerDisconnected', (peerId: string) => {
+      noteWork(`link down ${String(peerId).slice(0, 8)}`)
       refreshStatus()
       compat.emit('peerDisconnected', { peerId })
     })
@@ -191,8 +194,11 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
         messageId: message.messageId,
         hops: message.hops,
       }
-      compat.emit('messageReceived', event)
-      messageHandlers.forEach((handler) => handler(event))
+      const type = typeof message.data === 'string' ? (/"type":"([^"]{1,40})"/.exec(message.data)?.[1] ?? 'text') : 'object'
+      timed(`message ${type}${message.kind === 'broadcast' ? ' (broadcast)' : ''}`, () => {
+        compat.emit('messageReceived', event)
+        messageHandlers.forEach((handler) => handler(event))
+      })
     })
     instance.on('error', (err: Error) => {
       console.warn('PeerPigeon:', err?.message ?? err)
@@ -233,6 +239,15 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
       if (signalLog.length > 400) signalLog.splice(0, signalLog.length - 400)
     })
     bind(node)
+    const started = node
+    startStallRecorder({
+      peerId: () => started.getClientId?.() ?? null,
+      signalLog,
+      linkLog: () => started.mesh?.getLinkLog?.() ?? [],
+      links: () => started.getConnectedPeers?.().length ?? 0,
+      relay: () => String(started.mesh?.signalingClient?.currentSignalUrl ?? ''),
+      publish: async (key, value) => started.storage?.put('public', key, value),
+    })
     starting = node.start().then(() => {
       // Started means the relays have us; other players may not be there yet.
       isInitialized.value = true
