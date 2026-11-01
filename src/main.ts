@@ -11,17 +11,26 @@ createApp(App).mount('#app')
 // when a newer build is out: at once in the lobby, or as soon as the game in
 // progress ends.
 declare const __BUILD__: string
-let newerBuild = false
+let newerBuild: string | null = null
+// Load the page at an address no cache has seen (?v=<build>), so neither
+// Safari nor any cache between can hand back the old page. A page already
+// loaded at that address does not go round again.
 const reloadWhenIdle = () => {
+  if (!newerBuild) return
   const inGame = Boolean(document.querySelector('.table .seat.running'))
-  if (!inGame) location.reload()
+  if (inGame) return
+  const version = newerBuild.split(',')[0]
+  const url = new URL(location.href)
+  if (url.searchParams.get('v') === version) return
+  url.searchParams.set('v', version)
+  location.replace(url.toString())
 }
 const checkBuild = async () => {
   try {
     const response = await fetch(`/version.json?t=${Date.now()}`, { cache: 'no-store' })
     if (!response.ok) return
     const { build } = await response.json()
-    if (build && build !== __BUILD__) newerBuild = true
+    if (build && build !== __BUILD__) newerBuild = build
   } catch { /* offline: next check */ }
   if (newerBuild) reloadWhenIdle()
 }
