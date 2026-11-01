@@ -248,7 +248,6 @@
           </div>
 
           <p class="you">You are <code :title="myPeerId">{{ formatPeerId(myPeerId) }}</code> on the {{ settings.networkName || 'global' }} network.</p>
-          <p class="you build">Build {{ BUILD }}</p>
 
           <p v-if="error" class="alert">{{ error }}</p>
         </div>
@@ -489,6 +488,8 @@
         </div>
       </div>
     </div>
+
+    <footer class="build-footer">Build {{ BUILD }}</footer>
   </div>
 </template>
 
@@ -4579,10 +4580,12 @@ a.btn {
   color: var(--ink-2);
 }
 
-.you.build {
+.build-footer {
+  text-align: center;
   font-size: 0.75rem;
-  opacity: 0.7;
-  margin-top: 0.25rem;
+  color: var(--ink-2);
+  padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom));
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- sheets (dialogs) ---------- */
