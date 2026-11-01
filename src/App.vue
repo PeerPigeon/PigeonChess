@@ -1569,7 +1569,10 @@ setOnGameEndCallback((result) => {
   // Clear abandonment timers when game ends
   clearAbandonmentTimers()
   
-  if (result === 'win') {
+  // An abandoned game is neither won nor lost at the board: the neutral knocks.
+  if (endReason.value === 'peer_disconnect') {
+    playDrawSound()
+  } else if (result === 'win') {
     playWinSound()
   } else if (result === 'loss') {
     playLoseSound()
@@ -2096,7 +2099,9 @@ const playWinSound = () => playSoundFile('/sounds/win-wood.mp3', { volume: 0.6 }
 
 const playLoseSound = () => playSoundFile('/sounds/lose-wood.mp3', { volume: 0.6 })
 
-const playDrawSound = () => playSoundFile('/sounds/draw.mp3', { volume: 0.6 })
+// Two even knocks, halfway in pitch between the win's rising pair and the
+// loss's falling one: a draw, an abort or an abandoned game.
+const playDrawSound = () => playSoundFile('/sounds/draw-wood.mp3', { volume: 0.6 })
 
 const formatTime = (seconds: number): string => {
   // Show infinity symbol for casual games
@@ -2347,6 +2352,7 @@ const abortGame = async () => {
   abandonmentReason.value = 'aborted'
   iAbandoned.value = stallerColor === myPlayer.value?.color
   showAbandonmentModal.value = true
+  playDrawSound()
   // Tell them before the game (and who they are) is cleared.
   if (to) sendMessage(to, JSON.stringify({ type: 'abort', gameId, stallerColor })).catch(() => {})
   returnToLobby()
@@ -3481,6 +3487,7 @@ const handleMessage = async (event: any) => {
           const stallerColor = named === 'white' || named === 'black' ? named : (currentGame.value.moves.length === 0 ? 'white' : 'black')
           iAbandoned.value = stallerColor === myPlayer.value?.color
           showAbandonmentModal.value = true
+          playDrawSound()
           returnToLobby()
         }
         break
