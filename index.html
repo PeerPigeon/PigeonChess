@@ -12,6 +12,19 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="PigeonChess" />
     <meta name="theme-color" content="#e9ecee" />
+    <script>
+      // The theme before the first paint (App.vue's switch changes it).
+      (function () {
+        var theme = null;
+        try { theme = localStorage.getItem('pigeonchess:theme'); } catch (e) {}
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+        if (theme === 'dark') document.querySelector('meta[name="theme-color"]').setAttribute('content', '#14191d');
+      })();
+    </script>
     <title>PigeonChess</title>
     <meta name="description" content="Peer-to-peer chess in your browser. Play anyone, or the computer, with no account." />
     <meta property="og:type" content="website" />

@@ -46,6 +46,35 @@
   --black: #000000;
 }
 
+/* Night slate (the theme switch in the top bar): the same feathers after
+   dark, as on pigeon.peer.ooo. The board keeps its own colours. */
+html[data-theme='dark'] {
+  --paper: #14191d;
+  --surface: #1c2328;
+  --ink: #e3e8eb;
+  --ink-2: #98a4ad;
+  --line: #2b343b;
+  --line-strong: #44505a;
+  --wing: #252d33;
+  --slate: #8796a3;
+  --sheen: #3f9c88;
+  --sheen-deep: #4fb39f;
+  --sheen-wash: #1d3732;
+  --mark: #d6b234;
+  --stop: #e07a6d;
+  --stop-wash: #3a2522;
+  --warning-color: #d29b45;
+  --board-light: #d6dce0;
+  --board-dark: #6e7f8d;
+  --board-move-dot: rgba(28, 33, 38, 0.28);
+  color-scheme: dark;
+}
+
+/* The logo is a black bird: on night slate it is drawn white. */
+html[data-theme='dark'] .brand-mark {
+  filter: invert(1);
+}
+
 *,
 *::before,
 *::after {

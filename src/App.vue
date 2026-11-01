@@ -1,16 +1,16 @@
 <template>
   <div id="app" class="app">
     <header class="topbar">
-      <div class="brand">
+      <button type="button" class="brand" title="Home" aria-label="PigeonChess, home" @click="goHome">
         <img src="/pigeonlogo.svg" alt="" class="brand-mark" />
         <span class="wordmark">PigeonChess</span>
-      </div>
+      </button>
 
       <p class="net" :class="statusClass" role="status">
         <span class="net-dot" aria-hidden="true" :title="statusText"></span>
         <span class="net-text">{{ statusText }}</span>
         <span v-if="isConnected" class="net-peers">
-          {{ otherPeersCount }} {{ otherPeersCount === 1 ? 'player' : 'players' }} online
+          {{ otherPeersCount }}<span class="net-peers-word">{{ otherPeersCount === 1 ? '\u00a0player' : '\u00a0players' }}</span> online
         </span>
       </p>
 
@@ -24,6 +24,16 @@
         </span>
         <button v-else class="nav-link nav-login" @click="loginMode = 'login'; loginError = ''; showLoginModal = true; showMenu = false">Log in</button>
       </nav>
+      <button
+        type="button"
+        class="theme-switch"
+        :aria-label="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'"
+        :title="theme === 'dark' ? 'Light mode' : 'Dark mode'"
+        @click="setTheme(theme === 'dark' ? 'light' : 'dark')"
+      >
+        <svg v-if="theme === 'dark'" viewBox="0 0 576 512" aria-hidden="true"><path :d="SUN_PATH" /></svg>
+        <svg v-else viewBox="0 0 512 512" aria-hidden="true"><path :d="MOON_PATH" /></svg>
+      </button>
       <button class="menu-toggle" :aria-expanded="showMenu" @click="showMenu = !showMenu">
         {{ showMenu ? 'Close' : 'Menu' }}
       </button>
@@ -193,7 +203,29 @@
         </div>
 
         <div class="lobby-panel">
-          <h2 class="lobby-title">Play someone</h2>
+          <h2 class="lobby-title">Play</h2>
+          <div class="mode-toggle" role="radiogroup" aria-label="Opponent">
+            <button
+              type="button"
+              role="radio"
+              class="mode-option"
+              :class="{ picked: playMode === 'someone' }"
+              :aria-checked="playMode === 'someone'"
+              :disabled="isSearching"
+              @click="setPlayMode('someone')"
+            >Someone</button>
+            <button
+              type="button"
+              role="radio"
+              class="mode-option"
+              :class="{ picked: playMode === 'computer' }"
+              :aria-checked="playMode === 'computer'"
+              :disabled="isSearching"
+              @click="setPlayMode('computer')"
+            >Computer</button>
+          </div>
+
+          <template v-if="playMode === 'someone'">
           <p v-if="!isInitialized || !isConnected" class="lobby-sub">Connecting to relays. You can play the computer while you wait.</p>
 
           <fieldset class="controls">
@@ -227,25 +259,33 @@
             <p><span class="pulse" aria-hidden="true"></span>Looking for an opponent at {{ selectedTimeControlDisplay }}</p>
             <button class="btn" @click="stopSearching">Stop looking</button>
           </div>
+          </template>
 
-          <h2 class="lobby-title lobby-title-2">Play the computer</h2>
-          <div class="levels" role="radiogroup" aria-label="Computer strength">
-            <button
-              v-for="(label, level) in aiLevels"
-              :key="level"
-              class="level"
-              role="radio"
-              :aria-checked="aiDifficulty === level"
-              :class="{ picked: aiDifficulty === level }"
-              @click="aiDifficulty = level"
-            >
-              <span class="level-name">{{ label.name }}</span>
-              <span class="level-elo">{{ label.elo }}</span>
-            </button>
+          <template v-else>
+          <div class="difficulty">
+            <label class="difficulty-head" for="difficulty">
+              <span class="difficulty-label">Difficulty</span>
+              <span class="difficulty-value">{{ aiLevels[aiDifficulty].name }} <span class="difficulty-elo">{{ aiLevels[aiDifficulty].elo }}</span></span>
+            </label>
+            <input
+              id="difficulty"
+              v-model.number="aiDifficulty"
+              class="difficulty-slider"
+              type="range"
+              min="0"
+              :max="aiLevels.length - 1"
+              step="1"
+              :aria-valuetext="`${aiLevels[aiDifficulty].name}, ${aiLevels[aiDifficulty].elo}`"
+              :style="{ '--fill': `${(aiDifficulty / (aiLevels.length - 1)) * 100}%` }"
+            />
+            <div class="difficulty-ticks" aria-hidden="true">
+              <button v-for="(label, level) in aiLevels" :key="level" type="button" tabindex="-1" :class="{ picked: aiDifficulty === level }" @click="aiDifficulty = level">{{ label.name }}</button>
+            </div>
           </div>
           <div class="row">
-            <button class="btn btn-wide" :disabled="isSearching" @click="startAIGame">Start against {{ aiLevels[aiDifficulty].name.toLowerCase() }}</button>
+            <button class="btn btn-go btn-wide" @click="startAIGame">Start against {{ aiLevels[aiDifficulty].name.toLowerCase() }}</button>
           </div>
+          </template>
 
           <p class="you">You are <code :title="myPeerId">{{ formatPeerId(myPeerId) }}</code> on the {{ settings.networkName || 'global' }} network.</p>
 
@@ -433,6 +473,17 @@
         <p>Finish or resign the current game before starting another.</p>
         <div class="sheet-actions">
           <button class="btn btn-go" @click="showAlreadyInGameModal = false">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showLeaveGameModal" class="sheet-backdrop">
+      <div class="sheet" role="alertdialog" aria-modal="true">
+        <h3>Leave this game?</h3>
+        <p>{{ isAIGame ? 'Going home ends your game against the computer, as a loss.' : 'Going home resigns it: it ends now and counts as a loss.' }}</p>
+        <div class="sheet-actions">
+          <button class="btn" @click="showLeaveGameModal = false">Keep playing</button>
+          <button class="btn btn-stop" @click="leaveGameAndGoHome">{{ isAIGame ? 'Leave' : 'Resign and leave' }}</button>
         </div>
       </div>
     </div>
@@ -739,6 +790,53 @@ const aiLevels = [
   { name: 'Hard', elo: 'about 1900' },
   { name: 'Master', elo: '2500 and up' }
 ]
+
+// One "Play" panel: someone (matchmaking) or the computer, remembered.
+type PlayMode = 'someone' | 'computer'
+const PLAY_MODE_KEY = 'pigeonchess:play-mode'
+const playMode = ref<PlayMode>((() => {
+  try { return localStorage.getItem(PLAY_MODE_KEY) === 'computer' ? 'computer' : 'someone' } catch { return 'someone' }
+})())
+const setPlayMode = (mode: PlayMode) => {
+  playMode.value = mode
+  try { localStorage.setItem(PLAY_MODE_KEY, mode) } catch { /* private mode: not remembered */ }
+}
+
+// Light and dark, as on pigeon.peer.ooo: remembered, else the device's choice.
+// index.html sets it before the first paint so the page does not flash.
+const SUN_PATH = 'M178.2-10.1c7.4-3.1 15.8-2.2 22.5 2.2l87.8 58.2 87.8-58.2c6.7-4.4 15.1-5.2 22.5-2.2S411.4-.5 413 7.3l20.9 103.2 103.2 20.9c7.8 1.6 14.4 7 17.4 14.3s2.2 15.8-2.2 22.5l-58.2 87.8 58.2 87.8c4.4 6.7 5.200 15.1 2.2 22.5s-9.6 12.8-17.4 14.3L433.8 401.4 413 504.7c-1.6 7.8-7 14.4-14.3 17.4s-15.8 2.2-22.5-2.2l-87.8-58.2-87.8 58.2c-6.7 4.4-15.1 5.2-22.5 2.2s-12.8-9.6-14.3-17.4L143 401.4 39.7 380.5c-7.8-1.6-14.4-7-17.4-14.3s-2.2-15.8 2.2-22.5L82.7 256 24.5 168.2c-4.4-6.7-5.2-15.1-2.2-22.5s9.6-12.8 17.4-14.3L143 110.6 163.9 7.3c1.6-7.8 7-14.4 14.3-17.4zM207.6 256a80.4 80.4 0 1 1 160.8 0 80.4 80.4 0 1 1 -160.8 0zm208.8 0a128.4 128.4 0 1 0 -256.8 0 128.4 128.4 0 1 0 256.8 0z'
+const MOON_PATH = 'M256 0C114.6 0 0 114.6 0 256S114.6 512 256 512c68.8 0 131.3-27.2 177.3-71.4 7.3-7 9.4-17.9 5.3-27.1s-13.7-14.9-23.8-14.1c-4.9 .4-9.8 .6-14.8 .6-101.6 0-184-82.4-184-184 0-72.1 41.5-134.6 102.1-164.8 9.1-4.5 14.3-14.3 13.1-24.4S322.6 8.5 312.7 6.3C294.4 2.2 275.4 0 256 0z'
+const THEME_KEY = 'pigeonchess:theme'
+const theme = ref<'light' | 'dark'>(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light')
+const setTheme = (next: 'light' | 'dark') => {
+  theme.value = next
+  document.documentElement.dataset.theme = next
+  document.documentElement.style.colorScheme = next
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', next === 'dark' ? '#14191d' : '#e9ecee')
+  try { localStorage.setItem(THEME_KEY, next) } catch { /* private mode: not remembered */ }
+}
+
+// The logo and name go home. A game in progress is left only after asking
+// (leaving resigns it); searching stops; puzzles and reviews close.
+const showLeaveGameModal = ref(false)
+const goHome = () => {
+  showMenu.value = false
+  if (currentGame.value?.status === 'active' && !isPuzzleMode.value && !isReplayMode.value) {
+    showLeaveGameModal.value = true
+    return
+  }
+  if (isSearching.value) stopSearching()
+  if (isReplayMode.value) exitReplayMode()
+  else if (isPuzzleMode.value) exitPuzzleMode()
+  else if (currentGame.value) returnToLobby()
+  window.scrollTo({ top: 0 })
+}
+const leaveGameAndGoHome = async () => {
+  showLeaveGameModal.value = false
+  if (currentGame.value?.status === 'active') await confirmResign()
+  returnToLobby()
+  window.scrollTo({ top: 0 })
+}
 
 const startAIGame = () => {
   endReason.value = null
@@ -3860,6 +3958,34 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 0.55rem;
+  padding: 0.25rem 0.35rem;
+  margin-left: -0.35rem;
+  border-radius: var(--radius);
+  color: var(--ink);
+}
+
+.brand:hover .wordmark {
+  color: var(--sheen);
+}
+
+.theme-switch {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: var(--radius);
+  color: var(--ink-2);
+}
+
+.theme-switch:hover {
+  color: var(--ink);
+}
+
+.theme-switch svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
 }
 
 .brand-mark {
@@ -4468,6 +4594,136 @@ a.btn {
   letter-spacing: -0.025em;
 }
 
+.mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: calc(var(--radius) + 3px);
+  background: var(--surface);
+}
+
+.mode-option {
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius);
+  font-weight: 700;
+  color: var(--ink-2);
+  transition: background 0.15s, color 0.15s;
+}
+
+.mode-option:hover:not(.picked):not(:disabled) {
+  color: var(--ink);
+}
+
+.mode-option.picked {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.mode-option:disabled:not(.picked) {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.difficulty {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.difficulty-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.difficulty-label {
+  font-weight: 700;
+}
+
+.difficulty-value {
+  font-weight: 700;
+}
+
+.difficulty-elo {
+  margin-left: 0.35rem;
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+
+.difficulty-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.difficulty-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--sheen) var(--fill), var(--line) var(--fill));
+}
+
+.difficulty-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+}
+
+.difficulty-slider::-moz-range-progress {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--sheen);
+}
+
+.difficulty-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -8px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--sheen);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.difficulty-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--sheen);
+}
+
+.difficulty-slider:focus-visible {
+  outline: 2px solid var(--sheen);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.difficulty-ticks {
+  display: flex;
+  justify-content: space-between;
+  margin-top: -0.25rem;
+}
+
+.difficulty-ticks button {
+  font-size: 0.78rem;
+  color: var(--ink-2);
+  padding: 0.1rem 0;
+}
+
+.difficulty-ticks button.picked {
+  color: var(--ink);
+  font-weight: 700;
+}
+
 .lobby-title-2 {
   font-size: 1.35rem;
   margin-top: 0.75rem;
@@ -4559,7 +4815,7 @@ a.btn {
 
 .clock-pick.picked {
   background: var(--ink);
-  color: #fff;
+  color: var(--paper);
 }
 
 .clock-pick.picked .pick-name {
@@ -4893,5 +5149,34 @@ a.btn {
     border-bottom: 0;
   }
 }
+/* A phone: room for the name, the count, the theme switch and the menu. */
+@media (max-width: 480px) {
+  .topbar {
+    gap: 0.5rem;
+  }
+
+  .wordmark {
+    font-size: 1.05rem;
+  }
+
+  .brand-mark {
+    width: 24px;
+    height: 24px;
+  }
+
+  .net-peers {
+    white-space: nowrap;
+  }
+
+  .net-peers-word {
+    display: none;
+  }
+
+  .theme-switch {
+    width: 32px;
+    margin-left: auto;
+  }
+}
+
 </style>
 
