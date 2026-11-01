@@ -2247,6 +2247,16 @@ const heardFromOpponent = () => {
   }
 }
 
+/** The sound for the move just played on the board: capture, castle or a plain move. */
+const playSoundForLastMove = () => {
+  const history = chess.value.history({ verbose: true })
+  const last: any = history[history.length - 1]
+  if (!last) return
+  if (last.captured) playCaptureSound()
+  else if (/[kq]/.test(String(last.flags || ''))) playCastleSound()
+  else playMoveSound()
+}
+
 /** Apply moves the opponent has that we missed (their list extends ours). */
 const catchUpMoves = (moves: unknown) => {
   const game = currentGame.value
@@ -2257,6 +2267,7 @@ const catchUpMoves = (moves: unknown) => {
     return
   }
   for (let i = 0; i < game.moves.length; i++) if (moves[i] !== game.moves[i]) return // diverged; leave it
+  const caughtUp = moves.length - game.moves.length
   for (const san of moves.slice(game.moves.length)) {
     const before = chess.value.history({ verbose: true }).length
     if (!receiveMove(String(san))) break
@@ -2264,6 +2275,8 @@ const catchUpMoves = (moves: unknown) => {
     if (last) lastMove.value = { from: last.from, to: last.to }
     if (!hasGameStarted.value) { hasGameStarted.value = true; seek.settled() }
   }
+  // One sound for a missed move arriving late; a long catch-up stays quiet.
+  if (caughtUp === 1) playSoundForLastMove()
 }
 
 // A new turn starts the first-move and long-move clocks again.
@@ -3471,7 +3484,8 @@ const handleMessage = async (event: any) => {
             seek.settled()
           }
           
-          receiveMove(`${chessMessage.data.from}${chessMessage.data.to}`)
+          // The opponent's move gets the same sound as ours (it had none).
+          if (receiveMove(`${chessMessage.data.from}${chessMessage.data.to}`)) playSoundForLastMove()
           // Process incoming timer sync if present
           if (chessMessage.timer && chessMessage.vectorClock) {
             processIncomingTimer(chessMessage.timer, chessMessage.vectorClock, fromPeer)
