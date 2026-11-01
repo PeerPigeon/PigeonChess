@@ -497,7 +497,7 @@ import SettingsModal from './components/SettingsModal.vue'
 import GameHistory from './components/GameHistory.vue'
 import { useChessGame } from './composables/useChessGame'
 import { useSettings } from './composables/useSettings'
-import { useSounds } from './composables/useSounds'
+import { useSounds, playSoundFile } from './composables/useSounds'
 import { useIdentity } from './composables/useIdentity'
 import type { ChessMessage, GameHistoryEntry } from './types'
 import { saveToLocalStorage, loadFromLocalStorage } from './utils/helpers'
@@ -2083,45 +2083,20 @@ const processIncomingTimer = (incomingTimer: any, incomingClock: Record<string, 
 /** Seconds left on the clock when the warning plays and the clock turns yellow. */
 const LOW_TIME_SECONDS = 20
 
-/**
- * Three quick, separate shakes. The copies are loaded with the page so each
- * starts on time; loaded on demand, they started late and ran together.
- */
+/** Three quick, separate shakes, scheduled on the audio clock so they stay apart. */
 const SHAKES = 3
 const SHAKE_GAP_MS = 80
-const shakerCopies = Array.from({ length: SHAKES }, () => {
-  const audio = new Audio('/sounds/shaker.mp3')
-  audio.preload = 'auto'
-  audio.volume = 0.5
-  return audio
-})
+// Through the shared audio context (useSounds), so these play on iOS when the
+// opponent's move or the clock sets them off, not only after a tap.
 const playLowTimeWarning = () => {
-  shakerCopies.forEach((audio, i) => {
-    setTimeout(() => {
-      audio.currentTime = 0
-      audio.playbackRate = 2
-      audio.play().catch((err) => console.error('Low time warning error:', err))
-    }, i * SHAKE_GAP_MS)
-  })
+  for (let i = 0; i < SHAKES; i++) playSoundFile('/sounds/shaker.mp3', { delayMs: i * SHAKE_GAP_MS, rate: 2 })
 }
 
-const playWinSound = () => {
-  const audio = new Audio('/sounds/win-wood.mp3')
-  audio.volume = 0.6
-  audio.play().catch((err) => console.error('Win sound error:', err))
-}
+const playWinSound = () => playSoundFile('/sounds/win-wood.mp3', { volume: 0.6 })
 
-const playLoseSound = () => {
-  const audio = new Audio('/sounds/lose-wood.mp3')
-  audio.volume = 0.6
-  audio.play().catch((err) => console.error('Lose sound error:', err))
-}
+const playLoseSound = () => playSoundFile('/sounds/lose-wood.mp3', { volume: 0.6 })
 
-const playDrawSound = () => {
-  const audio = new Audio('/sounds/draw.mp3')
-  audio.volume = 0.6
-  audio.play().catch((err) => console.error('Draw sound error:', err))
-}
+const playDrawSound = () => playSoundFile('/sounds/draw.mp3', { volume: 0.6 })
 
 const formatTime = (seconds: number): string => {
   // Show infinity symbol for casual games

@@ -1221,12 +1221,6 @@ const handleMouseDown = (event: MouseEvent) => {
     pointer-events: auto;
   }
   
-  /* Disable hover effects on touch devices */
-  .square:hover .piece[draggable="true"],
-  .square:hover .piece:not([draggable="true"]) {
-    transform: none;
-  }
-  
 }
 
 .board-row {

@@ -13,6 +13,7 @@ import { PeerPigeonNode } from '@/vendor/peerpigeon.js'
 // Keep the last few peer connections reachable from the console
 // (__pigeonchess.pcs), so a link that never opens can be looked at.
 const recentPcs: RTCPeerConnection[] = []
+const signalLog: string[] = []
 if (typeof window !== 'undefined' && window.RTCPeerConnection && !(window as any).__pcWrapped) {
   const Native = window.RTCPeerConnection
   const Wrapped = function (this: any, config?: RTCConfiguration) {
@@ -225,7 +226,12 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     })
     compat.node = node
     // For looking at a running page from the console; read-only by intent.
-    ;(globalThis as any).__pigeonchess = { node, compat, pcs: recentPcs }
+    ;(globalThis as any).__pigeonchess = { node, compat, pcs: recentPcs, log: signalLog }
+    // The last few hundred relay and link events, for looking at from the console.
+    node.mesh?.on?.('signaling:log', (data: { message?: string }) => {
+      signalLog.push(`${new Date().toLocaleTimeString([], { hour12: false })} ${data?.message ?? ''}`)
+      if (signalLog.length > 400) signalLog.splice(0, signalLog.length - 400)
+    })
     bind(node)
     starting = node.start().then(() => {
       // Started means the relays have us; other players may not be there yet.
