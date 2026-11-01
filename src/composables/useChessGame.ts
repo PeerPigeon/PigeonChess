@@ -84,7 +84,9 @@ export function useChessGame(options: ChessGameOptions = {}) {
     return currentGame.value?.status === 'active'
   })
 
-  const startNewGame = (peerId: string, opponentPeerId: string, myColor?: 'white' | 'black') => {
+  // gameId: the id both players use (a matched game's), so messages about the
+  // game name the same one on both sides; a fresh one when not given.
+  const startNewGame = (peerId: string, opponentPeerId: string, myColor?: 'white' | 'black', sharedGameId?: string) => {
     // Use provided color or randomly assign
     const assignedColor = myColor || (Math.random() < 0.5 ? 'white' : 'black')
     
@@ -95,7 +97,7 @@ export function useChessGame(options: ChessGameOptions = {}) {
     
     opponentId.value = opponentPeerId
     
-    const gameId = generateGameId()
+    const gameId = sharedGameId || generateGameId()
     chess.value = createChess()
     
     currentGame.value = {

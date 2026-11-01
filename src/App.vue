@@ -648,7 +648,7 @@ const startMatchedGame = (match: { gameId: string; opponent: string; myColor: 'w
   currentGameTimeControl.value = { minutes: match.timeControl.minutes, increment: match.timeControl.increment }
   resetTimers()
   isAIGame.value = false
-  startNewGame(myPeerId.value, match.opponent, match.myColor)
+  startNewGame(myPeerId.value, match.opponent, match.myColor, match.gameId)
   opponentId.value = match.opponent
   hasGameStarted.value = false
   startTimer()
@@ -1590,6 +1590,9 @@ const {
 setOnGameEndCallback((result) => {
   // Clear abandonment timers when game ends
   clearAbandonmentTimers()
+  // A finished game's clock is not synced any more (it kept going on the side
+  // that had not resigned).
+  stopTimerSyncBroadcast()
   
   // An abandoned game is neither won nor lost at the board: the neutral knocks.
   if (endReason.value === 'peer_disconnect') {
@@ -2966,6 +2969,7 @@ const confirmResign = async () => {
   const to = opponentId.value
   endReason.value = 'resign'
   resign()
+  stopTimerSyncBroadcast()
 
   // Only human opponents are told; the computer needs no message.
   if (to && gameId && !isAIGame.value) {
@@ -3563,7 +3567,8 @@ const handleMessage = async (event: any) => {
         break
         
       case 'abort':
-        if (currentGame.value && currentGame.value.id === chessMessage.gameId && currentGame.value.status === 'active') {
+        if (currentGame.value && currentGame.value.status === 'active'
+          && (currentGame.value.id === chessMessage.gameId || fromPeer === opponentId.value)) {
           stopWatchdog()
           abandonmentReason.value = 'aborted'
           const named = (chessMessage as any).stallerColor
@@ -3595,8 +3600,10 @@ const handleMessage = async (event: any) => {
         if (chessMessage.gameId) {
           sendMessage(fromPeer, JSON.stringify({ type: 'resign_ack', gameId: chessMessage.gameId })).catch(() => {})
         }
+        // Each side used to make up its own game id, so a page from before the
+        // ids were shared names a different one: the opponent is enough then.
         if (currentGame.value && myPlayer.value && currentGame.value.status === 'active'
-          && (!chessMessage.gameId || chessMessage.gameId === currentGame.value.id)) {
+          && (!chessMessage.gameId || chessMessage.gameId === currentGame.value.id || fromPeer === opponentId.value)) {
           console.log('Opponent resigned')
           // Set the result before calling endGame so it knows we won
           currentGame.value.result = myPlayer.value.color
@@ -3606,6 +3613,8 @@ const handleMessage = async (event: any) => {
         break
 
       case 'resign_ack':
+        // They know; their clock syncs for it need no answer any more.
+        if (chessMessage.gameId) resignedGameIds.delete(chessMessage.gameId)
         if (chessMessage.gameId && chessMessage.gameId === resignAwaitingAck) {
           resignAwaitingAck = null
           if (resignRetry) clearInterval(resignRetry)
