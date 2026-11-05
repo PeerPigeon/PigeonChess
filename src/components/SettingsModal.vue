@@ -1,7 +1,13 @@
 <template>
   <div class="modal-overlay" @click.self="$emit('close')">
     <div class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-      <h2 id="settings-title">Settings</h2>
+      <div class="settings-bar">
+        <h2 id="settings-title">Settings</h2>
+        <div class="actions">
+          <button class="secondary" @click="reset">Restore defaults</button>
+          <button class="primary" @click="$emit('close')">Done</button>
+        </div>
+      </div>
       
       <div class="settings-section">
         <h3>Signaling relays</h3>
@@ -287,11 +293,6 @@
           </div>
         </div>
       </div>
-      
-      <div class="actions">
-        <button class="secondary" @click="reset">Restore defaults</button>
-        <button class="primary" @click="$emit('close')">Done</button>
-      </div>
     </div>
   </div>
 </template>
@@ -546,12 +547,51 @@ const toggleMuteUrl = (url: string) => {
   font-weight: 400;
 }
 
+/* Title and buttons stay at the top while the settings scroll under them. */
+.settings-bar {
+  position: sticky;
+  top: -1.5rem;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: -1.5rem -1.5rem 0;
+  padding: 0.75rem 1rem 0.75rem 1.5rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-bar h2 {
+  margin: 0;
+}
+
+.settings-bar + .settings-section {
+  border-top: 0;
+}
+
 .actions {
   display: flex;
-  justify-content: flex-end;
   gap: 0.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--line);
+  margin-left: auto;
+}
+
+.actions button {
+  white-space: nowrap;
+  min-height: 44px;
+  padding: 0.5rem 0.85rem;
+}
+
+@media (max-width: 420px) {
+  .settings-bar {
+    padding-left: 1.1rem;
+    padding-right: 0.75rem;
+  }
+
+  .actions button {
+    padding: 0.5rem 0.65rem;
+    font-size: 0.95rem;
+  }
 }
 
 @media (max-width: 480px) {
