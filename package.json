@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "vite build && npx wrangler@4 deploy"
+    "deploy": "vite build && npx wrangler@4 deploy",
+    "push-keys": "node scripts/push-keys.mjs"
   },
   "keywords": [
     "chess",
