@@ -19,9 +19,32 @@ import type { Settings } from '@/types'
 
 export type NotifyKind = 'move' | 'start' | 'test'
 
+const INSTALLED_KEY = 'pigeonchess:installed'
+
+/**
+ * Opened as the installed app (home screen, or an installed desktop app),
+ * not in a browser tab: any app display mode, iOS's navigator.standalone, an
+ * Android app referrer, or the manifest's start URL (?source=home). Once
+ * seen, remembered for this browser.
+ */
+function isInstalled(): boolean {
+  if (typeof window === 'undefined') return false
+  const modes = ['standalone', 'fullscreen', 'minimal-ui', 'window-controls-overlay']
+  const now = modes.some((m) => window.matchMedia?.(`(display-mode: ${m})`).matches)
+    || (navigator as unknown as { standalone?: boolean }).standalone === true
+    || document.referrer.startsWith('android-app://')
+    || new URLSearchParams(location.search).get('source') === 'home'
+  try {
+    if (now) localStorage.setItem(INSTALLED_KEY, '1')
+    return now || localStorage.getItem(INSTALLED_KEY) === '1'
+  } catch {
+    return now
+  }
+}
+
 export function useNotify(settings: Ref<Settings>) {
   const available = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && window.isSecureContext
-  const installed = typeof window !== 'undefined' && (window.matchMedia?.('(display-mode: standalone)').matches || (navigator as unknown as { standalone?: boolean }).standalone === true)
+  const installed = isInstalled()
   const permission = ref<NotificationPermission>(available ? Notification.permission : 'denied')
   const subscription = ref<PushSubscriptionJSON | null>(null)
   const enabled = computed(() => available && (settings.value.notifications ?? installed))
@@ -100,7 +123,7 @@ export function useNotify(settings: Ref<Settings>) {
   /** Where notifications stand here, in words (Settings). */
   const status = computed(() => {
     if (!available) return 'Not available in this browser.'
-    if (!enabled.value) return installed ? 'Off.' : 'Off (in a browser tab they start off; turn them on here).'
+    if (!enabled.value) return installed ? 'Off (you turned them off).' : 'Off: this page is open in a browser tab, not the home-screen app, so they start off. Turn them on here.'
     if (permission.value === 'denied') return 'Blocked for chess.peer.ooo in this browser\'s settings: allow notifications there.'
     if (permission.value === 'default') return 'Waiting for your permission (tap anywhere, then Allow).'
     return subscription.value ? 'On: your opponents can reach you.' : 'Allowed, but not subscribed yet.'

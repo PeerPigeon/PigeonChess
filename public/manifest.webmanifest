@@ -1,7 +1,7 @@
 {
   "name": "PigeonChess",
   "short_name": "PigeonChess",
-  "start_url": "/",
+  "start_url": "/?source=home",
   "display": "standalone",
   "background_color": "#d6dce0",
   "theme_color": "#e9ecee",
