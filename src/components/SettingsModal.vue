@@ -66,7 +66,7 @@
             <option v-for="tc in anyChoices" :key="tc.id" :value="tc.id">{{ tc.minutes === 0 ? 'No clock' : `${tc.display} ${tc.name.toLowerCase()}` }}</option>
           </select>
         </label>
-        <p class="description">Any matches the first player looking, at their clock. When they picked Any too, the game uses this (from whoever makes the offer).</p>
+        <p class="description">Any plays whatever clock your opponent picked. When you both picked Any, whoever started looking first decides, with this setting.</p>
       </div>
 
       <div class="settings-section">

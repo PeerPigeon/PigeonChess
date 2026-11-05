@@ -687,11 +687,9 @@ const timeControls = [
   { id: 'rapid15', name: 'Rapid', display: '15+10', minutes: 15, increment: 10 },
   { id: 'classical30', name: 'Classical', display: '30+0', minutes: 30, increment: 0 }
 ]
-// 10+0 to start; then whatever you picked last (this browser).
-const CLOCK_KEY = 'pigeonchess:clock'
-const savedClock = (() => { try { return localStorage.getItem(CLOCK_KEY) } catch { return null } })()
-const selectedTimeControl = ref(timeControls.some((tc) => tc.id === savedClock) ? savedClock! : 'rapid10')
-watch(selectedTimeControl, (id) => { try { localStorage.setItem(CLOCK_KEY, id) } catch { /* no storage */ } })
+// Any to start (Any plays 10+0 unless Settings says otherwise).
+try { localStorage.removeItem('pigeonchess:clock') } catch { /* no storage */ }
+const selectedTimeControl = ref('any')
 
 // Finding an opponent (see composables/useSeek.ts)
 const seek = useSeek({
@@ -727,7 +725,7 @@ const timeControlsOpen = ref(typeof window === 'undefined' || !window.matchMedia
 const selectedTimeControlLabel = computed(() => {
   const tc = timeControls.find((c) => c.id === selectedTimeControl.value)
   if (!tc) return ''
-  if (tc.id === 'any') return 'Any'
+  if (tc.id === 'any') return `Any · ${anyMeansLabel.value}`
   return tc.minutes === 0 ? 'No clock' : `${tc.display} ${tc.name.toLowerCase()}`
 })
 

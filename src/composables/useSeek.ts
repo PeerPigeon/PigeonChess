@@ -24,7 +24,8 @@ export type SeekMatch = {
   theirSeat?: string
 }
 
-type Seeker = { timeControl: string; seenAt: number }
+/** `since`: when they started looking, on our clock; `anyMeans`: what Any plays for them. */
+type Seeker = { timeControl: string; seenAt: number; since: number; anyMeans?: string }
 type Offer = { to: string; gameId: string; timeControl: SeekTimeControl; sentAt: number }
 const seatOf = (message: any): string | undefined => (typeof message?.seat === 'string' && message.seat.length < 200 ? message.seat : undefined)
 
@@ -58,6 +59,7 @@ export function useSeek(options: SeekOptions) {
   let offer: Offer | null = null
   let timer: ReturnType<typeof setInterval> | null = null
   let currentGameId: string | null = null
+  let searchingSince = 0
 
   const me = () => String(options.myPeerId.value || '')
   const tcById = (id: string) => options.timeControls.find((tc) => tc.id === id)
@@ -65,11 +67,12 @@ export function useSeek(options: SeekOptions) {
 
   /**
    * The time control two compatible seekers play: the specific one; when both
-   * picked "any", what "any" means to the one making the offer (Settings).
+   * picked "any", what "any" means (Settings) to whoever started looking
+   * first; 10+0 when they did not say.
    */
-  const resolve = (mine: string, theirs: string): SeekTimeControl => {
-    let id = mine !== 'any' ? mine : theirs
-    if (id === 'any') id = options.anyMeans?.() ?? 'rapid10'
+  const resolve = (mine: string, them: Seeker): SeekTimeControl => {
+    let id = mine !== 'any' ? mine : them.timeControl
+    if (id === 'any') id = (them.since < searchingSince ? them.anyMeans : options.anyMeans?.()) || 'rapid10'
     const tc = (id !== 'any' && tcById(id)) || tcById('rapid10') || options.timeControls[0]
     return { id: tc.id, minutes: tc.minutes, increment: tc.increment }
   }
@@ -86,6 +89,9 @@ export function useSeek(options: SeekOptions) {
       peerId: me(),
       searching,
       timeControl: searching ? options.selectedTimeControl.value : null,
+      // How long we have been looking (not a clock time: clocks differ), and what Any means here.
+      waited: searching ? Date.now() - searchingSince : undefined,
+      anyMeans: searching ? options.anyMeans?.() : undefined,
     })).catch((err) => console.warn('Seek announcement failed:', err))
   }
 
@@ -108,7 +114,7 @@ export function useSeek(options: SeekOptions) {
       .sort(([a], [b]) => (a < b ? -1 : 1))
     if (candidates.length === 0) return
     const [to, seeker] = candidates[0]
-    const timeControl = resolve(mine, seeker.timeControl)
+    const timeControl = resolve(mine, seeker)
     offer = { to, gameId: `${me().slice(0, 8)}-${Date.now().toString(36)}`, timeControl, sentAt: Date.now() }
     send(to, { type: 'matchOffer', gameId: offer.gameId, timeControl, seat: options.mySeat?.() ?? undefined })
   }
@@ -122,6 +128,7 @@ export function useSeek(options: SeekOptions) {
   const start = () => {
     if (isSearching.value) return
     isSearching.value = true
+    searchingSince = Date.now()
     tick()
     timer = setInterval(tick, ANNOUNCE_MS)
   }
@@ -152,7 +159,12 @@ export function useSeek(options: SeekOptions) {
         const id = String(message.peerId || from || '')
         if (!id || id === me()) return true
         if (message.searching) {
-          seekers.set(id, { timeControl: String(message.timeControl || 'any'), seenAt: Date.now() })
+          const now = Date.now()
+          const waited = Number.isFinite(message.waited) && message.waited >= 0 ? Math.min(message.waited, 86_400_000) : 0
+          const anyMeans = typeof message.anyMeans === 'string' && message.anyMeans !== 'any' && tcById(message.anyMeans) ? message.anyMeans : undefined
+          // Keep the earliest start we worked out (a later announcement may arrive slower).
+          const since = Math.min(seekers.get(id)?.since ?? Infinity, now - waited)
+          seekers.set(id, { timeControl: String(message.timeControl || 'any'), seenAt: now, since, anyMeans })
           tryOffer()
         } else {
           seekers.delete(id)
