@@ -687,7 +687,11 @@ const timeControls = [
   { id: 'rapid15', name: 'Rapid', display: '15+10', minutes: 15, increment: 10 },
   { id: 'classical30', name: 'Classical', display: '30+0', minutes: 30, increment: 0 }
 ]
-const selectedTimeControl = ref('any')
+// 10+0 to start; then whatever you picked last (this browser).
+const CLOCK_KEY = 'pigeonchess:clock'
+const savedClock = (() => { try { return localStorage.getItem(CLOCK_KEY) } catch { return null } })()
+const selectedTimeControl = ref(timeControls.some((tc) => tc.id === savedClock) ? savedClock! : 'rapid10')
+watch(selectedTimeControl, (id) => { try { localStorage.setItem(CLOCK_KEY, id) } catch { /* no storage */ } })
 
 // Finding an opponent (see composables/useSeek.ts)
 const seek = useSeek({
@@ -5014,15 +5018,17 @@ a.btn {
 
 .controls-toggle {
   display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 0.6rem;
   width: 100%;
-  padding: 0;
-  background: none;
-  border: 0;
+  min-height: 48px;
+  padding: 0.6rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
   font: inherit;
   font-weight: 600;
-  font-size: 0.875rem;
+  font-size: 1rem;
   color: var(--ink-2);
   cursor: pointer;
   text-align: left;
@@ -5036,6 +5042,8 @@ a.btn {
 
 .controls-chevron {
   margin-left: auto;
+  font-size: 1.25rem;
+  line-height: 1;
 }
 
 .clock-grid {
