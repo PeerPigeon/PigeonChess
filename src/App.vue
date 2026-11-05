@@ -34,8 +34,11 @@
         <svg v-if="theme === 'dark'" viewBox="0 0 576 512" aria-hidden="true"><path :d="SUN_PATH" /></svg>
         <svg v-else viewBox="0 0 512 512" aria-hidden="true"><path :d="MOON_PATH" /></svg>
       </button>
-      <button class="menu-toggle" :aria-expanded="showMenu" @click="showMenu = !showMenu">
-        {{ showMenu ? 'Close' : 'Menu' }}
+      <button class="menu-toggle" :aria-expanded="showMenu" :aria-label="showMenu ? 'Close menu' : 'Menu'" @click="showMenu = !showMenu">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path v-if="showMenu" d="M6 6l12 12M18 6L6 18" />
+          <path v-else d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
       </button>
     </header>
 
@@ -4339,10 +4342,21 @@ onUnmounted(() => {
 
 .menu-toggle {
   display: none;
-  padding: 0.4rem 0.7rem;
-  border: 1px solid var(--line-strong);
+  width: 44px;
+  height: 44px;
+  flex: none;
+  place-items: center;
   border-radius: var(--radius);
-  font-weight: 500;
+  color: var(--ink);
+}
+
+.menu-toggle svg {
+  width: 26px;
+  height: 26px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
 }
 
 /* ---------- the table: board on the left, the game on the right ---------- */
@@ -5287,7 +5301,7 @@ a.btn {
   }
 
   .menu-toggle {
-    display: block;
+    display: grid;
   }
 
   .nav {
@@ -5312,11 +5326,14 @@ a.btn {
     padding: 0.65rem 0.5rem;
   }
 
-  .nav-login,
   .nav-user {
     margin-left: 0;
     border-left: 0;
     padding-left: 0;
+  }
+
+  .nav-login {
+    margin-left: 0;
   }
 
   .main {
