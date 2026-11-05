@@ -70,6 +70,11 @@
           <span>Tell me when it's my move or a game starts while I'm away</span>
         </label>
         <p class="description" v-if="!notificationsAvailable">This browser can't show notifications here. On an iPhone or iPad, add PigeonChess to your Home Screen first.</p>
+        <p class="description" v-else>{{ notificationsStatus }}</p>
+        <div v-if="notificationsAvailable && notificationsOn" class="presets">
+          <button class="secondary" @click="emit('testNotification')">Send me a test notification</button>
+          <span class="description">{{ notificationsTestResult }}</span>
+        </div>
       </div>
       
       <div class="settings-section">
@@ -290,6 +295,8 @@ interface Props {
   pieceThemes: PieceTheme[]
   notificationsOn?: boolean
   notificationsAvailable?: boolean
+  notificationsStatus?: string
+  notificationsTestResult?: string
 }
 
 const props = defineProps<Props>()
@@ -306,6 +313,7 @@ const emit = defineEmits<{
   updateArrowColors: [whiteArrow: string, blackArrow: string, emptyArrow: string]
   toggleSound: [enabled: boolean]
   toggleNotifications: [enabled: boolean]
+  testNotification: []
 }>()
 
 const newUrl = ref('')

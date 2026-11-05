@@ -7,16 +7,16 @@
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()))
 
-const TEXT = { move: 'Your move', start: 'Your game started' }
+const TEXT = { move: 'Your move', start: 'Your game started', test: 'Notifications work' }
 
 self.addEventListener('push', (event) => {
   let data = {}
   try { data = event.data ? event.data.json() : {} } catch { data = {} }
-  const kind = data.kind === 'start' ? 'start' : 'move'
+  const kind = data.kind === 'start' || data.kind === 'test' ? data.kind : 'move'
   event.waitUntil((async () => {
     // Nothing to say when PigeonChess is open and in front.
     const open = await self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-    if (open.some((c) => c.visibilityState === 'visible' && c.focused)) return
+    if (kind !== 'test' && open.some((c) => c.visibilityState === 'visible' && c.focused)) return
     await self.registration.showNotification('PigeonChess', {
       body: TEXT[kind],
       tag: `pigeonchess-${data.gameId || 'game'}`,

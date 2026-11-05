@@ -29,7 +29,7 @@ async function push(request: Request, env: Env): Promise<Response> {
   let body: { sub?: PushSubscriptionJson; kind?: string; gameId?: string }
   try { body = JSON.parse(text) } catch { return json({ ok: false, error: 'bad JSON' }, 400) }
   const sub = body.sub
-  const kind = body.kind === 'start' ? 'start' : body.kind === 'move' ? 'move' : null
+  const kind = body.kind === 'start' || body.kind === 'move' || body.kind === 'test' ? body.kind : null
   if (!kind || !sub || typeof sub.endpoint !== 'string' || !sub.keys || !isPushService(sub.endpoint)) return json({ ok: false, error: 'bad request' }, 400)
   const gameId = String(body.gameId ?? '').replace(/[^\w.-]/g, '').slice(0, 64)
   const now = Date.now()

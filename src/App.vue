@@ -423,7 +423,10 @@
       @toggle-sound="toggleSound"
       :notifications-on="notify.on.value"
       :notifications-available="notify.available"
+      :notifications-status="notify.status.value"
+      :notifications-test-result="notifyTestResult"
       @toggle-notifications="(on: boolean) => { void notify.setEnabled(on) }"
+      @test-notification="() => { notifyTestResult = 'Sending…'; void notify.test().then((r) => { notifyTestResult = r }) }"
     />
 
     <GameHistory
@@ -600,6 +603,7 @@ const { settings, boardThemes, pieceThemes, addSignalingUrl, removeSignalingUrl,
 const showSettings = ref(false)
 // Notifications (composables/useNotify.ts): your move, game started, while you're away.
 const notify = useNotify(settings)
+const notifyTestResult = ref('')
 const showHistory = ref(false)
 const showMenu = ref(false)
 
@@ -752,6 +756,8 @@ const startMatchedGame = (match: { gameId: string; opponent: string; myColor: 'w
   saveGameState()
   pushedForMove = -1
   opponentAway.value = false
+  opponentSyncMoves = -1
+  opponentSyncAt = 0
   tellOpponentHowToReachMe()
   void notify.showHere('start', match.gameId)
 }
@@ -2567,6 +2573,11 @@ const opponentGone = ref(false)
 const opponentGoneOnTheirTurn = ref(0) // seconds of their reconnect window used
 const reconnectWindow = computed(() => reconnectSeconds(currentGameTimeControl.value))
 
+/** What the opponent's latest clock sync said: how many moves, and when it came. */
+let opponentSyncMoves = -1
+let opponentSyncAt = 0
+let lastTimeCheckAt = 0
+
 const heardFromOpponent = () => {
   lastHeardFromOpponent = Date.now()
   stopRejoining()
@@ -2669,10 +2680,23 @@ const watchdogTick = () => {
     return
   }
 
-  // Their clock ran out on their move, and they aren't there to say so
+  // Their clock ran out on their move, and they aren't there to say so.
+  // Only once they have confirmed the position: a page that missed their
+  // last move (a phone with its screen off) would otherwise run their clock
+  // down while it is really its own move, and claim a win it didn't have.
+  // So: their latest clock sync, from the last few seconds, must have as many
+  // moves as we do. Until then, ask them for one.
   if (hasClock.value && !isMyTurn.value && opponentTime.value <= 0) {
-    claimWinOnTime()
-    return
+    const game = currentGame.value
+    const confirmed = game && now - lastHeardFromOpponent < OPPONENT_GONE_MS && now - opponentSyncAt < 6000 && opponentSyncMoves === game.moves.length
+    if (confirmed) {
+      claimWinOnTime()
+      return
+    }
+    if (now - lastTimeCheckAt > 1500 && opponentId.value) {
+      lastTimeCheckAt = now
+      sendMessage(opponentId.value, JSON.stringify({ type: 'time_check', gameId: game?.id })).catch(() => {})
+    }
   }
 
   if (now - lastPingAt >= 3000 && opponentId.value) {
@@ -3854,6 +3878,12 @@ const handleMessage = async (event: any) => {
         if (typeof message.t === 'number') opponentRtt.value = Date.now() - message.t
         return
       }
+      if (message.type === 'time_check') {
+        // They think our clock ran out: send the moves and clocks as we have them.
+        incrementLocalClock()
+        sendTimerSync()
+        return
+      }
       if (message.type === 'rejoin') {
         // They are back (after a reload): send them everything.
         opponentAway.value = false
@@ -3927,6 +3957,7 @@ const handleMessage = async (event: any) => {
         break
         
       case 'timer_sync':
+        if (Array.isArray((chessMessage as any).moves)) { opponentSyncMoves = (chessMessage as any).moves.length; opponentSyncAt = Date.now() }
         catchUpMoves((chessMessage as any).moves)
         if (chessMessage.data && chessMessage.vectorClock) {
           processIncomingTimer(chessMessage.data, chessMessage.vectorClock, fromPeer)

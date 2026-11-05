@@ -17,7 +17,7 @@ import type { Settings } from '@/types'
  *   two replace each other (same tag), so you see one.
  */
 
-export type NotifyKind = 'move' | 'start'
+export type NotifyKind = 'move' | 'start' | 'test'
 
 export function useNotify(settings: Ref<Settings>) {
   const available = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && window.isSecureContext
@@ -97,7 +97,25 @@ export function useNotify(settings: Ref<Settings>) {
     return r?.ok ? 'sent' : r?.gone ? 'gone' : 'failed'
   }
 
+  /** Where notifications stand here, in words (Settings). */
+  const status = computed(() => {
+    if (!available) return 'Not available in this browser.'
+    if (!enabled.value) return installed ? 'Off.' : 'Off (in a browser tab they start off; turn them on here).'
+    if (permission.value === 'denied') return 'Blocked for chess.peer.ooo in this browser\'s settings: allow notifications there.'
+    if (permission.value === 'default') return 'Waiting for your permission (tap anywhere, then Allow).'
+    return subscription.value ? 'On: your opponents can reach you.' : 'Allowed, but not subscribed yet.'
+  })
+
+  /** Send this device a notification through the whole path (server, push service, service worker). */
+  const test = async (): Promise<string> => {
+    if (permission.value !== 'granted') await ask()
+    await ensure()
+    if (!subscription.value) return 'Not subscribed: ' + status.value
+    const r = await pushTo(subscription.value, 'test', 'test')
+    return r === 'sent' ? 'Sent: it should show in a few seconds (even with the page open).' : r === 'gone' ? 'The subscription was gone; try again.' : 'The server could not send it.'
+  }
+
   if (available) void register()
 
-  return { available, installed, on, permission, subscription, ensure, askOnFirstTap, setEnabled, showHere, pushTo }
+  return { available, installed, on, permission, subscription, status, ensure, askOnFirstTap, setEnabled, showHere, pushTo, test }
 }
