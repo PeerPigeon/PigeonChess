@@ -83,11 +83,16 @@ export function useNotify(settings: Ref<Settings>) {
     await ensure()
   }
 
-  /** Ask on the first tap anywhere, when on and not asked yet. */
+  /**
+   * Ask on the first tap anywhere, when on and not asked yet. On a click, not
+   * a pointerdown: a touch's pointerdown is not yet a user gesture to the
+   * browser, and a permission request outside one is refused without asking
+   * (and the refusal sticks: the site ends up blocked).
+   */
   const askOnFirstTap = () => {
     if (!on.value || permission.value !== 'default') { void ensure(); return }
-    const once = () => { removeEventListener('pointerdown', once, true); if (on.value && permission.value === 'default') void ask() }
-    addEventListener('pointerdown', once, true)
+    const once = () => { removeEventListener('click', once, true); if (on.value && permission.value === 'default') void ask() }
+    addEventListener('click', once, true)
   }
 
   /** Settings: turn on (asks now, a tap) or off (unsubscribes). */
