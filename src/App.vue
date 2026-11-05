@@ -770,9 +770,13 @@ const startMatchedGame = (match: { gameId: string; opponent: string; myColor: 'w
   opponentAway.value = false
   opponentSyncMoves = -1
   opponentSyncAt = 0
-  tellOpponentHowToReachMe()
+  // Several times: the side that accepted starts first, so its first copy can
+  // reach the other side before that side's game (and seat) exists, and be dropped.
+  reachMeTimers.forEach(clearTimeout)
+  reachMeTimers = [0, 2000, 5000, 15000, 30000].map((ms) => setTimeout(() => tellOpponentHowToReachMe(), ms))
   void notify.showHere('start', match.gameId)
 }
+let reachMeTimers: ReturnType<typeof setTimeout>[] = []
 
 // Tell the opponent who we are (when logged in). Sent at the start and twice
 // more over the first seconds, since the first copy can go out before their
@@ -823,7 +827,7 @@ const watchSeatedGame = () => {
   watch(() => currentGame.value?.moves?.length, () => saveGameState())
   watch(() => currentGame.value?.status, (status) => {
     // A finished game is not picked up again (its seat stays, for the last messages).
-    if (seat && status && status !== 'active') { seat.game = undefined; saveSeat(seat) }
+    if (seat && status && status !== 'active') { keepEnding(); seat.game = undefined; saveSeat(seat) }
   })
   watch(() => opponentGone.value, (gone) => { if (gone) notifyOpponentIfAway() })
 }
@@ -2577,6 +2581,32 @@ const reconnectSeconds = (tc: TimeControlLike) =>
 
 let lastHeardFromOpponent = Date.now()
 let turnStartedAt = Date.now()
+
+/**
+ * Whether this page may judge the opponent (abort, abandonment, a win on
+ * time). A page that was in the background, or paused (iOS pauses a
+ * home-screen app as soon as it leaves the screen; Android slows a page with
+ * the screen off), may have missed moves: its position and clocks are stale
+ * until it hears the opponent again. So it judges only while in front, and
+ * only once a clock sync has come since it woke, or it has been awake long
+ * enough that one would have come if the opponent were there.
+ */
+let awakeSince = Date.now()
+let lastTickAt = Date.now()
+const AWAKE_TRUST_MS = 15000
+const woke = () => {
+  awakeSince = Date.now()
+  // Ask for the moves and clocks now rather than at the next sync.
+  if (opponentId.value && isGameActive.value && !isAIGame.value) {
+    sendMessage(opponentId.value, JSON.stringify({ type: 'time_check', gameId: currentGame.value?.id })).catch(() => {})
+  }
+}
+const mayJudge = (now: number) =>
+  document.visibilityState === 'visible' && (opponentSyncAt > awakeSince || now - awakeSince > AWAKE_TRUST_MS)
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') woke() })
+  addEventListener('pageshow', () => woke())
+}
 /** The turn whose move-timeout warning has played (its turnStartedAt). */
 let warnedTurnStartedAt = 0
 const MOVE_WARNING_SECONDS = 10
@@ -2675,6 +2705,10 @@ const watchdogTick = () => {
   const sideToMove = chess.value.turn() === 'w' ? 'white' : 'black'
   const myMove = sideToMove === myPlayer.value.color
   const onTurnFor = (now - turnStartedAt) / 1000
+  // Ticks come every second; a long gap means this page was paused.
+  if (now - lastTickAt > 3000) woke()
+  lastTickAt = now
+  const judge = mayJudge(now)
 
   // On your first move, the shaker 10 s before the game is aborted. Nothing
   // else warns mid-game; the low-time shaker covers the clock.
@@ -2687,7 +2721,7 @@ const watchdogTick = () => {
   }
 
   // First move of each side
-  if (plies < 2 && onTurnFor > firstMoveSeconds(tc)) {
+  if (judge && plies < 2 && onTurnFor > firstMoveSeconds(tc)) {
     abortGame()
     return
   }
@@ -2701,7 +2735,9 @@ const watchdogTick = () => {
   if (hasClock.value && !isMyTurn.value && opponentTime.value <= 0) {
     const game = currentGame.value
     const confirmed = game && now - lastHeardFromOpponent < OPPONENT_GONE_MS && now - opponentSyncAt < 6000 && opponentSyncMoves === game.moves.length
-    if (confirmed) {
+    // Or they are gone and we are awake and caught up: their clock is ours to call.
+    const gone = now - lastHeardFromOpponent > OPPONENT_GONE_MS
+    if (judge && (confirmed || gone)) {
       claimWinOnTime()
       return
     }
@@ -2721,10 +2757,43 @@ const watchdogTick = () => {
   // Disconnect: only while we are online, and only on their turn
   const weAreOnline = connectedPeerIds.value.length > 0
   opponentGone.value = weAreOnline && now - lastHeardFromOpponent > OPPONENT_GONE_MS
-  if (opponentGone.value && !isMyTurn.value && plies >= 2) {
+  // Someone we can notify (they gave us their push subscription) is not
+  // abandoning: they are away until the notification brings them back. Their
+  // clock decides; with no clock, they have 10 minutes.
+  const window = seat?.theirPush ? (hasClock.value ? Infinity : 600) : reconnectWindow.value
+  if (opponentGone.value && !isMyTurn.value && plies >= 2 && judge) {
     opponentGoneOnTheirTurn.value += 1
-    if (opponentGoneOnTheirTurn.value >= reconnectWindow.value) abandonGame('peer_disconnect', 'opponent')
+    if (opponentGoneOnTheirTurn.value >= window) abandonGame('peer_disconnect', 'opponent')
   }
+}
+
+/**
+ * The game that just ended, kept a while: when the opponent's page comes back
+ * (it was paused and missed the end), it is sent the same ending, so both
+ * sides agree. `ending` is the message that ended it here; for a game ended
+ * at the board (mate, a draw), the moves.
+ */
+let ended: { gameId: string; seat: Seat; opponentId: string; ending: string; at: number } | null = null
+let lastEnding: string | null = null
+let endingResentAt = 0
+const keepEnding = () => {
+  const game = currentGame.value
+  if (!seat || !game || !opponentId.value) return
+  ended = {
+    gameId: game.id,
+    seat,
+    opponentId: opponentId.value,
+    ending: lastEnding ?? JSON.stringify({ type: 'timer_sync', gameId: game.id, moves: [...game.moves], data: null }),
+    at: Date.now(),
+  }
+  lastEnding = null
+}
+/** Send their page how the game ended here (at most every 2 s). */
+const resendEnding = async (to: string) => {
+  if (!ended || Date.now() - ended.at > 15 * 60_000 || Date.now() - endingResentAt < 2000) return
+  endingResentAt = Date.now()
+  const sealed = await seal(ended.seat, ended.ending)
+  rawSendMessage(to, JSON.stringify(sealed)).catch(() => {})
 }
 
 /** Nobody made a first move in time: the game is called off and not recorded. */
@@ -2742,7 +2811,9 @@ const abortGame = async () => {
   showAbandonmentModal.value = true
   playDrawSound()
   // Tell them before the game (and who they are) is cleared.
-  if (to) sendMessage(to, JSON.stringify({ type: 'abort', gameId, stallerColor })).catch(() => {})
+  lastEnding = JSON.stringify({ type: 'abort', gameId, stallerColor })
+  keepEnding()
+  if (to) sendMessage(to, lastEnding).catch(() => {})
   returnToLobby()
 }
 
@@ -2757,6 +2828,7 @@ const claimWinOnTime = async () => {
   endReason.value = 'time'
   iAbandoned.value = false
   showAbandonmentModal.value = true
+  lastEnding = JSON.stringify({ type: 'flag', gameId: currentGame.value.id, loser: myColor === 'white' ? 'black' : 'white' })
   endGame()
   if (opponentId.value) {
     sendMessage(opponentId.value, JSON.stringify({ type: 'flag', gameId: currentGame.value.id, loser: myColor === 'white' ? 'black' : 'white' }))
@@ -2782,6 +2854,7 @@ const abandonGame = async (reason: 'peer_disconnect', loser: 'me' | 'opponent') 
   const myColor = myPlayer.value.color
   const loserColor = loser === 'me' ? myColor : (myColor === 'white' ? 'black' : 'white')
   currentGame.value.result = loserColor === 'white' ? 'black' : 'white'
+  lastEnding = JSON.stringify({ type: 'abandon', gameId: currentGame.value.id, reason, loser: loserColor })
   endGame()
 
   if (opponentId.value && !isAIGame.value) {
@@ -3852,13 +3925,24 @@ const handleMessage = async (event: any) => {
     // A sealed message: act on it only if the opponent's seat key signed it.
     // From a new peer ID, it is the same player after a reload: follow them.
     if (message?.type === 'sealed') {
-      if (!seat || message.gameId !== seat.gameId) return
-      const body = await open(seat, message)
+      const current = !!seat && message.gameId === seat.gameId
+      const theSeat = current ? seat : (ended && message.gameId === ended.gameId ? ended.seat : null)
+      if (!theSeat) return
+      const body = await open(theSeat, message)
       if (!body) return
-      saveSeat(seat)
+      if (current) saveSeat(seat)
+      const inner = JSON.parse(body)
+      // Their page is still playing a game that ended here (it was paused and
+      // missed the end): tell it how it ended.
+      if (ended && message.gameId === ended.gameId && (!current || currentGame.value?.status !== 'active')
+        && ['ping', 'time_check', 'rejoin', 'timer_sync', 'move'].includes(String(inner?.type))) {
+        if (fromPeer) void resendEnding(fromPeer)
+        return
+      }
+      if (!current) return
       if (fromPeer && fromPeer !== opponentId.value) rejoinedAs(fromPeer)
       fromPeer = opponentId.value
-      message = JSON.parse(body)
+      message = inner
     } else if (seat && !NOT_SEALED.has(String(message?.type ?? ''))) {
       // Unsealed while this game is sealed: not from our opponent. Dropped.
       return
