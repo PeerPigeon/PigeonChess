@@ -81,6 +81,8 @@ export interface Settings {
   soundEnabled?: boolean
   /** Notifications (your move, game started); unset: on when installed to the home screen. */
   notifications?: boolean
+  /** The clock "Any" plays when both players picked Any (a time control id); 10+0 when unset. */
+  anyTimeControl?: string
   whiteArrowColor?: string
   blackArrowColor?: string
   emptyArrowColor?: string

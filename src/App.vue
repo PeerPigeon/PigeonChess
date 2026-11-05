@@ -247,7 +247,7 @@
                 @click="selectTimeControl(control.id)"
               >
                 <span class="pick-time">{{ control.id === 'any' ? 'Any' : (control.minutes === 0 ? 'No clock' : control.display) }}</span>
-                <span class="pick-name">{{ control.id === 'any' ? 'first free' : control.name.toLowerCase() }}</span>
+                <span class="pick-name">{{ control.id === 'any' ? `first free · ${anyMeansLabel}` : control.name.toLowerCase() }}</span>
               </button>
             </div>
           </fieldset>
@@ -421,6 +421,7 @@
       @update-piece-outlines="setPieceOutlines"
       @update-arrow-colors="setArrowColors"
       @toggle-sound="toggleSound"
+      :time-controls="timeControls"
       :notifications-on="notify.on.value"
       :notifications-available="notify.available"
       :notifications-status="notify.status.value"
@@ -673,7 +674,7 @@ const myPeerId = computed(() => {
 
 // Time controls
 const timeControls = [
-  { id: 'any', name: 'Any', display: 'Any Time', minutes: 5, increment: 0 }, // Default to 5+0 if matched
+  { id: 'any', name: 'Any', display: 'Any Time', minutes: 10, increment: 0 }, // both on Any: Settings → "Any" means (10+0 unless changed)
   { id: 'casual', name: 'Casual', display: 'No Time', minutes: 0, increment: 0 },
   { id: 'bullet1', name: 'Bullet', display: '1+0', minutes: 1, increment: 0 },
   { id: 'bullet2', name: 'Bullet', display: '2+0', minutes: 2, increment: 0 },
@@ -697,6 +698,7 @@ const seek = useSeek({
   sendMessage: (peerId: string, message: string) => sendMessage(peerId, message),
   isPlaying: () => isGameActive.value,
   mySeat: () => nextSeat?.pub ?? null,
+  anyMeans: () => settings.value.anyTimeControl || 'rapid10',
   onMatched: (match) => startMatchedGame(match),
   onCancelled: () => {
     console.log('Opponent withdrew before the first move; searching again')
@@ -705,6 +707,11 @@ const seek = useSeek({
   }
 })
 const isSearching = seek.isSearching
+
+const anyMeansLabel = computed(() => {
+  const tc = timeControls.find((c) => c.id === (settings.value.anyTimeControl || 'rapid10'))
+  return !tc ? '10+0' : tc.minutes === 0 ? 'no clock' : tc.display
+})
 
 const selectedTimeControlDisplay = computed(() => {
   return timeControls.find(tc => tc.id === selectedTimeControl.value)?.display || ''

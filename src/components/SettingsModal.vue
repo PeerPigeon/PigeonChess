@@ -59,6 +59,17 @@
       </div>
 
       <div class="settings-section">
+        <h3>When you pick Any</h3>
+        <label class="check">
+          <span>Play</span>
+          <select class="any-select" :value="settings.anyTimeControl || 'rapid10'" @change="(e) => { settings.anyTimeControl = (e.target as HTMLSelectElement).value }">
+            <option v-for="tc in anyChoices" :key="tc.id" :value="tc.id">{{ tc.minutes === 0 ? 'No clock' : `${tc.display} ${tc.name.toLowerCase()}` }}</option>
+          </select>
+        </label>
+        <p class="description">Any matches the first player looking, at their clock. When they picked Any too, the game uses this (from whoever makes the offer).</p>
+      </div>
+
+      <div class="settings-section">
         <h3>Notifications</h3>
         <label class="check">
           <input
@@ -286,7 +297,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { Settings, BoardTheme, PieceTheme } from '@/types'
 
 interface Props {
@@ -297,9 +308,11 @@ interface Props {
   notificationsAvailable?: boolean
   notificationsStatus?: string
   notificationsTestResult?: string
+  timeControls?: { id: string; name: string; display: string; minutes: number; increment: number }[]
 }
 
 const props = defineProps<Props>()
+const anyChoices = computed(() => (props.timeControls ?? []).filter((tc) => tc.id !== 'any'))
 const emit = defineEmits<{
   close: []
   reset: []
@@ -450,6 +463,10 @@ const toggleMuteUrl = (url: string) => {
 
 .presets {
   margin-top: 0.5rem;
+}
+
+.any-select {
+  min-width: 10rem;
 }
 
 .check {

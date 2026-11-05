@@ -47,6 +47,8 @@ export interface SeekOptions {
   isPlaying: () => boolean
   /** This player's seat key for the next game (sent in the offer and the answer). */
   mySeat?: () => string | null
+  /** The time control "any" means here, when both sides picked any. */
+  anyMeans?: () => string
 }
 
 export function useSeek(options: SeekOptions) {
@@ -61,10 +63,14 @@ export function useSeek(options: SeekOptions) {
   const tcById = (id: string) => options.timeControls.find((tc) => tc.id === id)
   const compatible = (a: string, b: string) => a === 'any' || b === 'any' || a === b
 
-  /** The time control two compatible seekers play: the specific one, or the "any" default. */
+  /**
+   * The time control two compatible seekers play: the specific one; when both
+   * picked "any", what "any" means to the one making the offer (Settings).
+   */
   const resolve = (mine: string, theirs: string): SeekTimeControl => {
-    const id = mine !== 'any' ? mine : theirs
-    const tc = tcById(id) || tcById('any') || options.timeControls[0]
+    let id = mine !== 'any' ? mine : theirs
+    if (id === 'any') id = options.anyMeans?.() ?? 'rapid10'
+    const tc = (id !== 'any' && tcById(id)) || tcById('rapid10') || options.timeControls[0]
     return { id: tc.id, minutes: tc.minutes, increment: tc.increment }
   }
 
