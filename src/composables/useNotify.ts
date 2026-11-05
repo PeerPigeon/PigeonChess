@@ -1,0 +1,103 @@
+import { computed, ref, type Ref } from 'vue'
+import type { Settings } from '@/types'
+
+/**
+ * Notifications: "Your move" and "Your game started", nothing else (no move
+ * details), and only while you are away.
+ *
+ * - On by default when PigeonChess is installed (added to the home screen,
+ *   or installed as an app); in a browser tab, off until turned on. Settings
+ *   can turn them off (or on) either way.
+ * - Browsers ask for permission only from a tap: the first tap anywhere asks.
+ * - Your page hands its push subscription to your opponent, sealed, at the
+ *   start of each game. When you are away (your page went to the background,
+ *   or closed), your opponent's page asks chess.peer.ooo to push "Your move";
+ *   the text is fixed there (worker/index.ts). While your page is still
+ *   alive in the background it also shows the notification itself; the
+ *   two replace each other (same tag), so you see one.
+ */
+
+export type NotifyKind = 'move' | 'start'
+
+export function useNotify(settings: Ref<Settings>) {
+  const available = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && window.isSecureContext
+  const installed = typeof window !== 'undefined' && (window.matchMedia?.('(display-mode: standalone)').matches || (navigator as unknown as { standalone?: boolean }).standalone === true)
+  const permission = ref<NotificationPermission>(available ? Notification.permission : 'denied')
+  const subscription = ref<PushSubscriptionJSON | null>(null)
+  const enabled = computed(() => available && (settings.value.notifications ?? installed))
+  const on = computed(() => enabled.value && permission.value !== 'denied')
+  let registration: Promise<ServiceWorkerRegistration | null> | null = null
+
+  const register = () => {
+    registration ??= available ? navigator.serviceWorker.register('/sw.js').catch((err) => { console.warn('No service worker:', err); return null }) : Promise.resolve(null)
+    return registration
+  }
+
+  const serverKey = async (): Promise<Uint8Array | null> => {
+    const r = await fetch('/api/push-key').then((x) => x.json()).catch(() => null) as { key?: string | null } | null
+    if (!r?.key) return null
+    const s = r.key.replace(/-/g, '+').replace(/_/g, '/')
+    return Uint8Array.from(atob(s + '='.repeat((4 - (s.length % 4)) % 4)), (c) => c.charCodeAt(0))
+  }
+
+  /** Subscribe (or pick up the subscription there is) when allowed. */
+  const ensure = async () => {
+    if (!on.value || permission.value !== 'granted') return
+    const reg = await register()
+    if (!reg) return
+    let sub = await reg.pushManager.getSubscription()
+    if (!sub) {
+      const key = await serverKey()
+      if (!key) return
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key as BufferSource }).catch((err) => { console.warn('No push subscription:', err); return null })
+    }
+    subscription.value = sub ? sub.toJSON() : null
+  }
+
+  const ask = async () => {
+    if (!available) return
+    permission.value = await Notification.requestPermission().catch(() => 'denied' as NotificationPermission)
+    await ensure()
+  }
+
+  /** Ask on the first tap anywhere, when on and not asked yet. */
+  const askOnFirstTap = () => {
+    if (!on.value || permission.value !== 'default') { void ensure(); return }
+    const once = () => { removeEventListener('pointerdown', once, true); if (on.value && permission.value === 'default') void ask() }
+    addEventListener('pointerdown', once, true)
+  }
+
+  /** Settings: turn on (asks now, a tap) or off (unsubscribes). */
+  const setEnabled = async (value: boolean) => {
+    settings.value.notifications = value
+    if (value) { await ask(); return }
+    const reg = await register()
+    const sub = await reg?.pushManager.getSubscription()
+    await sub?.unsubscribe().catch(() => {})
+    subscription.value = null
+  }
+
+  /** Shown by this page itself (it is alive, but not in front). */
+  const showHere = async (kind: NotifyKind, gameId: string) => {
+    if (!on.value || permission.value !== 'granted' || document.visibilityState === 'visible') return
+    const reg = await register()
+    await reg?.showNotification('PigeonChess', {
+      body: kind === 'start' ? 'Your game started' : 'Your move',
+      tag: `pigeonchess-${gameId}`,
+      icon: '/icon-192.png',
+      data: { gameId },
+    } as NotificationOptions).catch(() => {})
+  }
+
+  /** Ask chess.peer.ooo to notify the opponent (their subscription, which they gave us). */
+  const pushTo = async (sub: unknown, kind: NotifyKind, gameId: string): Promise<'sent' | 'gone' | 'failed'> => {
+    if (!sub) return 'failed'
+    const r = await fetch('/api/push', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sub, kind, gameId }) })
+      .then((x) => x.json()).catch(() => null) as { ok?: boolean; gone?: boolean } | null
+    return r?.ok ? 'sent' : r?.gone ? 'gone' : 'failed'
+  }
+
+  if (available) void register()
+
+  return { available, installed, on, permission, subscription, ensure, askOnFirstTap, setEnabled, showHere, pushTo }
+}

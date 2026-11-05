@@ -1,11 +1,21 @@
-// PigeonChess on Cloudflare: a static site, served at chess.peer.ooo.
-// Deploy with `npm run deploy` (builds, then uploads dist/).
+// PigeonChess on Cloudflare: the app (static, dist/), served at chess.peer.ooo,
+// and one small Worker (worker/index.ts) for /api/*: it sends "Your move" and
+// "Your game started" notifications. Its VAPID private key is a secret:
+//   npx wrangler@4 secret put VAPID_PRIVATE_JWK
+// Deploy with `npm run deploy` (builds, then uploads dist/ and the Worker).
 {
   "name": "pigeonchess",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-10-01",
   "assets": {
     "directory": "./dist",
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    // The public half of the VAPID key (the browsers subscribe with it).
+    "VAPID_PUBLIC_KEY": "BPW8llAmwRo-nEslk-JzQ-coy1zQNvAY5rAhz8fn9ULf0LKCptpLfCFbdgcNBHT54cyucQTuf4b8qcRDwhWHvEI"
   },
   "routes": [
     { "pattern": "chess.peer.ooo/*", "zone_name": "peer.ooo" }

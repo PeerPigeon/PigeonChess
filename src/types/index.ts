@@ -79,6 +79,8 @@ export interface Settings {
   customBlackPieceOutline?: string
   pieceTheme?: string
   soundEnabled?: boolean
+  /** Notifications (your move, game started); unset: on when installed to the home screen. */
+  notifications?: boolean
   whiteArrowColor?: string
   blackArrowColor?: string
   emptyArrowColor?: string

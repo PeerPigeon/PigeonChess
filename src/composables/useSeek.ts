@@ -20,10 +20,13 @@ export type SeekMatch = {
   opponent: string
   myColor: 'white' | 'black'
   timeControl: SeekTimeControl
+  /** The opponent's seat key for this game (composables/useSeat.ts); absent from an older page. */
+  theirSeat?: string
 }
 
 type Seeker = { timeControl: string; seenAt: number }
 type Offer = { to: string; gameId: string; timeControl: SeekTimeControl; sentAt: number }
+const seatOf = (message: any): string | undefined => (typeof message?.seat === 'string' && message.seat.length < 200 ? message.seat : undefined)
 
 const ANNOUNCE_MS = 3000
 const SEEKER_GONE_MS = 12000     // three missed announcements
@@ -42,6 +45,8 @@ export interface SeekOptions {
   onCancelled: (gameId: string) => void
   /** True while a game is being played (offers are declined). */
   isPlaying: () => boolean
+  /** This player's seat key for the next game (sent in the offer and the answer). */
+  mySeat?: () => string | null
 }
 
 export function useSeek(options: SeekOptions) {
@@ -99,7 +104,7 @@ export function useSeek(options: SeekOptions) {
     const [to, seeker] = candidates[0]
     const timeControl = resolve(mine, seeker.timeControl)
     offer = { to, gameId: `${me().slice(0, 8)}-${Date.now().toString(36)}`, timeControl, sentAt: Date.now() }
-    send(to, { type: 'matchOffer', gameId: offer.gameId, timeControl })
+    send(to, { type: 'matchOffer', gameId: offer.gameId, timeControl, seat: options.mySeat?.() ?? undefined })
   }
 
   const tick = () => {
@@ -156,14 +161,17 @@ export function useSeek(options: SeekOptions) {
           send(from, { type: 'matchDecline', gameId: message.gameId })
           return true
         }
+        // Our seat key for this game, taken before the game starts (it uses it up).
+        const mySeat = options.mySeat?.() ?? undefined
         // We may have an offer out to someone else; this one arrived first.
         begin({
           gameId: message.gameId,
           opponent: from,
           myColor: me() < from ? 'white' : 'black',
           timeControl: tc!,
+          theirSeat: seatOf(message),
         })
-        send(from, { type: 'matchAccept', gameId: message.gameId })
+        send(from, { type: 'matchAccept', gameId: message.gameId, seat: mySeat })
         return true
       }
 
@@ -171,7 +179,7 @@ export function useSeek(options: SeekOptions) {
         if (offer && offer.gameId === message.gameId && offer.to === from && isSearching.value && !options.isPlaying()) {
           const { gameId, timeControl } = offer
           offer = null
-          begin({ gameId, opponent: from, myColor: me() < from ? 'white' : 'black', timeControl })
+          begin({ gameId, opponent: from, myColor: me() < from ? 'white' : 'black', timeControl, theirSeat: seatOf(message) })
         } else {
           // We started a game with someone else meanwhile.
           send(from, { type: 'matchCancel', gameId: message.gameId })

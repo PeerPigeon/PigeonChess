@@ -57,6 +57,20 @@
           <span>Play sounds for moves and captures</span>
         </label>
       </div>
+
+      <div class="settings-section">
+        <h3>Notifications</h3>
+        <label class="check">
+          <input
+            type="checkbox"
+            :checked="notificationsOn"
+            :disabled="!notificationsAvailable"
+            @change="(e) => emit('toggleNotifications', (e.target as HTMLInputElement).checked)"
+          />
+          <span>Tell me when it's my move or a game starts while I'm away</span>
+        </label>
+        <p class="description" v-if="!notificationsAvailable">This browser can't show notifications here. On an iPhone or iPad, add PigeonChess to your Home Screen first.</p>
+      </div>
       
       <div class="settings-section">
         <h3>Network</h3>
@@ -274,6 +288,8 @@ interface Props {
   settings: Settings
   boardThemes: BoardTheme[]
   pieceThemes: PieceTheme[]
+  notificationsOn?: boolean
+  notificationsAvailable?: boolean
 }
 
 const props = defineProps<Props>()
@@ -289,6 +305,7 @@ const emit = defineEmits<{
   updatePieceOutlines: [whiteOutline: string, blackOutline: string]
   updateArrowColors: [whiteArrow: string, blackArrow: string, emptyArrow: string]
   toggleSound: [enabled: boolean]
+  toggleNotifications: [enabled: boolean]
 }>()
 
 const newUrl = ref('')

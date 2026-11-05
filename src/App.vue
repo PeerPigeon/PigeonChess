@@ -421,6 +421,9 @@
       @update-piece-outlines="setPieceOutlines"
       @update-arrow-colors="setArrowColors"
       @toggle-sound="toggleSound"
+      :notifications-on="notify.on.value"
+      :notifications-available="notify.available"
+      @toggle-notifications="(on: boolean) => { void notify.setEnabled(on) }"
     />
 
     <GameHistory
@@ -551,6 +554,8 @@ import { createChess, isPigeonVariant } from './utils/variant'
 import { pigeonSearch } from './utils/pigeonAi'
 import { usePeerPigeon } from './composables/usePeerPigeon'
 import { useSeek } from './composables/useSeek'
+import { loadSeat, makeSeatKeys, open, saveSeat, seal, type Seat, type SeatKeys } from './composables/useSeat'
+import { useNotify } from './composables/useNotify'
 import ChessBoard from './components/ChessBoard.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import GameHistory from './components/GameHistory.vue'
@@ -593,6 +598,8 @@ const loginLoading = ref(false)
 // Settings
 const { settings, boardThemes, pieceThemes, addSignalingUrl, removeSignalingUrl, resetToDefaults, setBoardTheme, setCustomColors, setPieceColors, setPieceOutlines, setArrowColors, setPieceTheme, toggleSound } = useSettings()
 const showSettings = ref(false)
+// Notifications (composables/useNotify.ts): your move, game started, while you're away.
+const notify = useNotify(settings)
 const showHistory = ref(false)
 const showMenu = ref(false)
 
@@ -614,7 +621,7 @@ const {
   error,
   init,
   connect,
-  sendMessage,
+  sendMessage: rawSendMessage,
   broadcast,
   onMessage,
   onPeerConnect,
@@ -628,6 +635,28 @@ const {
   minPeers: 1,
   enableCrypto: true
 })
+
+// The seat (composables/useSeat.ts): who we are in this game, by a key. Every
+// message about the game goes sealed (signed, numbered); the other side acts
+// only on what its opponent's seat key signed, whatever peer ID it came from.
+let seat: Seat | null = null
+let nextSeat: SeatKeys | null = null
+const prepareSeat = () => {
+  if (!nextSeat) void makeSeatKeys().then((keys) => { nextSeat = keys }).catch((err) => console.warn('No seat key:', err))
+}
+prepareSeat()
+/** Messages that are not about a game (finding one, presence): never sealed. */
+const NOT_SEALED = new Set(['matchmaking', 'matchOffer', 'matchAccept', 'matchDecline', 'matchCancel', 'peer_presence', 'sealed'])
+const typeOf = (message: string) => { try { return String(JSON.parse(message)?.type ?? '') } catch { return '' } }
+/** Sends to a peer; a message about the current game to its opponent goes sealed. */
+const sendMessage = async (peerId: string, message: string) => {
+  if (seat && peerId === opponentId.value && !NOT_SEALED.has(typeOf(message))) {
+    const sealed = await seal(seat, message)
+    saveSeat(seat)
+    return rawSendMessage(peerId, JSON.stringify(sealed))
+  }
+  return rawSendMessage(peerId, message)
+}
 
 // Get the actual peer ID from the mesh after initialization
 const myPeerId = computed(() => {
@@ -663,6 +692,7 @@ const seek = useSeek({
   broadcast: (message: string) => broadcast(message, false),
   sendMessage: (peerId: string, message: string) => sendMessage(peerId, message),
   isPlaying: () => isGameActive.value,
+  mySeat: () => nextSeat?.pub ?? null,
   onMatched: (match) => startMatchedGame(match),
   onCancelled: () => {
     console.log('Opponent withdrew before the first move; searching again')
@@ -701,9 +731,14 @@ const stopSearching = () => {
 
 /** Both sides of a match land here: set the clock, colours and opponent, and start. */
 const startMatchedGameReset = () => { endReason.value = null; boardFlipped.value = false; opponentName.value = null; clearChat() }
-const startMatchedGame = (match: { gameId: string; opponent: string; myColor: 'white' | 'black'; timeControl: { minutes: number; increment: number } }) => {
+const startMatchedGame = (match: { gameId: string; opponent: string; myColor: 'white' | 'black'; timeControl: { minutes: number; increment: number }; theirSeat?: string }) => {
   startMatchedGameReset()
-  console.log('Matched with', match.opponent, 'as', match.myColor, 'game', match.gameId)
+  // Both sides sent a seat key: from here on the game's messages go sealed.
+  // (An older page sends none: its game runs unsealed, as before.)
+  seat = match.theirSeat && nextSeat ? { gameId: match.gameId, mine: nextSeat, theirs: match.theirSeat, sent: 0, heard: 0 } : null
+  nextSeat = null
+  prepareSeat()
+  console.log('Matched with', match.opponent, 'as', match.myColor, 'game', match.gameId, match.theirSeat ? 'sealed' : 'unsealed (no seat key from them)')
   currentGameTimeControl.value = { minutes: match.timeControl.minutes, increment: match.timeControl.increment }
   resetTimers()
   isAIGame.value = false
@@ -714,6 +749,11 @@ const startMatchedGame = (match: { gameId: string; opponent: string; myColor: 'w
   startTimerSyncBroadcast()
   startWatchdog()
   introduceMyself()
+  saveGameState()
+  pushedForMove = -1
+  opponentAway.value = false
+  tellOpponentHowToReachMe()
+  void notify.showHere('start', match.gameId)
 }
 
 // Tell the opponent who we are (when logged in). Sent at the start and twice
@@ -733,6 +773,134 @@ const introduceMyself = () => {
   introduceTimers = [0, 3000, 10000].map((ms) => setTimeout(() => { void sendPlayerClaim() }, ms))
 }
 watch(() => identityUsername.value, () => { if (isGameActive.value) void sendPlayerClaim() })
+
+// ---------------------------------------------------------------------------
+// Picking a game back up after a reload (or a tap on a notification): the
+// game is kept in this browser with its seat. With a new peer ID, the page
+// says "I'm back", sealed with the seat key, straight to the opponent and to
+// the room (they may have a new peer ID too), until they answer.
+
+/** Keep the game, as it stands, with the seat. */
+const saveGameState = () => {
+  const game = currentGame.value
+  if (!seat || !game || game.status !== 'active' || !myPlayer.value || !opponentId.value || game.id !== seat.gameId) return
+  const mine = myPlayer.value.color
+  seat.game = {
+    gameId: game.id,
+    myColor: mine,
+    opponentId: opponentId.value,
+    moves: [...game.moves],
+    timeControl: currentGameTimeControl.value ?? { minutes: 0, increment: 0 },
+    whiteTime: mine === 'white' ? myTime.value : opponentTime.value,
+    blackTime: mine === 'black' ? myTime.value : opponentTime.value,
+    createdAt: game.createdAt ?? Date.now(),
+    savedAt: Date.now(),
+    started: hasGameStarted.value,
+  }
+  saveSeat(seat)
+}
+/** Set up once the whole page is (in onMounted: these read state declared further down). */
+const watchSeatedGame = () => {
+  setInterval(() => { if (seat && isGameActive.value) saveGameState() }, 2000)
+  watch(() => currentGame.value?.moves?.length, () => saveGameState())
+  watch(() => currentGame.value?.status, (status) => {
+    // A finished game is not picked up again (its seat stays, for the last messages).
+    if (seat && status && status !== 'active') { seat.game = undefined; saveSeat(seat) }
+  })
+  watch(() => opponentGone.value, (gone) => { if (gone) notifyOpponentIfAway() })
+}
+
+// --- Notifications for the opponent: our push subscription, and whether we're away.
+/** Whether the opponent said their page is in the background or closed. */
+const opponentAway = ref(false)
+let pushedForMove = -1
+const tellOpponentHowToReachMe = () => {
+  if (!seat || !opponentId.value || !isGameActive.value) return
+  sendMessage(opponentId.value, JSON.stringify({ type: 'notify', gameId: seat.gameId, sub: notify.on.value ? notify.subscription.value : null })).catch(() => {})
+}
+const tellOpponentAway = (away: boolean) => {
+  if (!seat || !opponentId.value || !isGameActive.value) return
+  sendMessage(opponentId.value, JSON.stringify({ type: 'away', gameId: seat.gameId, away })).catch(() => {})
+}
+watch(() => notify.subscription.value?.endpoint, () => tellOpponentHowToReachMe())
+watch(() => notify.on.value, () => tellOpponentHowToReachMe())
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => tellOpponentAway(document.visibilityState !== 'visible'))
+  addEventListener('pagehide', () => tellOpponentAway(true))
+}
+/** It's their move and they're away: ask chess.peer.ooo to tell them (once per move). */
+const notifyOpponentIfAway = () => {
+  const game = currentGame.value
+  if (!seat?.theirPush || !game || game.status !== 'active' || isMyTurn.value) return
+  if (!opponentAway.value && !opponentGone.value) return
+  if (pushedForMove === game.moves.length) return
+  pushedForMove = game.moves.length
+  void notify.pushTo(seat.theirPush, 'move', game.id).then((r) => {
+    if (r === 'gone' && seat) { seat.theirPush = undefined; saveSeat(seat) }
+  })
+}
+
+/** The same player (their seat key says so) is now at another peer ID. */
+const rejoinedAs = (peerId: string) => {
+  console.log('Opponent is back as', peerId.slice(0, 8))
+  opponentId.value = peerId
+  const game = currentGame.value
+  if (game && myPlayer.value) {
+    if (myPlayer.value.color === 'white') game.playerBlack = peerId
+    else game.playerWhite = peerId
+  }
+  saveGameState()
+}
+
+let rejoinTimer: ReturnType<typeof setInterval> | null = null
+const stopRejoining = () => { if (rejoinTimer) clearInterval(rejoinTimer); rejoinTimer = null }
+const sayImBack = async () => {
+  if (!seat || !isGameActive.value) { stopRejoining(); return }
+  const sealed = JSON.stringify(await seal(seat, JSON.stringify({ type: 'rejoin', gameId: seat.gameId })))
+  saveSeat(seat)
+  if (opponentId.value) rawSendMessage(opponentId.value, sealed).catch(() => {})
+  broadcast(sealed, false).catch(() => {})
+}
+
+/** On start: a game this browser was playing, if there is one still worth going back to. */
+const restoreGame = () => {
+  const saved = loadSeat()
+  const g = saved?.game
+  const me = mesh.value?.peerId
+  if (!saved || !g || !me) { if (saved && !g) saveSeat(null); return false }
+  // Past the longest reconnect window the opponent has called it.
+  if (Date.now() - g.savedAt > 10 * 60_000) { saveSeat(null); return false }
+  seat = saved
+  console.log('Picking up game', g.gameId, 'as', g.myColor)
+  startMatchedGameReset()
+  currentGameTimeControl.value = g.timeControl
+  resetTimers()
+  isAIGame.value = false
+  startNewGame(me, g.opponentId, g.myColor, g.gameId)
+  for (const san of g.moves) receiveMove(san)
+  if (currentGame.value) currentGame.value.createdAt = g.createdAt
+  opponentId.value = g.opponentId
+  hasGameStarted.value = g.started
+  // The clocks, less the time that passed on the side to move.
+  const away = (Date.now() - g.savedAt) / 1000
+  const toMove = currentGame.value?.currentTurn
+  const white = Math.max(0, g.whiteTime - (toMove === 'white' && g.started ? away : 0))
+  const black = Math.max(0, g.blackTime - (toMove === 'black' && g.started ? away : 0))
+  myTime.value = g.myColor === 'white' ? white : black
+  opponentTime.value = g.myColor === 'white' ? black : white
+  const last = chess.value.history({ verbose: true }).slice(-1)[0] as any
+  lastMove.value = last ? { from: last.from, to: last.to } : null
+  startTimer()
+  startTimerSyncBroadcast()
+  startWatchdog()
+  stopRejoining()
+  void sayImBack()
+  rejoinTimer = setInterval(() => { void sayImBack() }, 3000)
+  introduceMyself()
+  pushedForMove = -1
+  setTimeout(tellOpponentHowToReachMe, 1500)
+  return true
+}
 
 // AI opponent
 const isAIGame = ref(false)
@@ -2401,6 +2569,7 @@ const reconnectWindow = computed(() => reconnectSeconds(currentGameTimeControl.v
 
 const heardFromOpponent = () => {
   lastHeardFromOpponent = Date.now()
+  stopRejoining()
   if (opponentGone.value) {
     opponentGone.value = false
     opponentGoneOnTheirTurn.value = 0
@@ -2508,7 +2677,9 @@ const watchdogTick = () => {
 
   if (now - lastPingAt >= 3000 && opponentId.value) {
     lastPingAt = now
-    sendMessage(opponentId.value, JSON.stringify({ type: 'ping', t: now })).catch(() => {})
+    // Each ping also says whether this page is in front (for notifications; an
+    // "away" sent just as the page hides can be lost while the link resets).
+    sendMessage(opponentId.value, JSON.stringify({ type: 'ping', t: now, away: document.visibilityState !== 'visible' })).catch(() => {})
   }
 
   // Disconnect: only while we are online, and only on their turn
@@ -3061,6 +3232,8 @@ const handleMove = async (from: string, to: string, promotion?: 'q' | 'r' | 'b' 
       vectorClock: vectorClock.value
     }
 
+    // Their move now: if they're away, they get "Your move".
+    notifyOpponentIfAway()
     try {
       await sendMessage(opponentId.value, JSON.stringify(message))
     } catch (err) {
@@ -3254,6 +3427,9 @@ const declineTakebackRequest = () => {
 }
 
 const returnToLobby = () => {
+  seat = null
+  saveSeat(null)
+  stopRejoining()
   clearChat()
   if (timerInterval) clearInterval(timerInterval)
   stopTimerSyncBroadcast()
@@ -3608,7 +3784,7 @@ const cryptoReadyPeers = new Set<string>()
 
 const handleMessage = async (event: any) => {
   try {
-    const fromPeer = event.from || event.source || event.peer
+    let fromPeer = event.from || event.source || event.peer
     
     // Extract content properly - PeerPigeon wraps it in an object
     let content = event.content
@@ -3635,7 +3811,22 @@ const handleMessage = async (event: any) => {
     }
     
     // Try to parse as ChessMessage or matchmaking message
-    const message: any = typeof content === 'string' ? JSON.parse(content) : content
+    let message: any = typeof content === 'string' ? JSON.parse(content) : content
+
+    // A sealed message: act on it only if the opponent's seat key signed it.
+    // From a new peer ID, it is the same player after a reload: follow them.
+    if (message?.type === 'sealed') {
+      if (!seat || message.gameId !== seat.gameId) return
+      const body = await open(seat, message)
+      if (!body) return
+      saveSeat(seat)
+      if (fromPeer && fromPeer !== opponentId.value) rejoinedAs(fromPeer)
+      fromPeer = opponentId.value
+      message = JSON.parse(body)
+    } else if (seat && !NOT_SEALED.has(String(message?.type ?? ''))) {
+      // Unsealed while this game is sealed: not from our opponent. Dropped.
+      return
+    }
     
     // Handle peer presence messages
     if (message.type === 'peer_presence') {
@@ -3652,11 +3843,37 @@ const handleMessage = async (event: any) => {
     if (fromPeer && fromPeer === opponentId.value) {
       heardFromOpponent()
       if (message.type === 'ping') {
+        if (typeof message.away === 'boolean' && message.away !== opponentAway.value) {
+          opponentAway.value = message.away
+          if (message.away) notifyOpponentIfAway()
+        }
         sendMessage(fromPeer, JSON.stringify({ type: 'pong', t: message.t })).catch(() => {})
         return
       }
       if (message.type === 'pong') {
         if (typeof message.t === 'number') opponentRtt.value = Date.now() - message.t
+        return
+      }
+      if (message.type === 'rejoin') {
+        // They are back (after a reload): send them everything.
+        opponentAway.value = false
+        sendTimerSync()
+        void sendPlayerClaim()
+        tellOpponentHowToReachMe()
+        return
+      }
+      if (message.type === 'notify') {
+        // How to reach them while they're away (their push subscription), or not at all.
+        if (seat && message.gameId === seat.gameId) {
+          const sub = message.sub
+          seat.theirPush = sub && typeof sub.endpoint === 'string' && sub.keys ? sub : undefined
+          saveSeat(seat)
+        }
+        return
+      }
+      if (message.type === 'away') {
+        opponentAway.value = !!message.away
+        if (opponentAway.value) notifyOpponentIfAway()
         return
       }
       if (message.type === 'player') {
@@ -3698,7 +3915,10 @@ const handleMessage = async (event: any) => {
           }
           
           // The opponent's move gets the same sound as ours (it had none).
-          if (receiveMove(`${chessMessage.data.from}${chessMessage.data.to}`)) playSoundForLastMove()
+          if (receiveMove(`${chessMessage.data.from}${chessMessage.data.to}`)) {
+            playSoundForLastMove()
+            if (currentGame.value) void notify.showHere('move', currentGame.value.id)
+          }
           // Process incoming timer sync if present
           if (chessMessage.timer && chessMessage.vectorClock) {
             processIncomingTimer(chessMessage.timer, chessMessage.vectorClock, fromPeer)
@@ -3833,6 +4053,7 @@ const handleMessage = async (event: any) => {
 }
 
 onMounted(async () => {
+  watchSeatedGame()
   // Set up message listener using onMessage composable
   unsubscribeMessage = onMessage(handleMessage)
   
@@ -3891,6 +4112,13 @@ onMounted(async () => {
   
   // Auto-initialize and connect on mount
   await initializeAndConnect()
+
+  // Notifications: ask on the first tap, when they're on (installed: on by default).
+  notify.askOnFirstTap()
+
+  // A game this browser was in the middle of (a reload, or a tap on a notification).
+  for (let i = 0; i < 40 && !mesh.value?.peerId; i++) await new Promise((r) => setTimeout(r, 250))
+  if (!isGameActive.value) restoreGame()
   
   // Initialize PigeonIdP
   try {
