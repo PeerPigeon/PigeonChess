@@ -61,16 +61,17 @@ function unlock() {
 }
 
 if (typeof window !== 'undefined') {
+  // Every tap, not only the first: iOS stops the context ("interrupted") for
+  // a system dialog (such as the notification permission prompt), a call, or
+  // the app going to the background, and only a tap starts it again.
   const events = ['pointerdown', 'touchend', 'click', 'keydown']
-  const once = () => {
-    unlock()
-    if (context?.state === 'running') events.forEach((name) => window.removeEventListener(name, once, true))
-  }
-  events.forEach((name) => window.addEventListener(name, once, true))
-  // Coming back to the tab can leave the context suspended again.
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && context && context.state !== 'running') context.resume().catch(() => {})
-  })
+  const onGesture = () => { if (!context || context.state !== 'running') unlock() }
+  events.forEach((name) => window.addEventListener(name, onGesture, true))
+  // Coming back to the page can leave the context suspended or interrupted.
+  const wake = () => { if (context && context.state !== 'running') context.resume().catch(() => {}) }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) wake() })
+  window.addEventListener('pageshow', wake)
+  window.addEventListener('focus', wake)
 }
 
 function playElement(url: string, volume: number, rate: number) {
