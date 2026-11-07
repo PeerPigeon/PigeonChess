@@ -50,20 +50,20 @@
 /* Night slate (the theme switch in the top bar): the same feathers after
    dark, as on pigeon.peer.ooo. The board keeps its own colours. */
 html[data-theme='dark'] {
-  --paper: #2a3747;      /* Pickled Bluewood */
-  --surface: #223040;
+  --paper: #1b2430;      /* Pickled Bluewood, deepened */
+  --surface: #151d27;
   --ink: #e8f6f9;
   --ink-2: #9dbfc8;
-  --line: #3a4a5e;
-  --line-strong: #46586e;
-  --wing: #223040;
+  --line: #2c394a;
+  --line-strong: #3d4c5f;
+  --wing: #151d27;
   --slate: #8aa7b3;
   --sheen: #7fd8a6;      /* live */
   --sheen-deep: #9ae3b9;
-  --sheen-wash: #24453a;
+  --sheen-wash: #1d3a30;
   --mark: #f2c879;
   --stop: #f29b91;
-  --stop-wash: #4a3236;
+  --stop-wash: #3d2a2e;
   --on-sheen: #1e2a37;
   --warning-color: #f2c879;
   --info-color: #9cc3f5;
