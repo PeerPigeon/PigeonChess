@@ -2,10 +2,16 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 import { execSync } from 'child_process'
+import { existsSync } from 'fs'
 
 // Which build a page is running, shown under the lobby, so a stale page is easy to spot.
 const commit = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim() } catch { return 'dev' } })()
 const builtAt = new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
+
+// PigeonAI is an optional dependency from a private repository: installed where there is access to it,
+// skipped by npm elsewhere. Without it, 'pigeonai' is src/pigeonai-absent.ts, and the page offers no
+// PigeonAI (the Computer plays Standard only).
+const hasPigeonAI = existsSync(resolve(__dirname, 'node_modules/pigeonai/src/index.ts'))
 
 export default defineConfig({
   plugins: [vue(), {
@@ -18,12 +24,17 @@ export default defineConfig({
   }],
   define: {
     __BUILD__: JSON.stringify(`${commit}, built ${builtAt}`),
+    __PIGEONAI__: JSON.stringify(hasPigeonAI),
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src')
+      '@': resolve(__dirname, './src'),
+      ...(hasPigeonAI ? {} : { pigeonai: resolve(__dirname, './src/pigeonai-absent.ts') }),
     }
   },
+  // PigeonAI comes as TypeScript with a worker of its own: Vite builds it as part of the page.
+  optimizeDeps: { exclude: ['pigeonai'] },
+  worker: { format: 'es' },
   server: {
     port: 5173,
     host: true

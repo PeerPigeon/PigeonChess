@@ -26,6 +26,7 @@ export function useChessGame(options: ChessGameOptions = {}) {
   const gameHistory = ref<GameHistoryEntry[]>(loadFromLocalStorage('chess-game-history', []))
   const isAIOpponent = ref<boolean>(false)
   const aiDifficultyLevel = ref<number | undefined>(undefined)
+  const aiEngineUsed = ref<'standard' | 'pigeonai'>('standard')
   
   console.log('useChessGame initialized, gameHistory length:', gameHistory.value.length)
   
@@ -218,6 +219,7 @@ export function useChessGame(options: ChessGameOptions = {}) {
         date: Date.now(),
         isAI: isAIOpponent.value,
         aiDifficulty: aiDifficultyLevel.value,
+        ...(isAIOpponent.value ? { aiEngine: aiEngineUsed.value } : {}),
         myUsername: (username && username.trim()) ? username : undefined, // Only save if not empty
         opponentUsername: options.opponentUsername?.() || undefined,
         opening: getOpeningName(currentGame.value.moves) // Detect and save opening
@@ -262,6 +264,7 @@ export function useChessGame(options: ChessGameOptions = {}) {
         date: Date.now(),
         isAI: isAIOpponent.value,
         aiDifficulty: aiDifficultyLevel.value,
+        ...(isAIOpponent.value ? { aiEngine: aiEngineUsed.value } : {}),
         myUsername: (username && username.trim()) ? username : undefined, // Only save if not empty
         opponentUsername: options.opponentUsername?.() || undefined,
         opening: getOpeningName(currentGame.value.moves) // Detect and save opening
@@ -285,9 +288,10 @@ export function useChessGame(options: ChessGameOptions = {}) {
     aiDifficultyLevel.value = undefined
   }
 
-  const setAIOpponent = (isAI: boolean, difficulty?: number) => {
+  const setAIOpponent = (isAI: boolean, difficulty?: number, engine: 'standard' | 'pigeonai' = 'standard') => {
     isAIOpponent.value = isAI
     aiDifficultyLevel.value = difficulty
+    aiEngineUsed.value = engine
   }
 
   const getLegalMoves = (square: string) => {

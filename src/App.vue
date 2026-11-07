@@ -265,6 +265,18 @@
           </template>
 
           <template v-else>
+          <div v-if="pigeonAIOffered" class="mode-toggle engine-pick" role="radiogroup" aria-label="Computer">
+            <button type="button" role="radio" class="mode-option" :class="{ picked: aiEngine === 'standard' }" :aria-checked="aiEngine === 'standard'" @click="setAIEngine('standard')">Standard</button>
+            <button type="button" role="radio" class="mode-option" :class="{ picked: aiEngine === 'pigeonai' }" :aria-checked="aiEngine === 'pigeonai'" @click="setAIEngine('pigeonai')">PigeonAI</button>
+          </div>
+          <template v-if="pigeonAIOffered && aiEngine === 'pigeonai'">
+          <p class="engine-note">PigeonAI is a language model (the 1-bit Bonsai) run by everyone on PigeonChess together: each device with a GPU holds a share of it. It is asked for every move, and plays a legal one.</p>
+          <p class="engine-status" :class="{ ready: pigeonAI.ready.value }">{{ pigeonAI.status.value || 'Starting…' }}</p>
+          <div class="row">
+            <button class="btn btn-go btn-wide" @click="startAIGame">Start against PigeonAI</button>
+          </div>
+          </template>
+          <template v-else>
           <div class="difficulty">
             <label class="difficulty-head" for="difficulty">
               <span class="difficulty-label">Difficulty</span>
@@ -288,6 +300,7 @@
           <div class="row">
             <button class="btn btn-go btn-wide" @click="startAIGame">Start against {{ aiLevels[aiDifficulty].name.toLowerCase() }}</button>
           </div>
+          </template>
           </template>
 
           <p class="you">You are <code :title="myPeerId">{{ formatPeerId(myPeerId) }}</code> on the {{ settings.networkName || 'global' }} network.</p>
@@ -316,7 +329,7 @@
         <div class="seat seat-top" :class="{ running: !isMyTurn && currentGame?.status !== 'finished', check: isOpponentKingInCheck }">
           <img class="seat-colour" :src="`/pieces/${myPlayer?.color === 'white' ? 'b' : 'w'}k.svg`" alt="" />
           <span class="seat-name">
-            {{ isAIGame ? `Computer, ${aiLevels[aiDifficulty].name.toLowerCase()}` : (opponentName || formatPeerId(opponentId || 'Opponent')) }}
+            {{ isAIGame ? computerName(gameEngine, aiDifficulty) : (opponentName || formatPeerId(opponentId || 'Opponent')) }}
             <svg
               v-if="!isAIGame && currentGame?.status !== 'finished'"
               class="signal"
@@ -560,7 +573,8 @@ import { Chess } from 'chess.js'
 import { createChess, isPigeonVariant } from './utils/variant'
 import { boardRef } from './utils/boardRef'
 import { pigeonSearch } from './utils/pigeonAi'
-import { usePeerPigeon } from './composables/usePeerPigeon'
+import { usePeerPigeon, migrateSignalingUrls } from './composables/usePeerPigeon'
+import { usePigeonAI, startPigeonAIPeer, pigeonAIMove } from './composables/usePigeonAI'
 import { useSeek } from './composables/useSeek'
 import { loadSeat, makeSeatKeys, open, saveSeat, seal, type Seat, type SeatKeys } from './composables/useSeat'
 import { useNotify } from './composables/useNotify'
@@ -934,11 +948,11 @@ const restoreGame = () => {
 
 // A game against the computer, kept for this tab and this browser as it goes, so a reload picks it up.
 const AI_GAME = 'pigeonchess:ai-game'
-interface SavedAIGame { moves: string[]; myColor: 'white' | 'black'; difficulty: number; pigeon: boolean; savedAt: number }
+interface SavedAIGame { moves: string[]; myColor: 'white' | 'black'; difficulty: number; pigeon: boolean; engine?: AIEngine; savedAt: number }
 const saveAIGame = () => {
   const game = currentGame.value
   if (!isAIGame.value || !game || game.status !== 'active' || !myPlayer.value) return
-  const text = JSON.stringify({ moves: [...game.moves], myColor: myPlayer.value.color, difficulty: aiDifficulty.value, pigeon: isPigeonVariant, savedAt: Date.now() } satisfies SavedAIGame)
+  const text = JSON.stringify({ moves: [...game.moves], myColor: myPlayer.value.color, difficulty: aiDifficulty.value, pigeon: isPigeonVariant, engine: gameEngine.value, savedAt: Date.now() } satisfies SavedAIGame)
   try { sessionStorage.setItem(AI_GAME, text) } catch { /* no storage here */ }
   try { localStorage.setItem(AI_GAME, text) } catch { /* no storage here */ }
 }
@@ -968,7 +982,8 @@ const restoreAIGame = () => {
   resetTimers()
   isAIGame.value = true
   aiDifficulty.value = g.difficulty
-  setAIOpponent(true, g.difficulty)
+  gameEngine.value = g.engine === 'pigeonai' && pigeonAIOffered ? 'pigeonai' : 'standard'
+  setAIOpponent(true, g.difficulty, gameEngine.value)
   opponentName.value = null
   startNewGame(myPeerId.value, 'AI-Opponent', g.myColor)
   for (const san of g.moves) if (!receiveMove(san)) break
@@ -1037,6 +1052,25 @@ const currentOpeningName = computed(() => {
   
   return null
 })
+
+// The Computer: Stockfish at a chosen level (Standard), or PigeonAI, the model the peers here run
+// together (offered when this build has it, on the standard board). Remembered.
+type AIEngine = 'standard' | 'pigeonai'
+const pigeonAI = usePigeonAI()
+const pigeonAIOffered = pigeonAI.here && !isPigeonVariant
+const AI_ENGINE_KEY = 'pigeonchess:ai-engine'
+const aiEngine = ref<AIEngine>((() => {
+  try { return pigeonAIOffered && localStorage.getItem(AI_ENGINE_KEY) === 'pigeonai' ? 'pigeonai' : 'standard' } catch { return 'standard' }
+})())
+const setAIEngine = (engine: AIEngine) => {
+  aiEngine.value = engine
+  try { localStorage.setItem(AI_ENGINE_KEY, engine) } catch { /* private mode: not remembered */ }
+}
+/** Who the Computer is, in words: "PigeonAI", or "Computer, medium". */
+const computerName = (engine: AIEngine | undefined, level: number | undefined) =>
+  engine === 'pigeonai' ? 'PigeonAI' : `Computer, ${(aiLevels[level || 0]?.name || 'Easy').toLowerCase()}`
+/** The engine of the game against the computer in progress. */
+const gameEngine = ref<AIEngine>('standard')
 
 const aiLevels = [
   { name: 'Easy', elo: 'about 900' },
@@ -1109,8 +1143,9 @@ const startAIGame = () => {
   
   // Set AI flag
   isAIGame.value = true
-  setAIOpponent(true, aiDifficulty.value)
-  console.log('=== startAIGame: setAIOpponent called with difficulty:', aiDifficulty.value)
+  gameEngine.value = pigeonAIOffered ? aiEngine.value : 'standard'
+  setAIOpponent(true, aiDifficulty.value, gameEngine.value)
+  console.log('=== startAIGame: setAIOpponent called with difficulty:', aiDifficulty.value, 'engine:', gameEngine.value)
   
   // Randomly assign player color
   const playerColor = Math.random() < 0.5 ? 'white' : 'black'
@@ -1536,6 +1571,26 @@ const makeAIMove = () => {
     makeAIMove()
   }
   
+  // PigeonAI: the move is asked of the mesh (usePigeonAI.ts). No usable answer (not ready in time, none,
+  // or no legal move named): this move is played without it, as when Stockfish fails.
+  if (gameEngine.value === 'pigeonai' && engineSkipFen !== currentFen) {
+    const started = Date.now()
+    void pigeonAIMove(currentFen, [...(currentGame.value?.moves ?? [])]).then((san) => {
+      if (!isAIGame.value || !isGameActive.value || chess.value.fen() !== currentFen) {
+        aiThinking.value = false
+        return
+      }
+      const found = san ? moves.find((m: any) => m.san === san) : null
+      if (!found) {
+        console.warn('⚠️ No move from PigeonAI; the computer picks without it')
+        giveUpOnEngine()
+        return
+      }
+      playSelected(found, Math.max(0, 300 - (Date.now() - started)))
+    })
+    return
+  }
+
   // Try to use Stockfish if available (it only knows standard chess), unless it already failed here.
   if (stockfish && stockfishReady && !isPigeonVariant && engineSkipFen !== currentFen) {
     
@@ -3108,7 +3163,7 @@ const replayResultText = computed(() => {
 const replayOpponentName = computed(() => {
   const game = replayGame.value
   if (!game) return ''
-  if (game.isAI) return `Computer, ${(aiLevels[game.aiDifficulty || 0]?.name || 'Easy').toLowerCase()}`
+  if (game.isAI) return computerName(game.aiEngine, game.aiDifficulty)
   return (game.opponentUsername?.trim()) || formatPeerId(game.opponent || 'Opponent')
 })
 
@@ -3343,6 +3398,9 @@ const initializeAndConnect = async () => {
     const mutedUrls = new Set(settings.value.mutedSignalingUrls || [])
     const activeSignalingUrls = settings.value.signalingUrls.filter(url => !mutedUrls.has(url))
     await connect(activeSignalingUrls)
+    // Every page here is a PigeonAI peer too: it joins PigeonAI's mesh for chess on the same relays.
+    const aiUrls = migrateSignalingUrls(activeSignalingUrls)
+    startPigeonAIPeer({ signalingServer: aiUrls[0], signalingServers: aiUrls.slice(1), automaticSignalingServer: true }, settings.value.networkName || 'global')
 
     // Reset retry count - we're operational even without signaling servers
     retryAttempts.value = 0
@@ -5115,6 +5173,28 @@ a.btn {
 .mode-option:disabled:not(.picked) {
   opacity: 0.5;
   cursor: default;
+}
+
+.engine-pick {
+  margin-bottom: 0.25rem;
+}
+
+.engine-note {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.engine-status {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+
+.engine-status.ready {
+  color: var(--ink);
+  font-weight: 700;
 }
 
 .difficulty {

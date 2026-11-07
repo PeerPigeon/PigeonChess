@@ -33,5 +33,8 @@
     "@vitejs/plugin-vue": "^6.0.10",
     "typescript": "^5.9.3",
     "vite": "^7.3.7"
+  },
+  "optionalDependencies": {
+    "pigeonai": "github:PeerPigeon/PigeonAI#e80b75c5671a4274ec04b2c582f2f43e6b06a339"
   }
 }

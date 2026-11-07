@@ -48,7 +48,7 @@ const resultWord = (result: string): string =>
   ({ win: 'Won', loss: 'Lost', draw: 'Drawn', abandoned: 'Abandoned' } as Record<string, string>)[result] || result
 
 const opponentName = (game: GameHistoryEntry): string => {
-  if (game.isAI) return formatDifficulty(game.aiDifficulty)
+  if (game.isAI) return game.aiEngine === 'pigeonai' ? 'PigeonAI' : formatDifficulty(game.aiDifficulty)
   return (game.opponentUsername && game.opponentUsername.trim()) || formatPeerId(game.opponent)
 }
 
