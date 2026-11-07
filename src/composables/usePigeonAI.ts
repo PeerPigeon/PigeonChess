@@ -106,6 +106,8 @@ export async function pigeonAIMove(fen: string, history: string[] = []): Promise
     count: 8,
     temperature: 0.3,
     draft: false,
+    // The answer is one of the legal moves: the model picks among them, token by token.
+    choices: legal.map((m) => m.san),
     signal: stop.signal,
   })
   try {
