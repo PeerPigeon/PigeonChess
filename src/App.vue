@@ -396,11 +396,12 @@
 
         <div v-if="canChat" class="chat">
           <ol ref="chatList" class="chat-list" aria-live="polite">
-            <li v-if="!chatMessages.length" class="empty">Say hello to your opponent.</li>
+            <li v-if="!chatMessages.length" class="empty">{{ chatWithPigeonAI ? 'Say hello to PigeonAI.' : 'Say hello to your opponent.' }}</li>
             <li v-for="m in chatMessages" :key="m.id" :class="{ mine: m.mine }">
-              <span class="chat-who">{{ m.mine ? 'You:' : 'Opp:' }}</span>
+              <span class="chat-who">{{ m.mine ? 'You:' : chatWithPigeonAI ? 'PigeonAI:' : 'Opp:' }}</span>
               <span class="chat-text">{{ m.text }}</span>
             </li>
+            <li v-if="pigeonTyping" class="empty">PigeonAI is writing…</li>
           </ol>
           <form class="chat-form" @submit.prevent="sendChat">
             <input v-model="chatDraft" class="chat-input" type="text" :maxlength="CHAT_MAX" placeholder="Message" aria-label="Message your opponent" autocomplete="off" />
@@ -585,7 +586,7 @@ import { boardRef } from './utils/boardRef'
 import { pigeonSearch } from './utils/pigeonAi'
 import { usePeerPigeon, migrateSignalingUrls } from './composables/usePeerPigeon'
 import { forgetSharedGameInUrl, movesPlay, offerLink, sharedGameInUrl, shareUrl, unpackGame } from '@/utils/shareGame'
-import { usePigeonAI, startPigeonAIPeer, pigeonAIMove } from './composables/usePigeonAI'
+import { usePigeonAI, startPigeonAIPeer, pigeonAIMove, pigeonAIChat } from './composables/usePigeonAI'
 import { useSeek } from './composables/useSeek'
 import { loadSeat, makeSeatKeys, open, saveSeat, seal, type Seat, type SeatKeys } from './composables/useSeat'
 import { useNotify } from './composables/useNotify'
@@ -1148,6 +1149,7 @@ const startAIGame = () => {
   endReason.value = null
   boardFlipped.value = false
   if (isGameActive.value) return
+  clearChat()
   
   // Clear last move highlight
   lastMove.value = null
@@ -3125,7 +3127,10 @@ const chatMessages = ref<ChatLine[]>([])
 const chatDraft = ref('')
 const chatList = ref<HTMLElement | null>(null)
 let chatSeq = 0
-const canChat = computed(() => !isAIGame.value && Boolean(opponentId.value) && Boolean(currentGame.value))
+/** Chatting with PigeonAI: in a game against it, messages go to it (usePigeonAI.ts), and it answers. */
+const chatWithPigeonAI = computed(() => isAIGame.value && gameEngine.value === 'pigeonai' && Boolean(currentGame.value))
+const pigeonTyping = ref(false)
+const canChat = computed(() => chatWithPigeonAI.value || (!isAIGame.value && Boolean(opponentId.value) && Boolean(currentGame.value)))
 const addChatLine = (mine: boolean, text: string) => {
   chatMessages.value.push({ id: ++chatSeq, mine, text })
   if (chatMessages.value.length > 200) chatMessages.value.splice(0, chatMessages.value.length - 200)
@@ -3133,6 +3138,17 @@ const addChatLine = (mine: boolean, text: string) => {
 }
 const sendChat = () => {
   const text = chatDraft.value.trim().slice(0, CHAT_MAX)
+  if (text && chatWithPigeonAI.value) {
+    chatDraft.value = ''
+    addChatLine(true, text)
+    pigeonTyping.value = true
+    const lines = chatMessages.value.map((l) => ({ mine: l.mine, text: l.text }))
+    void pigeonAIChat(text, chess.value.fen(), [...(currentGame.value?.moves ?? [])], lines)
+      .then((reply) => addChatLine(false, reply))
+      .catch((err: Error) => addChatLine(false, `(${err.message})`))
+      .finally(() => { pigeonTyping.value = false })
+    return
+  }
   const to = opponentId.value
   if (!text || !to) return
   chatDraft.value = ''

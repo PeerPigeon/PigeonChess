@@ -130,6 +130,36 @@ export async function pigeonAIMove(fen: string, history: string[] = []): Promise
   }
 }
 
+/**
+ * PigeonAI's reply to a chat message during a game against it (a sentence or two), with the game
+ * (position and last moves) and the chat so far as context. Throws when it can't answer.
+ */
+export async function pigeonAIChat(message: string, fen: string, moves: string[], chat: { mine: boolean; text: string }[]): Promise<string> {
+  if (!ai) throw new Error(status.value.startsWith('PigeonAI could not start') ? 'PigeonAI could not start here' : 'PigeonAI is still starting')
+  const a = ai
+  if (!(await a.whenReady(30_000))) throw new Error('PigeonAI is not ready yet')
+  const earlier = chat.slice(-8, -1).map((l) => `${l.mine ? 'Player' : 'You'}: ${l.text}`)
+  const prompt = [
+    `The game so far: ${moves.length ? moves.join(' ') : '(no moves yet)'}. Position (FEN): ${fen}.`,
+    earlier.length ? `Earlier in the chat:\n${earlier.join('\n')}` : '',
+    `The player says: ${message}`,
+  ].filter(Boolean).join('\n')
+  const stop = new AbortController()
+  const timer = setTimeout(() => stop.abort(), 90_000)
+  try {
+    const { text } = await a.ask(prompt, {
+      system: 'You are PigeonAI, playing chess against the player on PigeonChess. You are a small language model run by the players\' own devices together. Chat in a friendly way, in one or two short sentences.',
+      prefill: '<think>\n\n</think>\n\n',
+      count: 80,
+      temperature: 0.7,
+      signal: stop.signal,
+    })
+    return text.trim() || '…'
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export function usePigeonAI() {
   return { here: PIGEONAI_HERE, status, ready }
 }
