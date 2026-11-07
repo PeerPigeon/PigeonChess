@@ -14,8 +14,10 @@
  *  - after a reload (a new peer ID), the first sealed message from the new
  *    ID moves the game over to it: the signature shows it is the same player.
  *
- * The seat and the game's state are kept in this browser (localStorage), so a
- * reload, or a tap on a notification, picks the game back up.
+ * The seat and the game's state are kept for this tab (sessionStorage), so a
+ * reload picks the game back up even with another game going in another tab
+ * of the same browser, and for the browser (localStorage), so a tap on a
+ * notification (a new tab) does too.
  */
 
 const STORE = 'pigeonchess:seat'
@@ -92,18 +94,29 @@ export async function open(seat: Seat, sealed: Sealed): Promise<string | null> {
   return sealed.body
 }
 
-export function loadSeat(): Seat | null {
+const read = (store: () => Storage): Seat | null => {
   try {
-    const seat = JSON.parse(localStorage.getItem(STORE) || 'null') as Seat | null
+    const seat = JSON.parse(store().getItem(STORE) || 'null') as Seat | null
     return seat && seat.gameId && seat.mine?.pub && seat.theirs ? seat : null
   } catch {
     return null
   }
 }
 
+/** This tab's seat; or, in a tab that has none (opened from a notification), the browser's. */
+export function loadSeat(): Seat | null {
+  return read(() => sessionStorage) ?? read(() => localStorage)
+}
+
 export function saveSeat(seat: Seat | null): void {
+  const mine = seat ?? read(() => sessionStorage)
+  try {
+    if (seat) sessionStorage.setItem(STORE, JSON.stringify(seat))
+    else sessionStorage.removeItem(STORE)
+  } catch { /* no storage here */ }
   try {
     if (seat) localStorage.setItem(STORE, JSON.stringify(seat))
-    else localStorage.removeItem(STORE)
+    // The browser's copy goes only when it is this tab's game: another tab may be playing another.
+    else if (!mine || read(() => localStorage)?.gameId === mine.gameId) localStorage.removeItem(STORE)
   } catch { /* no storage here */ }
 }

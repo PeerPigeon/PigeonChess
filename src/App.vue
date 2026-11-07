@@ -827,6 +827,9 @@ const saveGameState = () => {
 }
 /** Set up once the whole page is (in onMounted: these read state declared further down). */
 const watchSeatedGame = () => {
+  // Against the computer: kept after each move; let go when the game ends.
+  watch(() => currentGame.value?.moves?.length, () => saveAIGame())
+  watch(() => currentGame.value?.status, (status) => { if (isAIGame.value && status && status !== 'active') dropAIGame() })
   setInterval(() => { if (seat && isGameActive.value) saveGameState() }, 2000)
   watch(() => currentGame.value?.moves?.length, () => saveGameState())
   watch(() => currentGame.value?.status, (status) => {
@@ -925,6 +928,62 @@ const restoreGame = () => {
   introduceMyself()
   pushedForMove = -1
   setTimeout(tellOpponentHowToReachMe, 1500)
+  return true
+}
+
+// A game against the computer, kept for this tab and this browser as it goes, so a reload picks it up.
+const AI_GAME = 'pigeonchess:ai-game'
+interface SavedAIGame { moves: string[]; myColor: 'white' | 'black'; difficulty: number; pigeon: boolean; savedAt: number }
+const saveAIGame = () => {
+  const game = currentGame.value
+  if (!isAIGame.value || !game || game.status !== 'active' || !myPlayer.value) return
+  const text = JSON.stringify({ moves: [...game.moves], myColor: myPlayer.value.color, difficulty: aiDifficulty.value, pigeon: isPigeonVariant, savedAt: Date.now() } satisfies SavedAIGame)
+  try { sessionStorage.setItem(AI_GAME, text) } catch { /* no storage here */ }
+  try { localStorage.setItem(AI_GAME, text) } catch { /* no storage here */ }
+}
+const dropAIGame = () => {
+  try { sessionStorage.removeItem(AI_GAME) } catch { /* no storage here */ }
+  try { localStorage.removeItem(AI_GAME) } catch { /* no storage here */ }
+}
+const loadAIGame = (): SavedAIGame | null => {
+  for (const store of [() => sessionStorage, () => localStorage]) {
+    try {
+      const g = JSON.parse(store().getItem(AI_GAME) || 'null') as SavedAIGame | null
+      if (g && Array.isArray(g.moves) && (g.myColor === 'white' || g.myColor === 'black')) return g
+    } catch { /* unreadable: try the next */ }
+  }
+  return null
+}
+/** On start: a game against the computer this tab (or browser) was playing, picked up where it was. */
+const restoreAIGame = () => {
+  const g = loadAIGame()
+  // The other board (chess or pigeon) keeps its own; a week-old one is let go.
+  if (!g || g.pigeon !== isPigeonVariant || Date.now() - g.savedAt > 7 * 24 * 3600_000) return false
+  console.log('Picking up the game against the computer:', g.moves.length, 'moves, as', g.myColor)
+  endReason.value = null
+  boardFlipped.value = false
+  lastMove.value = null
+  currentGameTimeControl.value = { minutes: 0, increment: 0 }
+  resetTimers()
+  isAIGame.value = true
+  aiDifficulty.value = g.difficulty
+  setAIOpponent(true, g.difficulty)
+  opponentName.value = null
+  startNewGame(myPeerId.value, 'AI-Opponent', g.myColor)
+  for (const san of g.moves) if (!receiveMove(san)) break
+  const last = chess.value.history({ verbose: true }).slice(-1)[0] as any
+  lastMove.value = last ? { from: last.from, to: last.to } : null
+  if (!isGameActive.value) { dropAIGame(); return false }
+  // The computer's turn: once its engine is up (a few seconds at most), it moves.
+  if (chess.value.turn() !== g.myColor[0]) {
+    const started = Date.now()
+    const go = () => {
+      if (!isAIGame.value || !isGameActive.value || chess.value.turn() === g.myColor[0]) return
+      if (!stockfishReady && Date.now() - started < 8000) { setTimeout(go, 250); return }
+      makeAIMove()
+    }
+    setTimeout(go, 300)
+  }
   return true
 }
 
@@ -3548,6 +3607,7 @@ const declineTakebackRequest = () => {
 }
 
 const returnToLobby = () => {
+  dropAIGame()
   seat = null
   saveSeat(null)
   stopRejoining()
@@ -4255,8 +4315,10 @@ onMounted(async () => {
   // Notifications: ask on the first tap, when they're on (installed: on by default).
   notify.askOnFirstTap()
 
-  // A game this browser was in the middle of (a reload, or a tap on a notification).
-  for (let i = 0; i < 40 && !mesh.value?.peerId; i++) await new Promise((r) => setTimeout(r, 250))
+  // A game this browser was in the middle of (a reload, or a tap on a notification). Against the
+  // computer it needs no network; against a person, it waits for this page's peer ID, however long.
+  if (!isGameActive.value) restoreAIGame()
+  for (let i = 0; i < 480 && !mesh.value?.peerId && !isGameActive.value; i++) await new Promise((r) => setTimeout(r, 250))
   if (!isGameActive.value) restoreGame()
   
   // Initialize PigeonIdP
