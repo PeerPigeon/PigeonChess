@@ -118,13 +118,13 @@
               <div 
                 class="theme-square light" 
                 :style="theme.id === 'custom' 
-                  ? { background: 'repeating-linear-gradient(45deg, #bee6ee 0 4px, #e8f6f9 4px 8px)' }
+                  ? { background: 'repeating-linear-gradient(45deg, #d6dce0 0 4px, #f6f7f8 4px 8px)' }
                   : { backgroundColor: theme.id === 'custom' && customLightSquare ? customLightSquare : theme.light }"
               ></div>
               <div 
                 class="theme-square dark" 
                 :style="theme.id === 'custom'
-                  ? { background: 'repeating-linear-gradient(45deg, #5a7187 0 4px, #8aa7b3 4px 8px)' }
+                  ? { background: 'repeating-linear-gradient(45deg, #6e7f8d 0 4px, #9aa6af 4px 8px)' }
                   : { backgroundColor: theme.id === 'custom' && customDarkSquare ? customDarkSquare : theme.dark }"
               ></div>
             </div>
@@ -173,13 +173,13 @@
               <div 
                 class="theme-square light" 
                 :style="theme.id === 'custom'
-                  ? { background: 'repeating-linear-gradient(45deg, #bee6ee 0 4px, #e8f6f9 4px 8px)' }
+                  ? { background: 'repeating-linear-gradient(45deg, #d6dce0 0 4px, #f6f7f8 4px 8px)' }
                   : { backgroundColor: theme.whiteFill, border: `3px solid ${theme.whiteStroke}` }"
               ></div>
               <div 
                 class="theme-square dark" 
                 :style="theme.id === 'custom'
-                  ? { background: 'repeating-linear-gradient(45deg, #5a7187 0 4px, #8aa7b3 4px 8px)' }
+                  ? { background: 'repeating-linear-gradient(45deg, #6e7f8d 0 4px, #9aa6af 4px 8px)' }
                   : { backgroundColor: theme.blackFill, border: `3px solid ${theme.blackStroke}` }"
               ></div>
             </div>
