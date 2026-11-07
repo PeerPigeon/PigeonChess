@@ -2012,10 +2012,27 @@ watch(currentIdentity, (keys) => {
 }, { immediate: true })
 
 // A move that gives check snaps, alongside its own sound: one new move (whoever made it), not the
-// many a restored or replayed game puts back at once.
+// many a restored or replayed game puts back at once, nor a step through the moves (which plays its own).
+let navigating = false
 watch(() => currentGame.value?.moves?.length ?? 0, (now, before) => {
+  if (navigating) return
   if (now === (before ?? 0) + 1 && chess.value?.isCheck?.()) playCheckSound()
 })
+
+/** A move's sounds: capture, castle or move, and the snap when it gives check. */
+const playMoveSounds = (move: any) => {
+  if (!move) return
+  if (move.captured) playCaptureSound()
+  else if (move.flags?.includes('k') || move.flags?.includes('q')) playCastleSound()
+  else playMoveSound()
+  if (typeof move.san === 'string' && /[+#]/.test(move.san)) playCheckSound()
+}
+
+/** Stepping through the moves: forward plays the move stepped onto; back, only a step. */
+const playStepSounds = (move: any, forward: boolean) => {
+  if (forward) playMoveSounds(move)
+  else playMoveSound()
+}
 
 // Set up the game end callback to play win/lose sounds
 setOnGameEndCallback((result) => {
@@ -2044,6 +2061,11 @@ const viewingChess = boardRef<Chess | null>(null) // separate chess instance for
 const goToMove = (moveIndex: number) => {
   const moves = isReplayMode.value && replayGame.value ? replayGame.value.moves : currentGame.value?.moves
   if (!moves) return
+  // Where the board is now (the live position is the last move), to tell a step forward from one back.
+  const shownIndex = isPuzzleMode.value ? puzzleMoveIndex.value - 1 : (viewingMoveIndex.value ?? moves.length - 1)
+  const forward = moveIndex > shownIndex
+  navigating = true
+  nextTick(() => { navigating = false })
   
   // Special handling for puzzle mode - update game state directly
   if (isPuzzleMode.value && currentPuzzle.value) {
@@ -2082,15 +2104,7 @@ const goToMove = (moveIndex: number) => {
     // Update lastMove for highlighting
     if (lastMoveObj) {
       lastMove.value = { from: lastMoveObj.from, to: lastMoveObj.to }
-      
-      // Play appropriate sound
-      if (lastMoveObj.captured) {
-        playCaptureSound()
-      } else if (lastMoveObj.flags.includes('k') || lastMoveObj.flags.includes('q')) {
-        playCastleSound()
-      } else {
-        playMoveSound()
-      }
+      playStepSounds(lastMoveObj, forward)
     } else {
       lastMove.value = null
     }
@@ -2124,15 +2138,7 @@ const goToMove = (moveIndex: number) => {
       to: lastMoveObj.to
     }
     
-    // Play appropriate sound based on move type
-    if (lastMoveObj.captured) {
-      playCaptureSound()
-    } else if (lastMoveObj.flags.includes('k') || lastMoveObj.flags.includes('q')) {
-      // Castling move (kingside or queenside)
-      playCastleSound()
-    } else {
-      playMoveSound()
-    }
+    playStepSounds(lastMoveObj, forward)
   } else {
     lastMove.value = null
   }
@@ -2148,7 +2154,7 @@ const nextMove = () => {
     // Check if this is the last move in an active game
     if (nextIndex === moves.length - 1 && !isReplayMode.value) {
       // Last move in active game - go to live position instead
-      goToEnd()
+      goToEnd(true)
       
       // Force reactivity to update by using nextTick
       nextTick(() => {
@@ -2159,7 +2165,7 @@ const nextMove = () => {
     }
   } else if (nextIndex >= moves.length && !isReplayMode.value) {
     // At the end in active game, return to live position
-    goToEnd()
+    goToEnd(true)
     
     // Force reactivity to update by using nextTick
     nextTick(() => {
@@ -2195,6 +2201,8 @@ const previousMove = () => {
 }
 
 const goToStart = () => {
+  navigating = true
+  nextTick(() => { navigating = false })
   // Reset puzzle state if in puzzle mode
   if (isPuzzleMode.value && currentPuzzle.value) {
     if (puzzleResult.value !== 'pending') {
@@ -2236,9 +2244,11 @@ const goToStart = () => {
   lastMove.value = null // Clear highlighting at starting position
 }
 
-const goToEnd = () => {
+const goToEnd = (stepped = false) => {
   const moves = isReplayMode.value && replayGame.value ? replayGame.value.moves : currentGame.value?.moves
   if (!moves) return
+  // Back to the live position by the player's own step: the moves it passes, heard as one step forward.
+  const wasViewing = viewingMoveIndex.value !== null
   
   console.log('goToEnd called - isReplayMode:', isReplayMode.value, 'moves.length:', moves.length)
   
@@ -2273,6 +2283,7 @@ const goToEnd = () => {
             from: lastMoveObj.from,
             to: lastMoveObj.to
           }
+          if (stepped && wasViewing) playMoveSounds(lastMoveObj)
         }
       }
     }
