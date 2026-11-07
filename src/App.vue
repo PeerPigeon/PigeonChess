@@ -1137,6 +1137,19 @@ let stockfishCallback: ((bestMove: string) => void) | null = null
 let stockfishAnalysisCallback: ((moves: string[]) => void) | null = null
 let currentAnalysisId = 0 // Track which analysis request is current
 let expectingAiMove = false // Track if we're expecting an AI move (to filter out stale bestmove from player analysis)
+// The position the computer is choosing a move for: a bestmove that is not legal there is from a search
+// the page stopped (it can arrive just after the computer's own search was asked for), not its move.
+let aiMoveFen: string | null = null
+// A position Stockfish gave no usable move for: the computer picks without it there, rather than stall.
+let engineSkipFen: string | null = null
+let aiWatchdog: ReturnType<typeof setTimeout> | null = null
+const legalIn = (fen: string, uci: string) => {
+  try {
+    return createChess(fen).moves({ verbose: true }).some((m: any) => m.from === uci.slice(0, 2) && m.to === uci.slice(2, 4) && (uci.length < 5 || m.promotion === uci[4]))
+  } catch {
+    return false
+  }
+}
 
 const initStockfish = async () => {
   if (stockfish) return
@@ -1158,6 +1171,11 @@ const initStockfish = async () => {
         } else if (message.startsWith('bestmove')) {
           const match = message.match(/bestmove ([a-h][1-8][a-h][1-8][qrbn]?)/)
           if (match && stockfishCallback && expectingAiMove) {
+            if (aiMoveFen && !legalIn(aiMoveFen, match[1])) {
+              console.warn('⚠️ Ignoring bestmove from a stopped search (not legal here):', match[1])
+              return
+            }
+            if (aiWatchdog) { clearTimeout(aiWatchdog); aiWatchdog = null }
             console.log('🤖 AI chose:', match[1])
             stockfishCallback(match[1])
             stockfishCallback = null
@@ -1505,9 +1523,20 @@ const makeAIMove = () => {
     aiThinking.value = false
     return
   }
+
+  // Stockfish gave nothing usable for this position: choose again, without it, if it is still our move.
+  const giveUpOnEngine = () => {
+    stockfishCallback = null
+    expectingAiMove = false
+    aiMoveFen = null
+    aiThinking.value = false
+    if (!isAIGame.value || !isGameActive.value || chess.value.fen() !== currentFen || chess.value.turn() !== expectedAiColor) return
+    engineSkipFen = currentFen
+    makeAIMove()
+  }
   
-  // Try to use Stockfish if available (it only knows standard chess)
-  if (stockfish && stockfishReady && !isPigeonVariant) {
+  // Try to use Stockfish if available (it only knows standard chess), unless it already failed here.
+  if (stockfish && stockfishReady && !isPigeonVariant && engineSkipFen !== currentFen) {
     
     // Increment analysis ID FIRST to invalidate any pending responses (including messages in queue)
     currentAnalysisId++
@@ -1610,7 +1639,7 @@ const makeAIMove = () => {
             console.error('  Current position FEN:', chess.value.fen())
             console.error('  Legal moves:', legalMoves.map(m => `${m.from}${m.to}${m.promotion || ''}`).join(', '))
             console.error('  Position whose turn:', testChess.turn(), '(expected AI color:', expectedAiColor, ')')
-            aiThinking.value = false
+            giveUpOnEngine()
             return
           }
           
@@ -1663,13 +1692,13 @@ const makeAIMove = () => {
             }
           } else {
             console.error('CRITICAL: chess.value.move() returned null for:', moveFrom, 'to', moveTo)
-            aiThinking.value = false
+            giveUpOnEngine()
           }
         } catch (error) {
           console.error('EXCEPTION in AI move callback:', error)
           console.error('Stack:', error instanceof Error ? error.stack : 'no stack')
           console.error('Context - bestMove:', bestMove, 'currentFen:', currentFen, 'expectedAiColor:', expectedAiColor)
-          aiThinking.value = false
+          giveUpOnEngine()
         }
       }, delay)
     }
@@ -1695,9 +1724,18 @@ const makeAIMove = () => {
     setTimeout(() => {
       if (!stockfish) return
       expectingAiMove = true // NOW we're expecting an AI bestmove (after delay to clear stale messages)
+      aiMoveFen = currentFen
       stockfish.postMessage('ucinewgame')
       stockfish.postMessage('position fen ' + currentFen)
       stockfish.postMessage('go depth ' + depth + ' movetime ' + movetime)
+      // No usable answer in time (a lost or wrong one): pick without the engine, never stall the game.
+      if (aiWatchdog) clearTimeout(aiWatchdog)
+      aiWatchdog = setTimeout(() => {
+        aiWatchdog = null
+        if (thisAnalysisId !== currentAnalysisId || !expectingAiMove || chess.value.fen() !== currentFen) return
+        console.warn('⚠️ No move from Stockfish in time; the computer picks without it')
+        giveUpOnEngine()
+      }, movetime + 5000)
     }, 50)
     return
   }
