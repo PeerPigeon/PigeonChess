@@ -206,10 +206,23 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
       temperature: 0.7,
       signal: stop.signal,
     })
-    return text.trim() || '…'
+    return spoken(text) || '…'
   } finally {
     clearTimeout(timer)
   }
+}
+
+/**
+ * Only what PigeonAI says, when a small model narrates instead ('The player says "gg" which means…
+ * I smugly say, "…"'): the words it says it says, else the reply without its sentences about the player.
+ */
+export function spoken(text: string): string {
+  const t = text.replace(/<\/?think>/g, '').trim()
+  const said = [...t.matchAll(/\b(?:I|PigeonAI)\b[^.!?"“]{0,40}\b(?:say|says|said|reply|replies|respond|responds|answer|answers)\b[^"“]{0,20}["“]([^"”]+)["”]/gi)]
+  if (said.length) return said[said.length - 1][1].trim()
+  const sentences = t.match(/[^.!?]+[.!?]*/g) ?? [t]
+  const kept = sentences.filter((x) => !/\bthe player\b|\bwhich means\b|\bmy (reply|response|answer)\b|\bthey('re| are)\b|\bit's likely\b/i.test(x)).join('').trim()
+  return kept || t
 }
 
 export function usePigeonAI() {
