@@ -29,9 +29,11 @@ let starting: Promise<void> | null = null
 
 const describe = (a: PigeonAI): string => {
   if (a.ready()) return 'Ready: the model is held by the peers here.'
-  let done = 0, total = 0, servers = 0
-  for (const p of a.loading.values()) { done += p.done; total += p.total; servers += p.servers ?? 0 }
-  if (total > 0) return `Loading this device's share of the model: ${Math.round((100 * done) / total)}%${servers > done / 2 ? ' (from the storage servers)' : ''}.`
+  let done = 0, total = 0, servers = 0, cached = 0
+  for (const p of a.loading.values()) { done += p.done; total += p.total; servers += p.servers ?? 0; cached += p.cached ?? 0 }
+  // Where it is coming from: the storage servers (PigeonFS), or Hugging Face for what they don't have yet.
+  const mb = (n: number) => `${Math.round(n / 1e6)} MB`
+  if (total > 0) return `Loading this device's share of the model: ${Math.round((100 * done) / total)}% (${mb(servers)} from PigeonFS, ${mb(Math.max(0, done - servers - cached))} from Hugging Face${cached ? `, ${mb(cached)} already on this device` : ''}).`
   if (PHONE) return 'Waiting for computers here to hold the model (a phone only asks).'
   return a.gpu ? 'Waiting for the model to be shared out between the peers…' : 'Waiting for peers with a GPU to hold the model (this device has none).'
 }
