@@ -21,7 +21,10 @@
             <span class="when">{{ formatDate(game.date) }}, {{ game.moves.length }} {{ game.moves.length === 1 ? 'move' : 'moves' }}</span>
             <span v-if="game.opening" class="opening">{{ game.opening }}</span>
           </div>
-          <button class="secondary" @click="emit('watch', game)">Review</button>
+          <div class="game-actions">
+            <button class="secondary" @click="emit('watch', game)">Review</button>
+            <button class="secondary" @click="share(game)">{{ shared === game.gameId ? 'Link copied' : 'Share' }}</button>
+          </div>
         </li>
       </ol>
     </div>
@@ -29,6 +32,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import type { GameHistoryEntry } from '@/types'
 
 interface Props {
@@ -39,7 +43,16 @@ defineProps<Props>()
 const emit = defineEmits<{
   close: []
   watch: [game: GameHistoryEntry]
+  share: [game: GameHistoryEntry]
 }>()
+
+/** The game whose link was just given (for a moment). */
+const shared = ref<string | null>(null)
+const share = (game: GameHistoryEntry) => {
+  emit('share', game)
+  shared.value = game.gameId
+  setTimeout(() => { if (shared.value === game.gameId) shared.value = null }, 2500)
+}
 
 const formatDate = (timestamp: number): string =>
   new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
@@ -68,6 +81,11 @@ const formatDifficulty = (difficulty: number | undefined): string => {
 </script>
 
 <style scoped>
+.game-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
 .history {
   width: min(100%, 620px);
 }

@@ -61,10 +61,11 @@
         </div>
 
         <div class="side-head">
-          <h2 class="side-title">Review</h2>
+          <h2 class="side-title">{{ sharedView ? 'Shared game' : 'Review' }}</h2>
           <p class="side-meta">
             {{ new Date(replayGame.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) }}, {{ replayResultText }}
           </p>
+          <p v-if="sharedNote" class="shared-note" :class="sharedCheck">{{ sharedNote }}</p>
         </div>
 
         <div class="seat seat-top">
@@ -106,12 +107,13 @@
         </div>
 
         <div class="actions">
+          <button class="btn" @click="shareReplayGame">{{ shareWord || 'Share this game' }}</button>
           <button class="btn" @click="exitReplayMode">Back to the lobby</button>
         </div>
 
         <div class="seat seat-bottom">
           <img class="seat-colour" :src="`/pieces/${replayGame.myColor === 'white' ? 'w' : 'b'}k.svg`" alt="" />
-          <span class="seat-name">{{ (replayGame.myUsername?.trim()) || 'You' }}</span>
+          <span class="seat-name">{{ (replayGame.myUsername?.trim()) || (sharedView ? 'Player' : 'You') }}</span>
           <span class="seat-captures">
             <img v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'white' : 'black']" :key="`rm-${idx}`" :src="`/pieces/${replayGame.myColor === 'white' ? 'b' : 'w'}${piece}.svg`" :alt="piece" />
             <b v-if="materialAdvantage[replayGame.myColor] > 0">+{{ materialAdvantage[replayGame.myColor] }}</b>
@@ -341,7 +343,11 @@
               <title>{{ connectionLabel }}</title>
               <rect v-for="n in 4" :key="n" :x="(n - 1) * 4" :y="12 - n * 3" width="3" :height="n * 3" rx="0.5" :class="{ lit: n <= connectionStrength }" />
             </svg>
-            <small v-if="aiThinking">thinking</small>
+            <small v-if="aiThinking">{{ pigeonAsking ? 'asking PigeonAI' : 'thinking' }}</small>
+          </span>
+          <span v-if="isAIGame && gameEngine === 'pigeonai'" class="pigeon-note" :class="{ backup: pigeonNote.includes('backup') }">
+            {{ pigeonNote || pigeonAI.status.value }}
+            <template v-if="pigeonTally.pigeon + pigeonTally.backup">· PigeonAI {{ pigeonTally.pigeon }}, backup {{ pigeonTally.backup }}</template>
           </span>
           <span class="seat-captures">
             <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']" :key="`go-${idx}`" :src="`/pieces/${myPlayer?.color === 'white' ? 'w' : 'b'}${piece}.svg`" :alt="piece" />
@@ -451,6 +457,7 @@
       :game-history="gameHistory"
       @close="showHistory = false"
       @watch="startReplayMode"
+      @share="shareHistoryGame"
     />
 
     <div v-if="showLoginModal" class="sheet-backdrop" @click.self="showLoginModal = false; loginError = ''">
@@ -574,6 +581,7 @@ import { createChess, isPigeonVariant } from './utils/variant'
 import { boardRef } from './utils/boardRef'
 import { pigeonSearch } from './utils/pigeonAi'
 import { usePeerPigeon, migrateSignalingUrls } from './composables/usePeerPigeon'
+import { forgetSharedGameInUrl, movesPlay, offerLink, sharedGameInUrl, shareUrl, unpackGame } from '@/utils/shareGame'
 import { usePigeonAI, startPigeonAIPeer, pigeonAIMove } from './composables/usePigeonAI'
 import { useSeek } from './composables/useSeek'
 import { loadSeat, makeSeatKeys, open, saveSeat, seal, type Seat, type SeatKeys } from './composables/useSeat'
@@ -652,6 +660,8 @@ const {
   dhtPut,
   dhtGet,
   relayRequest,
+  storageSigner,
+  loadSharedGame,
   signStorageAs,
   saveGame,
   loadGames
@@ -1071,6 +1081,11 @@ const computerName = (engine: AIEngine | undefined, level: number | undefined) =
   engine === 'pigeonai' ? 'PigeonAI' : `Computer, ${(aiLevels[level || 0]?.name || 'Easy').toLowerCase()}`
 /** The engine of the game against the computer in progress. */
 const gameEngine = ref<AIEngine>('standard')
+/** In a PigeonAI game: whether PigeonAI is being asked now, how the last computer move was made, and the tally. */
+const pigeonAsking = ref(false)
+let pigeonOutcome: { fen: string; why: string } | null = null
+const pigeonNote = ref('')
+const pigeonTally = ref({ pigeon: 0, backup: 0 })
 
 const aiLevels = [
   { name: 'Easy', elo: 'about 900' },
@@ -1575,14 +1590,17 @@ const makeAIMove = () => {
   // or no legal move named): this move is played without it, as when Stockfish fails.
   if (gameEngine.value === 'pigeonai' && engineSkipFen !== currentFen) {
     const started = Date.now()
-    void pigeonAIMove(currentFen, [...(currentGame.value?.moves ?? [])]).then((san) => {
+    pigeonAsking.value = true
+    void pigeonAIMove(currentFen, [...(currentGame.value?.moves ?? [])]).then((answer) => {
+      pigeonAsking.value = false
       if (!isAIGame.value || !isGameActive.value || chess.value.fen() !== currentFen) {
         aiThinking.value = false
         return
       }
-      const found = san ? moves.find((m: any) => m.san === san) : null
+      const found = answer.move ? moves.find((m: any) => m.san === answer.move) : null
+      pigeonOutcome = { fen: currentFen, why: found ? '' : answer.why }
       if (!found) {
-        console.warn('⚠️ No move from PigeonAI; the computer picks without it')
+        console.warn(`⚠️ PigeonAI ${answer.why}: the backup engine plays this move`)
         giveUpOnEngine()
         return
       }
@@ -1797,7 +1815,7 @@ const makeAIMove = () => {
   }
   
   // Fallback to old AI if Stockfish not available
-  console.log('⚠️ FALLBACK AI - Stockfish not available. stockfish:', !!stockfish, 'stockfishReady:', stockfishReady)
+  console.log(gameEngine.value === 'pigeonai' ? '⚠️ Backup engine: PigeonAI gave no move' : '⚠️ FALLBACK AI - Stockfish not available. stockfish:', !!stockfish, 'stockfishReady:', stockfishReady)
   
   // Select move based on difficulty
   if (isPigeonVariant) {
@@ -2057,6 +2075,21 @@ const {
   peerId: computed(() => mesh.value?.peerId).value,
   username: () => identityUsername.value,
   opponentUsername: () => opponentName.value
+})
+
+// In a PigeonAI game: who made each computer move (PigeonAI, or the backup engine and why).
+watch(() => currentGame.value?.moves?.length ?? 0, (n, before) => {
+  if (!isAIGame.value || gameEngine.value !== 'pigeonai') return
+  if (n === 0 || n < before) { pigeonNote.value = ''; pigeonTally.value = { pigeon: 0, backup: 0 }; return }
+  if (n !== before + 1) return
+  // A move by the computer: the side that moved is not mine.
+  const moved = n % 2 === 1 ? 'white' : 'black'
+  if (moved === myPlayer.value?.color) return
+  const san = currentGame.value!.moves[n - 1]
+  const why = pigeonOutcome?.why ?? 'gave no move'
+  pigeonOutcome = null
+  if (!why) { pigeonTally.value.pigeon++; pigeonNote.value = `PigeonAI played ${san}` }
+  else { pigeonTally.value.backup++; pigeonNote.value = `PigeonAI ${why}: the backup engine played ${san}` }
 })
 
 // Signed in: what this player writes (their games) is signed by their account, so it follows them to
@@ -3155,6 +3188,11 @@ const resultClass = computed(() => {
 })
 const replayResultText = computed(() => {
   const result = replayGame.value?.result
+  // Someone else's game (a shared link): by colour, not "you".
+  if (sharedView.value && (result === 'win' || result === 'loss')) {
+    const mine = replayGame.value!.myColor
+    return `${(result === 'win') === (mine === 'white') ? 'White' : 'Black'} won`
+  }
   if (result === 'win') return 'you won'
   if (result === 'loss') return 'you lost'
   if (result === 'draw') return 'drawn'
@@ -3783,11 +3821,78 @@ const startReplayMode = (game: GameHistoryEntry) => {
 }
 
 const exitReplayMode = () => {
+  const wasShared = sharedView.value
+  sharedView.value = false
+  sharedNote.value = ''
+  shareWord.value = ''
+  forgetSharedGameInUrl()
   isReplayMode.value = false
   replayGame.value = null
   replayShowBestMoves.value = false
   resetGame()
   viewingMoveIndex.value = null
+  // A game in progress here was set aside to look at a shared one: back to it.
+  if (wasShared) { restoreAIGame(); if (!isGameActive.value) restoreGame() }
+}
+
+// ---- Shared games: a link to a played game (utils/shareGame.ts) ----
+const sharedView = ref(false)
+const sharedNote = ref('')
+const sharedCheck = ref<'checking' | 'verified' | 'unverified' | ''>('')
+const shareWord = ref('')
+
+const giveLink = async (url: string) => {
+  const how = await offerLink(url, 'A game of chess on PigeonChess')
+  shareWord.value = how === 'copied' ? 'Link copied' : how === 'shared' ? 'Shared' : 'Could not copy the link'
+  setTimeout(() => { shareWord.value = '' }, 2500)
+}
+
+/** A link to one of this player's games: named by the key it is kept under, with the game packed in. */
+const linkToOwnGame = async (game: GameHistoryEntry) => {
+  const signer = await storageSigner()
+  if (!signer) throw new Error('not connected yet')
+  // Kept already, normally; if not (an old game, or the servers missed it), kept now, so the link finds it.
+  void saveGame(game).catch(() => {})
+  return shareUrl(game, signer)
+}
+
+const shareReplayGame = async () => {
+  if (!replayGame.value) return
+  try { await giveLink(sharedView.value ? location.href : await linkToOwnGame(replayGame.value)) }
+  catch { shareWord.value = 'Not connected yet: try again in a moment' }
+}
+
+const shareHistoryGame = async (game: GameHistoryEntry) => {
+  try { await giveLink(await linkToOwnGame(game)) } catch { /* not connected yet */ }
+}
+
+/** Open the game a link names: the kept one (checked: signed by its player) or, failing that, the link's own copy. */
+const openSharedGame = async (link: { gameId: string; signer: string; packed: string | null }) => {
+  const fromLink = link.packed ? await unpackGame(link.packed) : null
+  const show = (game: GameHistoryEntry) => {
+    const same = replayGame.value?.gameId === game.gameId && replayGame.value.moves.join(' ') === game.moves.join(' ')
+    if (!(isReplayMode.value && same)) startReplayMode(game)
+    sharedView.value = true
+  }
+  if (fromLink) { show(fromLink); sharedCheck.value = 'checking'; sharedNote.value = "Checking it against the player's kept games…" }
+  const kept = await Promise.race([
+    loadSharedGame(link.signer, link.gameId).catch(() => null),
+    new Promise<null>((r) => setTimeout(() => r(null), 20_000)),
+  ])
+  if (kept && Array.isArray(kept.moves) && movesPlay(kept.moves)) {
+    show(kept as GameHistoryEntry)
+    sharedCheck.value = 'verified'
+    sharedNote.value = fromLink && fromLink.moves.join(' ') !== kept.moves.join(' ')
+      ? "The link's moves did not match the kept game: this is the kept game, signed by its player."
+      : 'Kept on the storage servers and signed by its player: the game as it was played.'
+  } else if (fromLink) {
+    sharedCheck.value = 'unverified'
+    sharedNote.value = "Not found on the storage servers, so it can't be checked: the moves come from the link alone."
+  } else {
+    sharedNote.value = ''
+    console.warn('The shared game could not be found:', link.gameId)
+    forgetSharedGameInUrl()
+  }
 }
 
 // Puzzle mode functions
@@ -4425,11 +4530,14 @@ onMounted(async () => {
   // Notifications: ask on the first tap, when they're on (installed: on by default).
   notify.askOnFirstTap()
 
+  // A link to a played game: shown first (a game in progress here is kept, and comes back after).
+  const shared = sharedGameInUrl()
+  if (shared) void openSharedGame(shared)
   // A game this browser was in the middle of (a reload, or a tap on a notification). Against the
   // computer it needs no network; against a person, it waits for this page's peer ID, however long.
-  if (!isGameActive.value) restoreAIGame()
-  for (let i = 0; i < 480 && !mesh.value?.peerId && !isGameActive.value; i++) await new Promise((r) => setTimeout(r, 250))
-  if (!isGameActive.value) restoreGame()
+  else if (!isGameActive.value) restoreAIGame()
+  for (let i = 0; i < 480 && !shared && !mesh.value?.peerId && !isGameActive.value; i++) await new Promise((r) => setTimeout(r, 250))
+  if (!isGameActive.value && !shared) restoreGame()
   
   // Initialize PigeonIdP
   try {
@@ -5173,6 +5281,32 @@ a.btn {
 .mode-option:disabled:not(.picked) {
   opacity: 0.5;
   cursor: default;
+}
+
+.shared-note {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+
+.shared-note.verified {
+  color: var(--ink);
+}
+
+.shared-note.unverified {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.pigeon-note {
+  flex-basis: 100%;
+  font-size: 0.8rem;
+  color: var(--ink-2);
+}
+
+.pigeon-note.backup {
+  color: var(--ink);
+  font-weight: 700;
 }
 
 .engine-pick {

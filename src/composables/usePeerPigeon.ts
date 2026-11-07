@@ -407,6 +407,28 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     return records.filter((r: any) => r.key.startsWith('chess-game:') && r.signer === games.signer && r.value).map((r: any) => r.value)
   }
 
+  /** The key this page signs (and keeps) its games with now: the account's once signed in, else this browser's. */
+  const storageSigner = async (): Promise<string | null> => (await readyStorage())?.signer?.() ?? null
+
+  /**
+   * A game another player (or this one) kept: read from that player's own room on the storage servers,
+   * and only if it is a frozen record that player signed. null when it can't be found there.
+   */
+  const loadSharedGame = async (signer: string, gameId: string): Promise<any | null> => {
+    const storage = await readyStorage()
+    if (!node || !storage) return null
+    const room = await node.openStorage(`pigeonchess:games:${signer}`, { owner: signer, ...(accountKeys ? { signingKeys: accountKeys } : {}) })
+    try {
+      const rec = await room.get('frozen', `chess-game:${gameId}`)
+      return rec?.value && rec.signer === signer && rec.value.gameId === gameId ? rec.value : null
+    } catch {
+      return null
+    } finally {
+      // Opened only for this read (the page's own games room is a storage of its own).
+      room.close?.()
+    }
+  }
+
   // A request to the relay this page is on (PigeonIdP accounts on a local relay).
   const relayRequest = async (body: Record<string, unknown>) => {
     if (!node?.mesh?.relayRequest) throw new Error('not on a relay')
@@ -414,6 +436,8 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
   }
 
   return {
+    storageSigner,
+    loadSharedGame,
     relayRequest,
     mesh,
     isConnected,

@@ -74,42 +74,45 @@ export function moveIn(text: string, legal: { san: string; from: string; to: str
   return best?.san ?? null
 }
 
+/** PigeonAI's answer for a move: the move (SAN), or null and why there is none. */
+export interface PigeonAIAnswer { move: string | null; why: string }
+
 /**
- * PigeonAI's move in this position (SAN), asked of the mesh; null when it is not
- * ready in time, can't answer, or names no legal move (the Computer then plays
- * without it).
+ * PigeonAI's move in this position (SAN), asked of the mesh; null (with why) when
+ * it is not ready in time, can't answer, or names no legal move (the Computer then
+ * plays without it, and says so).
  */
-export async function pigeonAIMove(fen: string, history: string[] = []): Promise<string | null> {
-  if (!ai) return null
+export async function pigeonAIMove(fen: string, history: string[] = []): Promise<PigeonAIAnswer> {
+  if (!ai) return { move: null, why: status.value.startsWith('PigeonAI could not start') ? 'could not start here' : 'is still starting' }
   const a = ai
-  if (!(await a.whenReady(30_000))) return null
+  if (!(await a.whenReady(30_000))) return { move: null, why: 'is not ready (the model is not loaded on enough peers)' }
   const board = createChess(fen)
   const legal = board.moves({ verbose: true }) as { san: string; from: string; to: string; promotion?: string }[]
-  if (!legal.length) return null
+  if (!legal.length) return { move: null, why: 'had no move to make' }
   const side = board.turn() === 'w' ? 'White' : 'Black'
-  const recent = history.slice(-12)
+  // Short: every token of the prompt goes through the whole mesh before the first one of the answer.
   const prompt = [
-    `You are playing chess as ${side}.`,
-    `Position (FEN): ${fen}`,
-    recent.length ? `The last moves were: ${recent.join(' ')}` : 'The game has just started.',
-    `Your legal moves: ${legal.map((m) => m.san).join(', ')}`,
-    'Reply with your move only: one move from that list, in standard algebraic notation.',
-  ].join('\n')
+    `FEN: ${fen}`,
+    history.length ? `Last moves: ${history.slice(-6).join(' ')}` : '',
+    `${side} to move. Legal: ${legal.map((m) => m.san).join(' ')}`,
+    'Best move:',
+  ].filter(Boolean).join('\n')
   const stop = new AbortController()
   const timer = setTimeout(() => stop.abort(), 60_000)
   try {
     const { text } = await a.ask(prompt, {
-      system: 'You are a strong chess player. You answer with a single move and nothing else.',
+      system: 'You play chess. Answer with one legal move in SAN, nothing else.',
       // Qwen3 (Bonsai's family) thinks aloud unless its thinking is given, empty.
       prefill: '<think>\n\n</think>\n\n',
-      count: 12,
+      count: 8,
       temperature: 0.3,
       draft: false,
       signal: stop.signal,
     })
-    return moveIn(text, legal)
-  } catch {
-    return null
+    const move = moveIn(text, legal)
+    return move ? { move, why: '' } : { move: null, why: `named no legal move ("${text.trim().slice(0, 30)}")` }
+  } catch (error) {
+    return { move: null, why: stop.signal.aborted ? 'took over a minute' : `failed (${(error as Error).message})` }
   } finally {
     clearTimeout(timer)
   }
