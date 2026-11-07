@@ -366,14 +366,31 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
   }
 
   // Finished games: each one a frozen record (written once, never changed, not even by its player),
-  // signed by the player, kept by the storage servers: chess-game:<signer>:<game id>.
-  const GAME_PREFIX = 'chess-game:'
-  const saveGame = async (entry: any) => {
+  // signed by the player, in a room of the player's own on the storage servers, named after their key:
+  // reading a player's history reads only their games, however many games everyone else has played.
+  let gamesRoom: { node: any; signer: string; storage: Promise<any> } | null = null
+  const playerGames = async () => {
     const storage = await readyStorage()
     const signer = storage?.signer?.()
-    if (!storage || !signer || !entry?.gameId) return false
+    if (!node || !storage || !signer) return null
+    if (gamesRoom?.node !== node || gamesRoom.signer !== signer) {
+      const before = gamesRoom
+      gamesRoom = {
+        node,
+        signer,
+        storage: node.openStorage(`pigeonchess:games:${signer}`, accountKeys ? { signingKeys: accountKeys } : {}),
+      }
+      if (before?.node === node) before.storage.then((s: any) => s.close()).catch(() => {})
+    }
+    const room = await gamesRoom.storage
+    return { room, signer }
+  }
+
+  const saveGame = async (entry: any) => {
+    const games = await playerGames()
+    if (!games || !entry?.gameId) return false
     try {
-      await storage.put('frozen', `${GAME_PREFIX}${signer}:${entry.gameId}`, JSON.parse(JSON.stringify(entry)))
+      await games.room.put('frozen', `chess-game:${entry.gameId}`, JSON.parse(JSON.stringify(entry)))
       return true
     } catch {
       return false // kept already: frozen records are never written twice
@@ -382,13 +399,11 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
 
   /** The signed-in player's games (or this browser's, when nobody is signed in), wherever they were played. */
   const loadGames = async (): Promise<any[]> => {
-    const storage = await readyStorage()
-    const signer = storage?.signer?.()
-    if (!storage || !signer) return []
-    const prefix = `${GAME_PREFIX}${signer}:`
-    const records = await storage.list('frozen')
-    // Only records this player signed: a key that names them proves nothing by itself.
-    return records.filter((r: any) => r.key.startsWith(prefix) && r.signer === signer && r.value).map((r: any) => r.value)
+    const games = await playerGames()
+    if (!games) return []
+    const records = await games.room.list('frozen')
+    // Only records this player signed: anyone can write into a room, nobody can sign as them.
+    return records.filter((r: any) => r.key.startsWith('chess-game:') && r.signer === games.signer && r.value).map((r: any) => r.value)
   }
 
   // A request to the relay this page is on (PigeonIdP accounts on a local relay).
