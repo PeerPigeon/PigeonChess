@@ -1002,7 +1002,7 @@ const setTheme = (next: 'light' | 'dark') => {
   theme.value = next
   document.documentElement.dataset.theme = next
   document.documentElement.style.colorScheme = next
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', next === 'dark' ? '#1b2430' : '#e8f6f9')
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', next === 'dark' ? '#14191d' : '#e9ecee')
   try { localStorage.setItem(THEME_KEY, next) } catch { /* private mode: not remembered */ }
 }
 
