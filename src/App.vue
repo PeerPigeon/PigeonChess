@@ -370,7 +370,10 @@
 
           <div v-if="currentGame?.status === 'finished'" class="result">
             <p class="result-line">{{ resultLine }}</p>
-            <button class="btn btn-go" @click="returnToLobby">Back to the lobby</button>
+            <div class="row">
+              <button class="btn" @click="shareFinishedGame">{{ shareWord || 'Share this game' }}</button>
+              <button class="btn btn-go" @click="returnToLobby">Back to the lobby</button>
+            </div>
           </div>
         </div>
 
@@ -3859,6 +3862,19 @@ const linkToOwnGame = async (game: GameHistoryEntry) => {
 const shareReplayGame = async () => {
   if (!replayGame.value) return
   try { await giveLink(sharedView.value ? location.href : await linkToOwnGame(replayGame.value)) }
+  catch { shareWord.value = 'Not connected yet: try again in a moment' }
+}
+
+/** The game just finished here: its entry in the history (kept when it ended). */
+const shareFinishedGame = async () => {
+  const id = currentGame.value?.id
+  const game = gameHistory.value.find((g) => g.gameId === id)
+  if (!game) {
+    shareWord.value = currentGame.value?.moves?.length ? 'Not kept yet: try again in a moment' : 'No moves to share'
+    setTimeout(() => { shareWord.value = '' }, 2500)
+    return
+  }
+  try { await giveLink(await linkToOwnGame(game)) }
   catch { shareWord.value = 'Not connected yet: try again in a moment' }
 }
 
