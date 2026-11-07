@@ -106,6 +106,51 @@ export function playSoundFile(url: string, { volume = VOLUME, delayMs = 0, rate 
   }).catch(() => {})
 }
 
+// The check "snap": a short, sharp crack, made here (there is no file for it): a burst of noise
+// through a band around 3 kHz that dies away in about 40 ms, with a click at its start.
+let snapBuffer: AudioBuffer | null = null
+function snap(ctx: AudioContext): AudioBuffer {
+  if (snapBuffer && snapBuffer.sampleRate === ctx.sampleRate) return snapBuffer
+  const rate = ctx.sampleRate
+  const length = Math.floor(rate * 0.09)
+  const buffer = ctx.createBuffer(1, length, rate)
+  const out = buffer.getChannelData(0)
+  // Two-pole band-pass (about 3 kHz, fairly narrow) over white noise.
+  const f = 3000, q = 4
+  const w = (2 * Math.PI * f) / rate, alpha = Math.sin(w) / (2 * q), cos = Math.cos(w)
+  const a0 = 1 + alpha
+  const b0 = alpha / a0, b2 = -alpha / a0, a1 = (-2 * cos) / a0, a2 = (1 - alpha) / a0
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0, peak = 0
+  for (let i = 0; i < length; i++) {
+    const t = i / rate
+    const x = (Math.random() * 2 - 1) * Math.exp(-t / 0.012)
+    const y = b0 * x + b2 * x2 - a1 * y1 - a2 * y2
+    x2 = x1; x1 = x; y2 = y1; y1 = y
+    const click = i < rate * 0.0015 ? (1 - i / (rate * 0.0015)) * (i % 2 ? 1 : -1) * 0.5 : 0
+    out[i] = y * 3 + click
+    peak = Math.max(peak, Math.abs(out[i]))
+  }
+  if (peak > 0) for (let i = 0; i < length; i++) out[i] /= peak
+  snapBuffer = buffer
+  return buffer
+}
+
+function playSnap(volume: number) {
+  const ctx = audioContext()
+  if (!ctx) return
+  if (ctx.state !== 'running') ctx.resume().catch(() => {})
+  try {
+    const source = ctx.createBufferSource()
+    source.buffer = snap(ctx)
+    const gain = ctx.createGain()
+    gain.gain.value = volume
+    source.connect(gain)
+    gain.connect(ctx.destination)
+    source.onended = () => { source.disconnect(); gain.disconnect() }
+    source.start()
+  } catch { /* no sound here */ }
+}
+
 export function useSounds() {
   const { settings } = useSettings()
   const enabled = () => settings.value.soundEnabled !== false
@@ -125,9 +170,15 @@ export function useSounds() {
     playSoundFile(MOVE, { delayMs: 100 })
   }
 
+  // Check: a snap, played over the move's own sound (move, capture or castle).
+  const playCheckSound = () => {
+    if (enabled()) playSnap(VOLUME)
+  }
+
   return {
     playMoveSound,
     playCaptureSound,
-    playCastleSound
+    playCastleSound,
+    playCheckSound
   }
 }

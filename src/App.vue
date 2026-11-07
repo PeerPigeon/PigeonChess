@@ -996,7 +996,7 @@ const showBestMoves = ref(false) // Toggle for showing best move arrows
 const analysisArrows = ref<Array<{ from: string; to: string; color: string }>>([])
 const analysisTopMoves = ref<string[]>([])
 const lastAIMoveEval = ref<{ bestMove: string; playerMove: string; evaluation: string } | null>(null)
-const { playMoveSound, playCaptureSound, playCastleSound } = useSounds()
+const { playMoveSound, playCaptureSound, playCastleSound, playCheckSound } = useSounds()
 const lastMove = ref<{ from: string; to: string } | null>(null)
 
 // Replay mode
@@ -2010,6 +2010,12 @@ watch(currentIdentity, (keys) => {
   signStorageAs(keys)
   void loadHistoryFromDHT()
 }, { immediate: true })
+
+// A move that gives check snaps, alongside its own sound: one new move (whoever made it), not the
+// many a restored or replayed game puts back at once.
+watch(() => currentGame.value?.moves?.length ?? 0, (now, before) => {
+  if (now === (before ?? 0) + 1 && chess.value?.isCheck?.()) playCheckSound()
+})
 
 // Set up the game end callback to play win/lose sounds
 setOnGameEndCallback((result) => {
