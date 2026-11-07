@@ -583,6 +583,7 @@ import { getRandomPuzzle, type ChessPuzzle } from './utils/puzzles'
 const {
   isAuthenticated,
   username: identityUsername,
+  currentIdentity,
   initializeIdP,
   createIdentity,
   loadIdentity,
@@ -635,7 +636,10 @@ const {
   onPeerConnect,
   dhtPut,
   dhtGet,
-  relayRequest
+  relayRequest,
+  signStorageAs,
+  saveGame,
+  loadGames
 } = usePeerPigeon({
   // Don't provide a custom peerId - let PeerPigeon generate its own
   networkName: (settings.value.networkName || 'global') + (isPigeonVariant ? ':pigeon' : ''),
@@ -1894,12 +1898,20 @@ const {
   endGame,
   loadHistoryFromDHT
 } = useChessGame({
-  dhtPut,
+  saveGame,
+  loadGames,
   dhtGet,
   peerId: computed(() => mesh.value?.peerId).value,
   username: () => identityUsername.value,
   opponentUsername: () => opponentName.value
 })
+
+// Signed in: what this player writes (their games) is signed by their account, so it follows them to
+// any device they sign in from. Signed out: back to this browser's own key. Their games load either way.
+watch(currentIdentity, (keys) => {
+  signStorageAs(keys)
+  void loadHistoryFromDHT()
+}, { immediate: true })
 
 // Set up the game end callback to play win/lose sounds
 setOnGameEndCallback((result) => {

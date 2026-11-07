@@ -5,7 +5,11 @@ import { generateGameId, saveToLocalStorage, loadFromLocalStorage } from '@/util
 import { getOpeningName } from '@/utils/openings'
 
 export interface ChessGameOptions {
-  dhtPut?: (key: string, value: any, options?: any) => Promise<boolean>
+  /** Keep one finished game: a frozen record signed by the player (written once, never changed). */
+  saveGame?: (entry: GameHistoryEntry) => Promise<boolean>
+  /** The player's games, from wherever they are kept. */
+  loadGames?: () => Promise<GameHistoryEntry[]>
+  /** Old storage (public space), read once to move a player's games over. */
   dhtGet?: (key: string, options?: any) => Promise<any>
   peerId?: string
   username?: () => string | undefined  // Function to get current user's username if logged in
@@ -29,50 +33,45 @@ export function useChessGame(options: ChessGameOptions = {}) {
     onGameEndCallback = callback
   }
   
-  // Sync game history to DHT
-  const syncHistoryToDHT = async () => {
-    if (options.dhtPut) {
-      try {
-        // Use username if logged in, otherwise use peer ID
-        const username = options.username?.()
-        const storageKey = username ? `chess-history-user-${username}` : `chess-history-${options.peerId}`
-        
-        if (!storageKey) {
-          console.log('No storage key available for DHT sync')
-          return
-        }
-        
-        await options.dhtPut(storageKey, gameHistory.value, { ttl: 86400 * 365 }) // 1 year TTL
-        console.log('Game history synced to DHT with key:', storageKey)
-      } catch (error) {
-        console.error('Failed to sync history to DHT:', error)
-      }
-    }
+  const byDate = (games: GameHistoryEntry[]) => [...games].sort((a, b) => (b.date || 0) - (a.date || 0))
+
+  // A finished game goes to storage at once, as a frozen record signed by the player.
+  const keepGame = (entry: GameHistoryEntry) => {
+    options.saveGame?.(entry).catch((error) => console.error('Failed to keep the game:', error))
   }
 
-  // Load game history from DHT
+  // Games kept before they were frozen records: this player's from this browser, and from the old
+  // public history. Written as frozen records once; ones already kept are left as they are.
+  const moveOldGames = async (kept: Set<string>) => {
+    const username = options.username?.()?.trim() || undefined
+    const mine = (entry: GameHistoryEntry) => (entry.myUsername?.trim() || undefined) === username
+    const old: GameHistoryEntry[] = loadFromLocalStorage('chess-game-history', []).filter(mine)
+    if (username && options.dhtGet) {
+      const legacy = await options.dhtGet(`chess-history-user-${username}`).catch(() => null)
+      if (Array.isArray(legacy)) old.push(...legacy.filter(mine))
+    }
+    const moved: GameHistoryEntry[] = []
+    for (const entry of old) {
+      if (!entry?.gameId || kept.has(entry.gameId)) continue
+      kept.add(entry.gameId)
+      if (await options.saveGame?.(entry).catch(() => false)) moved.push(entry)
+    }
+    return moved
+  }
+
+  // The player's games from storage (any device they played on), with older games moved over.
   const loadHistoryFromDHT = async () => {
-    if (options.dhtGet) {
-      try {
-        // Use username if logged in, otherwise use peer ID
-        const username = options.username?.()
-        const storageKey = username ? `chess-history-user-${username}` : `chess-history-${options.peerId}`
-        
-        if (!storageKey) {
-          console.log('No storage key available for DHT load')
-          return
-        }
-        
-        const dhtHistory = await options.dhtGet(storageKey)
-        if (dhtHistory && Array.isArray(dhtHistory)) {
-          // Merge DHT history with local history (DHT takes precedence if newer)
-          gameHistory.value = dhtHistory
-          saveToLocalStorage('chess-game-history', dhtHistory)
-          console.log('Game history loaded from DHT:', dhtHistory.length, 'games')
-        }
-      } catch (error) {
-        console.error('Failed to load history from DHT:', error)
-      }
+    if (!options.loadGames) return
+    try {
+      const games = await options.loadGames()
+      const kept = new Set(games.map((g) => g.gameId))
+      const moved = await moveOldGames(kept)
+      const all = byDate([...games, ...moved])
+      gameHistory.value = all
+      saveToLocalStorage('chess-game-history', all.slice(0, 50))
+      console.log('Game history loaded:', all.length, 'games')
+    } catch (error) {
+      console.error('Failed to load game history:', error)
     }
   }
   
@@ -227,12 +226,8 @@ export function useChessGame(options: ChessGameOptions = {}) {
       if (gameHistory.value.length > 50) {
         gameHistory.value = gameHistory.value.slice(0, 50)
       }
-      console.log('Saving game to history. Total games:', gameHistory.value.length)
       saveToLocalStorage('chess-game-history', gameHistory.value)
-      console.log('Game saved to localStorage')
-      
-      // Sync to DHT
-      syncHistoryToDHT()
+      keepGame(historyEntry)
     } else {
       console.log('NOT saving game to history. opponentId:', opponentId.value, 'currentGame:', !!currentGame.value, 'myPlayer:', !!myPlayer.value)
     }
@@ -275,9 +270,7 @@ export function useChessGame(options: ChessGameOptions = {}) {
         gameHistory.value = gameHistory.value.slice(0, 50)
       }
       saveToLocalStorage('chess-game-history', gameHistory.value)
-      
-      // Sync to DHT
-      syncHistoryToDHT()
+      keepGame(historyEntry)
     }
   }
 

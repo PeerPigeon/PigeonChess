@@ -1,5 +1,5 @@
 import { ref, shallowRef, triggerRef, onUnmounted } from 'vue'
-import { PeerPigeonNode } from '@/vendor/peerpigeon.js'
+import { PeerPigeonNode } from 'peerpigeon'
 import { noteWork, startStallRecorder, timed } from './stallRecorder'
 
 /**
@@ -277,6 +277,8 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
       publish: async (key, value) => started.storage?.put('public', key, value),
     })
     starting = node.start().then(() => {
+      // Signed in before the mesh was up: sign as the account from the start.
+      if (accountKeys) started.storage?.signAs?.(accountKeys)
       // Started means the relays have us; other players may not be there yet.
       isInitialized.value = true
       isConnected.value = true
@@ -350,6 +352,45 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     }
   }
 
+  // What a player writes is signed by their account once they sign in, so it is theirs on any device
+  // they sign in from; before that (and after signing out), by this browser's own key.
+  let accountKeys: { pub: string; priv: string } | null = null
+  const signStorageAs = (keys: any) => {
+    accountKeys = keys?.pub && keys?.priv ? { pub: keys.pub, priv: keys.priv } : null
+    node?.storage?.signAs?.(accountKeys)
+  }
+
+  const readyStorage = async () => {
+    if (starting) await starting.catch(() => {})
+    return node?.storage ?? null
+  }
+
+  // Finished games: each one a frozen record (written once, never changed, not even by its player),
+  // signed by the player, kept by the storage servers: chess-game:<signer>:<game id>.
+  const GAME_PREFIX = 'chess-game:'
+  const saveGame = async (entry: any) => {
+    const storage = await readyStorage()
+    const signer = storage?.signer?.()
+    if (!storage || !signer || !entry?.gameId) return false
+    try {
+      await storage.put('frozen', `${GAME_PREFIX}${signer}:${entry.gameId}`, JSON.parse(JSON.stringify(entry)))
+      return true
+    } catch {
+      return false // kept already: frozen records are never written twice
+    }
+  }
+
+  /** The signed-in player's games (or this browser's, when nobody is signed in), wherever they were played. */
+  const loadGames = async (): Promise<any[]> => {
+    const storage = await readyStorage()
+    const signer = storage?.signer?.()
+    if (!storage || !signer) return []
+    const prefix = `${GAME_PREFIX}${signer}:`
+    const records = await storage.list('frozen')
+    // Only records this player signed: a key that names them proves nothing by itself.
+    return records.filter((r: any) => r.key.startsWith(prefix) && r.signer === signer && r.value).map((r: any) => r.value)
+  }
+
   // A request to the relay this page is on (PigeonIdP accounts on a local relay).
   const relayRequest = async (body: Record<string, unknown>) => {
     if (!node?.mesh?.relayRequest) throw new Error('not on a relay')
@@ -375,5 +416,8 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     refreshStatus,
     dhtPut,
     dhtGet,
+    signStorageAs,
+    saveGame,
+    loadGames,
   }
 }
