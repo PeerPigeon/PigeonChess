@@ -3411,24 +3411,13 @@ const handleMove = async (from: string, to: string, promotion?: 'q' | 'r' | 'b' 
       }
     }
     
-    // Check for checkmate after player's move
-    if (chess.value.isCheckmate()) {
-      console.log('=== Player caused checkmate, calling endGame() ===')
-      endGame()
-      isAIGame.value = false
-      return // Exit early, don't send message or trigger AI
-    }
-    
-    // Check for draw after player's move
-    if (chess.value.isDraw()) {
-      console.log('=== Player caused draw, calling endGame() ===')
-      endGame()
-      isAIGame.value = false
-      return // Exit early
-    }
-    
-    // If playing against AI, trigger AI move
+    // A move that ends the game (mate, or a draw) ends it here once (makeMove may have already),
+    // and against a person it is still sent: their board has to see it to end the game too.
+    const ended = chess.value.isGameOver()
+    if (ended && currentGame.value.status !== 'finished') endGame()
+
     if (isAIGame.value) {
+      if (ended) { isAIGame.value = false; return }
       makeAIMove()
       return // Don't send network message for AI games
     }
