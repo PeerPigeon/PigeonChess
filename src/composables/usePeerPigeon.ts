@@ -378,7 +378,8 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
       gamesRoom = {
         node,
         signer,
-        storage: node.openStorage(`pigeonchess:games:${signer}`, accountKeys ? { signingKeys: accountKeys } : {}),
+        // Owned by the player: the storage servers take nothing in it but what the player signs.
+        storage: node.openStorage(`pigeonchess:games:${signer}`, { owner: signer, ...(accountKeys ? { signingKeys: accountKeys } : {}) }),
       }
       if (before?.node === node) before.storage.then((s: any) => s.close()).catch(() => {})
     }
@@ -402,7 +403,7 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     const games = await playerGames()
     if (!games) return []
     const records = await games.room.list('frozen')
-    // Only records this player signed: anyone can write into a room, nobody can sign as them.
+    // Only records this player signed (the servers already take nothing else in this room).
     return records.filter((r: any) => r.key.startsWith('chess-game:') && r.signer === games.signer && r.value).map((r: any) => r.value)
   }
 
