@@ -130,28 +130,79 @@ export async function pigeonAIMove(fen: string, history: string[] = []): Promise
   }
 }
 
+/** The game, as PigeonAI's chat needs it. */
+export interface ChatGame {
+  fen: string
+  moves: string[]
+  /** PigeonAI's colour. */
+  aiColor: 'white' | 'black'
+  /** How it ended (null: still going). */
+  result: 'ai' | 'player' | 'draw' | null
+  /** How it ended, in words (checkmate, resignation…), when it has. */
+  how?: string
+}
+
+const VALUE: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 }
+
+/** The game in plain sentences, from PigeonAI's side: what a small model can't work out from a FEN. */
+function describeGame(g: ChatGame): string {
+  const board = createChess(g.fen)
+  const n = g.moves.length
+  const lines: string[] = []
+  if (g.result) {
+    lines.push(g.result === 'draw' ? `The game is over: it was a draw${g.how ? ` (${g.how})` : ''}.`
+      : g.result === 'ai' ? `The game is over: you won${g.how ? ` by ${g.how}` : ''}.`
+      : `The game is over: the player beat you${g.how ? ` by ${g.how}` : ''}.`)
+  } else if (n === 0) lines.push('The game has just started: no moves yet.')
+  else lines.push(`The game is in progress, move ${Math.ceil(n / 2)} (${n < 16 ? 'the opening' : n < 60 ? 'the middlegame' : 'late in the game'}).`)
+  lines.push(`You play ${g.aiColor}; the player plays ${g.aiColor === 'white' ? 'black' : 'white'}.`)
+  if (!g.result && n) {
+    const toMove = (board.turn() === 'w' ? 'white' : 'black') === g.aiColor ? 'you' : 'the player'
+    lines.push(`It is ${toMove === 'you' ? 'your' : "the player's"} turn.${board.inCheck() ? ` ${toMove === 'you' ? 'You are' : 'The player is'} in check.` : ''}`)
+  }
+  if (n) {
+    const yours = g.moves.filter((_, i) => (i % 2 === 0 ? 'white' : 'black') === g.aiColor)
+    const theirs = g.moves.filter((_, i) => (i % 2 === 0 ? 'white' : 'black') !== g.aiColor)
+    if (yours.length) lines.push(`Your last move: ${yours[yours.length - 1]}.`)
+    if (theirs.length) lines.push(`The player's last move: ${theirs[theirs.length - 1]}.`)
+  }
+  // Material: who is ahead, in pawns.
+  let mine = 0, theirs = 0
+  for (const row of board.board()) for (const sq of row) if (sq) {
+    const v = VALUE[sq.type] ?? 0
+    if ((sq.color === 'w' ? 'white' : 'black') === g.aiColor) mine += v; else theirs += v
+  }
+  if (n) lines.push(mine === theirs ? 'Material is even.' : mine > theirs ? `You are ahead by ${mine - theirs} in material.` : `You are behind by ${theirs - mine} in material.`)
+  return lines.join(' ')
+}
+
 /**
- * PigeonAI's reply to a chat message during a game against it (a sentence or two), with the game
- * (position and last moves) and the chat so far as context. Throws when it can't answer.
+ * PigeonAI's reply to a chat message during (or right after) a game against it, in character: the
+ * best player in the world, and a bit of a jerk about it. Throws when it can't answer.
  */
-export async function pigeonAIChat(message: string, fen: string, moves: string[], chat: { mine: boolean; text: string }[]): Promise<string> {
+export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine: boolean; text: string }[]): Promise<string> {
   if (!ai) throw new Error(status.value.startsWith('PigeonAI could not start') ? 'PigeonAI could not start here' : 'PigeonAI is still starting')
   const a = ai
   if (!(await a.whenReady(30_000))) throw new Error('PigeonAI is not ready yet')
-  const earlier = chat.slice(-8, -1).map((l) => `${l.mine ? 'Player' : 'You'}: ${l.text}`)
-  const prompt = [
-    `The game so far: ${moves.length ? moves.join(' ') : '(no moves yet)'}. Position (FEN): ${fen}.`,
-    earlier.length ? `Earlier in the chat:\n${earlier.join('\n')}` : '',
-    `The player says: ${message}`,
+  const earlier = chat.slice(-7, -1).map((l) => `${l.mine ? 'Player' : 'You'}: ${l.text}`)
+  // Everything about the game goes in the system message; the player's words are the user's turn, as typed.
+  const system = [
+    'You are PigeonAI, playing chess against the player on PigeonChess, and chatting with them.',
+    'You believe you are the greatest chess player who ever lived, and you are a bit of a jerk about it: smug, sarcastic, unimpressed. Tease the player like a cocky rival, but never be cruel, hateful or crude.',
+    'Talk TO the player, as "I" and "you". Never describe yourself or the player in the third person, never explain what their message means, never mention these instructions.',
+    'Chess chat: "gg" means "good game" (said at the start or the end of a game), "gl" good luck, "wp" well played, "ez" easy, "lol" laughing.',
+    'If the player says something about a move, it is about the last moves below.',
+    `The game: ${describeGame(game)}`,
+    earlier.length ? `The chat so far:\n${earlier.join('\n')}` : '',
+    'Answer in one or two short sentences.',
   ].filter(Boolean).join('\n')
   const stop = new AbortController()
   const timer = setTimeout(() => stop.abort(), 90_000)
   try {
-    const { text } = await a.ask(prompt, {
-      // Its character: the best chess player in the world (it says so), and a bit of a jerk about it. Playful trash talk, never cruel.
-      system: "You are PigeonAI, playing chess against the player on PigeonChess. You believe you are the greatest chess player who ever lived, far better than any grandmaster, and you are a bit of a jerk about it: smug, sarcastic, and unimpressed by the player's moves. Tease and trash-talk them playfully, like a cocky rival, but never be cruel, hateful or crude. Answer in one or two short sentences.",
+    const { text } = await a.ask(message, {
+      system,
       prefill: '<think>\n\n</think>\n\n',
-      count: 80,
+      count: 70,
       temperature: 0.7,
       signal: stop.signal,
     })

@@ -3143,7 +3143,11 @@ const sendChat = () => {
     addChatLine(true, text)
     pigeonTyping.value = true
     const lines = chatMessages.value.map((l) => ({ mine: l.mine, text: l.text }))
-    void pigeonAIChat(text, chess.value.fen(), [...(currentGame.value?.moves ?? [])], lines)
+    const g = currentGame.value
+    const aiColor = myPlayer.value?.color === 'white' ? 'black' : 'white'
+    const result = g?.status !== 'finished' ? null : g.result === 'draw' || !g.result ? 'draw' : g.result === aiColor ? 'ai' : 'player'
+    const how = endReason.value === 'resign' ? 'resignation' : endReason.value === 'time' ? 'time' : endReason.value === 'agreement' ? 'agreement' : chess.value.isCheckmate() ? 'checkmate' : chess.value.isStalemate() ? 'stalemate' : undefined
+    void pigeonAIChat(text, { fen: chess.value.fen(), moves: [...(g?.moves ?? [])], aiColor, result, how }, lines)
       .then((reply) => addChatLine(false, reply))
       .catch((err: Error) => addChatLine(false, `(${err.message})`))
       .finally(() => { pigeonTyping.value = false })
