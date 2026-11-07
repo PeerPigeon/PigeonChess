@@ -17,6 +17,9 @@ export const PIGEONAI_HERE = __PIGEONAI__
 type PigeonAI = Awaited<ReturnType<typeof import('pigeonai')['startPigeonAI']>>
 type Signaling = { signalingServer?: string; signalingServers?: string[]; automaticSignalingServer?: boolean }
 
+/** A phone or tablet (iPadOS says it is a Mac; it has a touch screen). */
+const PHONE = typeof navigator !== 'undefined' && (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1))
+
 /** What PigeonAI is doing here, in words (for the Computer panel). */
 const status = ref('')
 /** Whether a move can be asked now (every stage of the model held and loaded, somewhere). */
@@ -29,6 +32,7 @@ const describe = (a: PigeonAI): string => {
   let done = 0, total = 0, servers = 0
   for (const p of a.loading.values()) { done += p.done; total += p.total; servers += p.servers ?? 0 }
   if (total > 0) return `Loading this device's share of the model: ${Math.round((100 * done) / total)}%${servers > done / 2 ? ' (from the storage servers)' : ''}.`
+  if (PHONE) return 'Waiting for computers here to hold the model (a phone only asks).'
   return a.gpu ? 'Waiting for the model to be shared out between the peers…' : 'Waiting for peers with a GPU to hold the model (this device has none).'
 }
 
@@ -45,6 +49,9 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
         room,
         // No draft model: a move is a few tokens, not worth a second download.
         draftModel: null,
+        // A phone asks but holds no part of the model: a share of it is hundreds of MB, and iOS
+        // reloads a page that uses that much (the game and its chat with it).
+        host: () => !PHONE,
         onStatus: (text) => { status.value = text },
       })
       ;(globalThis as Record<string, unknown>).__pigeonai = ai

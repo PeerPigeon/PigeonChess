@@ -858,6 +858,7 @@ const saveGameState = () => {
 const watchSeatedGame = () => {
   // Against the computer: kept after each move; let go when the game ends.
   watch(() => currentGame.value?.moves?.length, () => saveAIGame())
+  watch(() => chatMessages.value.length, () => saveAIGame())
   watch(() => currentGame.value?.status, (status) => { if (isAIGame.value && status && status !== 'active') dropAIGame() })
   setInterval(() => { if (seat && isGameActive.value) saveGameState() }, 2000)
   watch(() => currentGame.value?.moves?.length, () => saveGameState())
@@ -962,11 +963,11 @@ const restoreGame = () => {
 
 // A game against the computer, kept for this tab and this browser as it goes, so a reload picks it up.
 const AI_GAME = 'pigeonchess:ai-game'
-interface SavedAIGame { moves: string[]; myColor: 'white' | 'black'; difficulty: number; pigeon: boolean; engine?: AIEngine; savedAt: number }
+interface SavedAIGame { moves: string[]; myColor: 'white' | 'black'; difficulty: number; pigeon: boolean; engine?: AIEngine; chat?: { mine: boolean; text: string }[]; savedAt: number }
 const saveAIGame = () => {
   const game = currentGame.value
   if (!isAIGame.value || !game || game.status !== 'active' || !myPlayer.value) return
-  const text = JSON.stringify({ moves: [...game.moves], myColor: myPlayer.value.color, difficulty: aiDifficulty.value, pigeon: isPigeonVariant, engine: gameEngine.value, savedAt: Date.now() } satisfies SavedAIGame)
+  const text = JSON.stringify({ moves: [...game.moves], myColor: myPlayer.value.color, difficulty: aiDifficulty.value, pigeon: isPigeonVariant, engine: gameEngine.value, chat: chatMessages.value.slice(-50).map((l) => ({ mine: l.mine, text: l.text })), savedAt: Date.now() } satisfies SavedAIGame)
   try { sessionStorage.setItem(AI_GAME, text) } catch { /* no storage here */ }
   try { localStorage.setItem(AI_GAME, text) } catch { /* no storage here */ }
 }
@@ -1001,6 +1002,9 @@ const restoreAIGame = () => {
   opponentName.value = null
   startNewGame(myPeerId.value, 'AI-Opponent', g.myColor)
   for (const san of g.moves) if (!receiveMove(san)) break
+  // The chat with PigeonAI, as it was.
+  clearChat()
+  for (const l of g.chat ?? []) if (typeof l?.text === 'string') addChatLine(!!l.mine, l.text)
   const last = chess.value.history({ verbose: true }).slice(-1)[0] as any
   lastMove.value = last ? { from: last.from, to: last.to } : null
   if (!isGameActive.value) { dropAIGame(); return false }
@@ -2123,9 +2127,10 @@ const playStepSounds = (move: any, forward: boolean) => {
   else playMoveSound()
 }
 
-// While a game is in progress (a person or the computer, clock or not), the page is marked, so a
-// newer build waits for the game to end before the page reloads itself (main.ts).
-watch(() => Boolean(isGameActive.value && !isReplayMode.value), (inGame) => {
+// While a game is on the screen (in progress or just over: a person or the computer, clock or not),
+// the page is marked, so a newer build waits until the player is back in the lobby before the page
+// reloads itself (main.ts): a finished game, its result and its chat stay until they leave it.
+watch(() => Boolean(currentGame.value && !isReplayMode.value), (inGame) => {
   if (inGame) document.documentElement.dataset.inGame = '1'
   else delete document.documentElement.dataset.inGame
 }, { immediate: true })
