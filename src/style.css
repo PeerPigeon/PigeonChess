@@ -11,8 +11,8 @@
   --ink-2: #46586e;      /* secondary text */
   --line: #bee6ee;       /* Cruise */
   --line-strong: #8aa7b3;
-  --wing: #d6dce0;       /* light squares */
-  --slate: #6e7f8d;      /* dark squares */
+  --wing: #bee6ee;       /* light squares: Cruise */
+  --slate: #5a7187;      /* dark squares */
   --sheen: #237a50;      /* live: your move, go */
   --sheen-deep: #1b6140;
   --sheen-wash: #d4f0e0;
@@ -28,9 +28,9 @@
   /* Board variables read by ChessBoard and the theme picker */
   --board-light: var(--wing);
   --board-dark: var(--slate);
-  --board-highlight: rgba(214, 178, 52, 0.4);
-  --board-selected: rgba(46, 125, 111, 0.45);
-  --board-move-dot: rgba(28, 33, 38, 0.22);
+  --board-highlight: rgba(242, 200, 121, 0.55);
+  --board-selected: rgba(127, 216, 166, 0.55);
+  --board-move-dot: rgba(42, 55, 71, 0.28);
 
   /* Names older component styles still use */
   --primary-color: var(--sheen);
@@ -67,9 +67,9 @@ html[data-theme='dark'] {
   --on-sheen: #1e2a37;
   --warning-color: #f2c879;
   --info-color: #9cc3f5;
-  --board-light: #d6dce0;
-  --board-dark: #6e7f8d;
-  --board-move-dot: rgba(28, 33, 38, 0.28);
+  --board-light: #bee6ee;  /* Cruise */
+  --board-dark: #5a7187;
+  --board-move-dot: rgba(42, 55, 71, 0.32);
   color-scheme: dark;
 }
 

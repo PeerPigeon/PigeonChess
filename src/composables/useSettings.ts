@@ -6,12 +6,12 @@ import { loadFromLocalStorage, saveToLocalStorage } from '@/utils/helpers'
 const BOARD_THEMES: BoardTheme[] = [
   {
     id: 'slate',
-    name: 'Pigeon slate',
-    light: '#d6dce0',
-    dark: '#6e7f8d',
-    highlight: 'rgba(214, 178, 52, 0.4)',
-    selected: 'rgba(46, 125, 111, 0.45)',
-    moveDot: 'rgba(28, 33, 38, 0.22)'
+    name: 'Bluewood and Cruise',
+    light: '#bee6ee',
+    dark: '#5a7187',
+    highlight: 'rgba(242, 200, 121, 0.55)',
+    selected: 'rgba(127, 216, 166, 0.55)',
+    moveDot: 'rgba(42, 55, 71, 0.3)'
   },
   {
     id: 'blue',

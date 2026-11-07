@@ -1366,7 +1366,7 @@ const handleMouseDown = (event: MouseEvent) => {
   position: absolute;
   font-size: 0.68rem;
   font-weight: 700;
-  color: var(--slate, #6e7f8d);
+  color: var(--slate, #5a7187);
   user-select: none;
 }
 
@@ -1397,7 +1397,7 @@ const handleMouseDown = (event: MouseEvent) => {
 
 .square.dark .rank-label,
 .square.dark .file-label {
-  color: var(--wing, #d6dce0);
+  color: var(--wing, #bee6ee);
 }
 
 .promotion-overlay {
@@ -1436,7 +1436,7 @@ const handleMouseDown = (event: MouseEvent) => {
 }
 
 .promotion-piece {
-  background: var(--wing, #d6dce0);
+  background: var(--wing, #bee6ee);
   border: 1px solid var(--line-strong, #9aa6af);
   border-radius: 6px;
   padding: 0.5rem;
