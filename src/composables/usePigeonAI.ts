@@ -199,13 +199,16 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
   const stop = new AbortController()
   const timer = setTimeout(() => stop.abort(), 90_000)
   try {
-    const { text } = await a.ask(message, {
-      system,
-      prefill: '<think>\n\n</think>\n\n',
-      count: 70,
-      temperature: 0.7,
-      signal: stop.signal,
-    })
+    const once = () => a.ask(message, { system, prefill: '<think>\n\n</think>\n\n', count: 70, temperature: 0.7, signal: stop.signal })
+    let text: string
+    try {
+      text = (await once()).text
+    } catch (error) {
+      // Once more (a peer that just dropped out, a GPU that failed one read), unless the time is up.
+      if (stop.signal.aborted) throw error
+      await new Promise((r) => setTimeout(r, 1000))
+      text = (await once()).text
+    }
     return spoken(text) || '…'
   } finally {
     clearTimeout(timer)
