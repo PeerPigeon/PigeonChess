@@ -1002,7 +1002,7 @@ const setTheme = (next: 'light' | 'dark') => {
   theme.value = next
   document.documentElement.dataset.theme = next
   document.documentElement.style.colorScheme = next
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', next === 'dark' ? '#14191d' : '#e9ecee')
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', next === 'dark' ? '#2a3747' : '#e8f6f9')
   try { localStorage.setItem(THEME_KEY, next) } catch { /* private mode: not remembered */ }
 }
 
@@ -4607,14 +4607,14 @@ onUnmounted(() => {
 }
 
 .seat.running .seat-clock {
-  color: #fff;
+  color: var(--on-sheen);
   background: var(--sheen);
 }
 
 /* Under 20 s: yellow, with tenths */
 .seat-clock.low,
 .seat.running .seat-clock.low {
-  color: #1c2126;
+  color: #2a3747;
   background: var(--mark);
 }
 
@@ -4900,7 +4900,7 @@ a.btn {
 .btn-go {
   background: var(--sheen);
   border-color: var(--sheen);
-  color: #fff;
+  color: var(--on-sheen);
 }
 
 .btn-go:hover:not(:disabled) {

@@ -1,24 +1,25 @@
 /*
-  PigeonChess, "Pigeon slate".
+  PigeonChess in Pickled Bluewood and Cruise (as PigeonAI, PigeonFS and FreeRTC).
   Feather greys for the room, slate and pale wing for the board, and the green
   sheen of a pigeon's neck used only for what is live: your move, your clock
   running, the one button that starts something. A warm yellow marks the last move.
 */
 :root {
-  --paper: #e9ecee;      /* the room */
-  --surface: #f6f7f8;    /* raised: sheets, inputs */
-  --ink: #1c2126;
-  --ink-2: #56616b;      /* secondary text */
-  --line: #c6ced4;
-  --line-strong: #9aa6af;
-  --wing: #d6dce0;       /* light squares */
-  --slate: #6e7f8d;      /* dark squares */
-  --sheen: #2e7d6f;      /* live: your move, go */
-  --sheen-deep: #24665a;
-  --sheen-wash: #d3e6e1;
-  --mark: #d6b234;       /* last move: a tournament-board yellow */
-  --stop: #a8473d;       /* resign, errors */
-  --stop-wash: #f1dcd8;
+  --paper: #e8f6f9;      /* the room: Cruise, lightened */
+  --surface: #f5fbfc;    /* raised: sheets, inputs */
+  --ink: #2a3747;        /* Pickled Bluewood */
+  --ink-2: #46586e;      /* secondary text */
+  --line: #bee6ee;       /* Cruise */
+  --line-strong: #8aa7b3;
+  --wing: #bee6ee;       /* light squares: Cruise */
+  --slate: #5a7187;      /* dark squares */
+  --sheen: #237a50;      /* live: your move, go */
+  --sheen-deep: #1b6140;
+  --sheen-wash: #d4f0e0;
+  --mark: #d9a93a;       /* last move */
+  --stop: #b4493d;       /* resign, errors */
+  --stop-wash: #f6dcd8;
+  --on-sheen: #ffffff;     /* text on a live (green) fill */
 
   --font: 'Archivo Variable', 'Archivo', system-ui, sans-serif;
   --topbar: 56px;
@@ -27,9 +28,9 @@
   /* Board variables read by ChessBoard and the theme picker */
   --board-light: var(--wing);
   --board-dark: var(--slate);
-  --board-highlight: rgba(214, 178, 52, 0.4);
-  --board-selected: rgba(46, 125, 111, 0.45);
-  --board-move-dot: rgba(28, 33, 38, 0.22);
+  --board-highlight: rgba(242, 200, 121, 0.55);
+  --board-selected: rgba(127, 216, 166, 0.55);
+  --board-move-dot: rgba(42, 55, 71, 0.28);
 
   /* Names older component styles still use */
   --primary-color: var(--sheen);
@@ -49,24 +50,26 @@
 /* Night slate (the theme switch in the top bar): the same feathers after
    dark, as on pigeon.peer.ooo. The board keeps its own colours. */
 html[data-theme='dark'] {
-  --paper: #14191d;
-  --surface: #1c2328;
-  --ink: #e3e8eb;
-  --ink-2: #98a4ad;
-  --line: #2b343b;
-  --line-strong: #44505a;
-  --wing: #252d33;
-  --slate: #8796a3;
-  --sheen: #3f9c88;
-  --sheen-deep: #4fb39f;
-  --sheen-wash: #1d3732;
-  --mark: #d6b234;
-  --stop: #e07a6d;
-  --stop-wash: #3a2522;
-  --warning-color: #d29b45;
-  --board-light: #d6dce0;
-  --board-dark: #6e7f8d;
-  --board-move-dot: rgba(28, 33, 38, 0.28);
+  --paper: #2a3747;      /* Pickled Bluewood */
+  --surface: #223040;
+  --ink: #e8f6f9;
+  --ink-2: #9dbfc8;
+  --line: #3a4a5e;
+  --line-strong: #46586e;
+  --wing: #223040;
+  --slate: #8aa7b3;
+  --sheen: #7fd8a6;      /* live */
+  --sheen-deep: #9ae3b9;
+  --sheen-wash: #24453a;
+  --mark: #f2c879;
+  --stop: #f29b91;
+  --stop-wash: #4a3236;
+  --on-sheen: #1e2a37;
+  --warning-color: #f2c879;
+  --info-color: #9cc3f5;
+  --board-light: #bee6ee;  /* Cruise */
+  --board-dark: #5a7187;
+  --board-move-dot: rgba(42, 55, 71, 0.32);
   color-scheme: dark;
 }
 
