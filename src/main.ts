@@ -17,7 +17,9 @@ let newerBuild: string | null = null
 // loaded at that address does not go round again.
 const reloadWhenIdle = () => {
   if (!newerBuild) return
-  const inGame = Boolean(document.querySelector('.table .seat.running'))
+  // Any game in progress, against a person or the computer (App marks the page while one is);
+  // a running clock too, for a page from before that mark.
+  const inGame = document.documentElement.dataset.inGame === '1' || Boolean(document.querySelector('.table .seat.running'))
   if (inGame) return
   const version = newerBuild.split(',')[0]
   const url = new URL(location.href)

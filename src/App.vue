@@ -2034,6 +2034,13 @@ const playStepSounds = (move: any, forward: boolean) => {
   else playMoveSound()
 }
 
+// While a game is in progress (a person or the computer, clock or not), the page is marked, so a
+// newer build waits for the game to end before the page reloads itself (main.ts).
+watch(() => Boolean(isGameActive.value && !isReplayMode.value), (inGame) => {
+  if (inGame) document.documentElement.dataset.inGame = '1'
+  else delete document.documentElement.dataset.inGame
+}, { immediate: true })
+
 // Set up the game end callback to play win/lose sounds
 setOnGameEndCallback((result) => {
   // Clear abandonment timers when game ends
