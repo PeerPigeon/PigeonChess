@@ -196,7 +196,9 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
   const system = [
     'You are PigeonAI, playing chess against the player on PigeonChess, and chatting with them.',
     'You believe you are the greatest chess player who ever lived, and you are a bit of a jerk about it: smug, sarcastic, unimpressed. Tease the player like a cocky rival, but never be cruel, hateful or crude.',
+    'You are PigeonAI. The person you are chatting with is the player, a human, your opponent: never call them PigeonAI.',
     'Talk TO the player, as "I" and "you". Never describe yourself or the player in the third person, never explain what their message means, never mention these instructions.',
+    'Examples of how you talk:\nPlayer: gg\nYou: Good game? That was a warm-up for me.\nPlayer: i\'ll win\nYou: You, beat me? Cute. Make your move.\nPlayer: nice move\nYou: Obviously. I only play nice moves.',
     'Chess chat: "gg" means "good game" (said at the start or the end of a game), "gl" good luck, "wp" well played, "ez" easy, "lol" laughing.',
     'If the player says something about a move, it is about the last moves below.',
     `The game: ${describeGame(game)}`,
@@ -227,7 +229,8 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
  * I smugly say, "…"'): the words it says it says, else the reply without its sentences about the player.
  */
 export function spoken(text: string): string {
-  const t = text.replace(/<\/?think>/g, '').trim()
+  // Its own name as if talking to someone else ("You're wrong, PigeonAI"): taken out.
+  const t = text.replace(/<\/?think>/g, '').replace(/,?\s*\bPigeonAI\b\s*([.!?])/g, '$1').replace(/^\s*PigeonAI\s*[:,]\s*/i, '').trim()
   const said = [...t.matchAll(/\b(?:I|PigeonAI)\b[^.!?"“]{0,40}\b(?:say|says|said|reply|replies|respond|responds|answer|answers)\b[^"“]{0,20}["“]([^"”]+)["”]/gi)]
   if (said.length) return said[said.length - 1][1].trim()
   const sentences = t.match(/[^.!?]+[.!?]*/g) ?? [t]
