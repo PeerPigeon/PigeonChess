@@ -2035,10 +2035,6 @@ const syncConnectedPeers = () => {
         cryptoReadyPeers.add(peerId)
       }
     })
-    
-    if (connected.length > 0 && allKnownPeers.value.size > 1) {
-      console.log('Synced connected peers. Total known:', allKnownPeers.value.size - 1) // -1 for self
-    }
   } catch (err) {
     console.error('Error syncing connected peers:', err)
   }
@@ -2406,20 +2402,9 @@ watch(() => currentGame.value?.moves.length, () => {
 watch([showBestMoves, replayShowBestMoves, () => currentGame.value?.moves.length, aiThinking, isMyTurn, isReplayMode, viewingMoveIndex], () => {
   const shouldShowBestMoves = isReplayMode.value ? replayShowBestMoves.value : showBestMoves.value
   
-  console.log('Best moves watcher triggered:', {
-    shouldShowBestMoves,
-    isReplayMode: isReplayMode.value,
-    isAIGame: isAIGame.value,
-    isGameActive: isGameActive.value,
-    aiThinking: aiThinking.value,
-    isMyTurn: isMyTurn.value,
-    viewingMoveIndex: viewingMoveIndex.value,
-    fen: chess.value?.fen()
-  })
   
   // Clear arrows if best moves not enabled
   if (!shouldShowBestMoves) {
-    console.log('Clearing analysis arrows')
     analysisArrows.value = []
     analysisTopMoves.value = []
     if (stockfish) {
@@ -2450,7 +2435,6 @@ watch([showBestMoves, replayShowBestMoves, () => currentGame.value?.moves.length
   
   // For AI games, only show best moves when it's the human player's turn AND not AI thinking
   if (!isAIGame.value || !isGameActive.value || aiThinking.value || !isMyTurn.value) {
-    console.log('Clearing analysis arrows')
     analysisArrows.value = []
     analysisTopMoves.value = []
     if (stockfish) {
@@ -4555,9 +4539,7 @@ onMounted(async () => {
       }
     })
     
-    mesh.value.addEventListener('cryptoReady', () => {
-      console.log('Crypto system ready')
-    })
+    // cryptoReady fires again and again (every peer, every sync): nothing to log.
   }
   
   // Auto-initialize and connect on mount
