@@ -251,6 +251,7 @@ function pieceTemplate(path: string): Promise<string> {
 <script setup lang="ts">
 import { ref, shallowRef, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useSounds } from '../composables/useSounds'
+import { boardChanged } from '../utils/boardRef'
 
 interface Props {
   chess: any  // Accept any type to handle the ref
@@ -282,6 +283,13 @@ const props = withDefaults(defineProps<Props>(), {
   analysisArrows: () => [],
   hintSquare: null
 })
+
+// The board as it is now. It is not a deep reactive object (utils/boardRef.ts): reading the
+// version first makes what reads it run again after each move, undo or load.
+const board = () => {
+  boardChanged()
+  return props.chess
+}
 
 const getSquareId = (rowIndex: number, colIndex: number) => {
   const file = String.fromCharCode(97 + colIndex)
@@ -437,7 +445,7 @@ const getSquareName = (row: number, col: number): string => {
 
 const getPiece = (row: number, col: number) => {
   const square = getSquareName(row, col)
-  return props.chess.get(square as any)
+  return board().get(square as any)
 }
 
 const getPieceSymbol = (row: number, col: number): string => {
@@ -473,7 +481,7 @@ const getPieceImageWithColors = async (row: number, col: number): Promise<string
   // Always use white piece SVGs as template and recolor them
   const pieceKey = `${piece.color}${piece.type}`
   // In the pigeon variant the knight is a pigeon (public/pieces/wg.svg).
-  const art = props.pieceArt?.[piece.type] || (props.chess?.variant === 'pigeon' && piece.type === 'n' ? 'g' : piece.type)
+  const art = props.pieceArt?.[piece.type] || (board()?.variant === 'pigeon' && piece.type === 'n' ? 'g' : piece.type)
   const cacheKey = `${pieceKey}-${art}-${fillColor}-${strokeColor}`
   
   // Return cached version if available
@@ -517,7 +525,7 @@ const pieceImages = shallowRef<Map<string, string>>(new Map())
 // Update piece images when colors or board changes
 let lastPieceImageFen = ref('')
 let lastCustomColorsKey = ref('')
-watch([() => props.chess.fen(), customColorsKey], async (newVals) => {
+watch([() => board().fen(), customColorsKey], async (newVals) => {
   const newFen = newVals[0]
   const newKey = newVals[1]
   // Prevent infinite loops
@@ -570,7 +578,7 @@ const isKingInCheck = (row: number, col: number): boolean => {
   if (!piece || piece.type !== 'k') return false
   
   // Check if this king's color is currently in check
-  return props.chess.isCheck() && props.chess.turn() === piece.color
+  return board().isCheck() && board().turn() === piece.color
 }
 
 const isLegalMoveSquare = (row: number, col: number): boolean => {
@@ -640,7 +648,7 @@ const handleSquareClick = (row: number, col: number) => {
       
       if (isPromotion) {
         // Store the promoting color before showing dialog
-        promotingColor.value = props.chess.turn()
+        promotingColor.value = board().turn()
         // Show promotion dialog
         promotionMove.value = { from: selectedSquare.value, to: square }
         showPromotionDialog.value = true
@@ -664,19 +672,19 @@ const handleSquareClick = (row: number, col: number) => {
       emit('move', selectedSquare.value, square)
       selectedSquare.value = null
       legalMoves.value = []
-    } else if (piece && piece.color === props.chess.turn()) {
+    } else if (piece && piece.color === board().turn()) {
       // Select a new piece
       selectedSquare.value = square
-      legalMoves.value = props.chess.moves({ square: square as any, verbose: true })
+      legalMoves.value = board().moves({ square: square as any, verbose: true })
     } else {
       // Deselect
       selectedSquare.value = null
       legalMoves.value = []
     }
-  } else if (piece && piece.color === props.chess.turn()) {
+  } else if (piece && piece.color === board().turn()) {
     // Select a piece
     selectedSquare.value = square
-    legalMoves.value = props.chess.moves({ square: square as any, verbose: true })
+    legalMoves.value = board().moves({ square: square as any, verbose: true })
   }
 }
 
@@ -706,14 +714,14 @@ const handleDragStart = (row: number, col: number, event: DragEvent) => {
   const square = getSquareName(row, col)
   const piece = getPiece(row, col)
   
-  if (!piece || piece.color !== props.chess.turn()) {
+  if (!piece || piece.color !== board().turn()) {
     event.preventDefault()
     return
   }
   
   draggedSquare.value = square
   selectedSquare.value = square
-  legalMoves.value = props.chess.moves({ square: square as any, verbose: true })
+  legalMoves.value = board().moves({ square: square as any, verbose: true })
   
   // Set drag image (optional - makes the piece follow cursor)
   if (event.dataTransfer) {
@@ -753,7 +761,7 @@ const handleDrop = (row: number, col: number) => {
     
     if (isPromotion) {
       // Store the promoting color before showing dialog
-      promotingColor.value = props.chess.turn()
+      promotingColor.value = board().turn()
       // Show promotion dialog
       promotionMove.value = { from: draggedSquare.value, to: targetSquare }
       showPromotionDialog.value = true
@@ -804,13 +812,13 @@ const handleTouchStart = (row: number, col: number, _event: TouchEvent) => {
   const square = getSquareName(row, col)
   const piece = getPiece(row, col)
   
-  if (!piece || piece.color !== props.chess.turn()) {
+  if (!piece || piece.color !== board().turn()) {
     return
   }
   
   draggedSquare.value = square
   selectedSquare.value = square
-  legalMoves.value = props.chess.moves({ square: square as any, verbose: true })
+  legalMoves.value = board().moves({ square: square as any, verbose: true })
 }
 
 const handleTouchMove = (event: TouchEvent) => {
@@ -857,7 +865,7 @@ const handleTouchEnd = (event: TouchEvent) => {
         
         if (isPromotion) {
           // Store the promoting color before showing dialog
-          promotingColor.value = props.chess.turn()
+          promotingColor.value = board().turn()
           // Show promotion dialog
           promotionMove.value = { from: draggedSquare.value, to: targetSquare }
           showPromotionDialog.value = true
@@ -949,7 +957,7 @@ const getArrowTypeAtSquare = (row: number, col: number): 'white' | 'black' | 'em
   
   // Otherwise, check if there's a piece at this square
   const square = getSquareName(row, col)
-  const piece = props.chess.get(square)
+  const piece = board().get(square)
   
   // No existing arrow and no piece - use empty color
   if (!piece) {
@@ -1103,7 +1111,7 @@ const handleRightMouseUp = (event: MouseEvent) => {
 
 // Reset selection when chess state changes
 let lastFen = ref('')
-watch(() => props.chess.fen(), (newFen) => {
+watch(() => board().fen(), (newFen) => {
   // Prevent infinite loops by checking if FEN actually changed
   if (newFen === lastFen.value) return
   lastFen.value = newFen

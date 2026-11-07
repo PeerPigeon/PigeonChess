@@ -558,6 +558,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { Chess } from 'chess.js'
 import { createChess, isPigeonVariant } from './utils/variant'
+import { boardRef } from './utils/boardRef'
 import { pigeonSearch } from './utils/pigeonAi'
 import { usePeerPigeon } from './composables/usePeerPigeon'
 import { useSeek } from './composables/useSeek'
@@ -2032,7 +2033,7 @@ setOnGameEndCallback((result) => {
 
 // Move navigation for reviewing game history
 const viewingMoveIndex = ref<number | null>(null) // null = viewing current position
-const viewingChess = ref<Chess | null>(null) // separate chess instance for viewing
+const viewingChess = boardRef<Chess | null>(null) // separate chess instance for viewing (utils/boardRef.ts)
 
 const goToMove = (moveIndex: number) => {
   const moves = isReplayMode.value && replayGame.value ? replayGame.value.moves : currentGame.value?.moves

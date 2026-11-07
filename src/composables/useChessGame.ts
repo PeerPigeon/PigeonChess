@@ -1,3 +1,4 @@
+import { boardRef } from '@/utils/boardRef'
 import { ref, computed } from 'vue'
 import { createChess } from '@/utils/variant'
 import type { GameState, Player, Move, GameHistoryEntry } from '@/types'
@@ -17,7 +18,8 @@ export interface ChessGameOptions {
 }
 
 export function useChessGame(options: ChessGameOptions = {}) {
-  const chess = ref<any>(createChess())
+  // Not a deep ref: see utils/boardRef.ts (a deep one froze the page at the end of a game).
+  const chess = boardRef<any>(createChess())
   const currentGame = ref<GameState | null>(null)
   const myPlayer = ref<Player | null>(null)
   const opponentId = ref<string | null>(null)
