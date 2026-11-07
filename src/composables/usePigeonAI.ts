@@ -99,16 +99,26 @@ export async function pigeonAIMove(fen: string, history: string[] = []): Promise
   ].filter(Boolean).join('\n')
   const stop = new AbortController()
   const timer = setTimeout(() => stop.abort(), 60_000)
+  const once = () => a.ask(prompt, {
+    system: 'You play chess. Answer with one legal move in SAN, nothing else.',
+    // Qwen3 (Bonsai's family) thinks aloud unless its thinking is given, empty.
+    prefill: '<think>\n\n</think>\n\n',
+    count: 8,
+    temperature: 0.3,
+    draft: false,
+    signal: stop.signal,
+  })
   try {
-    const { text } = await a.ask(prompt, {
-      system: 'You play chess. Answer with one legal move in SAN, nothing else.',
-      // Qwen3 (Bonsai's family) thinks aloud unless its thinking is given, empty.
-      prefill: '<think>\n\n</think>\n\n',
-      count: 8,
-      temperature: 0.3,
-      draft: false,
-      signal: stop.signal,
-    })
+    let text: string
+    try {
+      text = (await once()).text
+    } catch (error) {
+      // Once more (a peer that just dropped out, a GPU that failed one read), unless the minute is up.
+      if (stop.signal.aborted) throw error
+      console.warn('PigeonAI failed once, asking again:', (error as Error).message)
+      await new Promise((r) => setTimeout(r, 1000))
+      text = (await once()).text
+    }
     const move = moveIn(text, legal)
     return move ? { move, why: '' } : { move: null, why: `named no legal move ("${text.trim().slice(0, 30)}")` }
   } catch (error) {
