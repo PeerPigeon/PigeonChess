@@ -72,7 +72,7 @@
           <img class="seat-colour" :src="`/pieces/${replayGame.myColor === 'white' ? 'b' : 'w'}k.svg`" alt="" />
           <span class="seat-name">{{ replayOpponentName }}</span>
           <span class="seat-captures">
-            <img v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'black' : 'white']" :key="`ro-${idx}`" :src="`/pieces/${replayGame.myColor === 'white' ? 'w' : 'b'}${piece}.svg`" :alt="piece" />
+            <img v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'black' : 'white']" :key="`ro-${idx}`" :src="capturedSrc(replayGame.myColor === 'white' ? 'w' : 'b', piece)" :alt="piece" />
             <b v-if="materialAdvantage[replayGame.myColor === 'white' ? 'black' : 'white'] > 0">+{{ materialAdvantage[replayGame.myColor === 'white' ? 'black' : 'white'] }}</b>
           </span>
         </div>
@@ -115,7 +115,7 @@
           <img class="seat-colour" :src="`/pieces/${replayGame.myColor === 'white' ? 'w' : 'b'}k.svg`" alt="" />
           <span class="seat-name">{{ (replayGame.myUsername?.trim()) || (sharedView ? 'Player' : 'You') }}</span>
           <span class="seat-captures">
-            <img v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'white' : 'black']" :key="`rm-${idx}`" :src="`/pieces/${replayGame.myColor === 'white' ? 'b' : 'w'}${piece}.svg`" :alt="piece" />
+            <img v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'white' : 'black']" :key="`rm-${idx}`" :src="capturedSrc(replayGame.myColor === 'white' ? 'b' : 'w', piece)" :alt="piece" />
             <b v-if="materialAdvantage[replayGame.myColor] > 0">+{{ materialAdvantage[replayGame.myColor] }}</b>
           </span>
         </div>
@@ -351,7 +351,7 @@
             <template v-if="pigeonTally.pigeon + pigeonTally.backup">· PigeonAI {{ pigeonTally.pigeon }}, backup {{ pigeonTally.backup }}</template>
           </span>
           <span class="seat-captures">
-            <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']" :key="`go-${idx}`" :src="`/pieces/${myPlayer?.color === 'white' ? 'w' : 'b'}${piece}.svg`" :alt="piece" />
+            <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']" :key="`go-${idx}`" :src="capturedSrc(myPlayer?.color === 'white' ? 'w' : 'b', piece)" :alt="piece" />
             <b v-if="materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] > 0">+{{ materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] }}</b>
           </span>
           <span v-if="hasClock" class="seat-clock" :class="{ low: isLowTime(opponentTime) }">{{ formatTime(opponentTime) }}</span>
@@ -424,7 +424,7 @@
           <img class="seat-colour" :src="`/pieces/${myPlayer?.color === 'white' ? 'w' : 'b'}k.svg`" alt="" />
           <span class="seat-name">{{ identityUsername || 'You' }}</span>
           <span class="seat-captures">
-            <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black']" :key="`gm-${idx}`" :src="`/pieces/${myPlayer?.color === 'white' ? 'b' : 'w'}${piece}.svg`" :alt="piece" />
+            <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black']" :key="`gm-${idx}`" :src="capturedSrc(myPlayer?.color === 'white' ? 'b' : 'w', piece)" :alt="piece" />
             <b v-if="materialAdvantage[myPlayer?.color || 'white'] > 0">+{{ materialAdvantage[myPlayer?.color || 'white'] }}</b>
           </span>
           <span v-if="hasClock" class="seat-clock" :class="{ low: isLowTime(myTime) }">{{ formatTime(myTime) }}</span>
@@ -1121,6 +1121,10 @@ const SUN_PATH = 'M178.2-10.1c7.4-3.1 15.8-2.2 22.5 2.2l87.8 58.2 87.8-58.2c6.7-
 const MOON_PATH = 'M256 0C114.6 0 0 114.6 0 256S114.6 512 256 512c68.8 0 131.3-27.2 177.3-71.4 7.3-7 9.4-17.9 5.3-27.1s-13.7-14.9-23.8-14.1c-4.9 .4-9.8 .6-14.8 .6-101.6 0-184-82.4-184-184 0-72.1 41.5-134.6 102.1-164.8 9.1-4.5 14.3-14.3 13.1-24.4S322.6 8.5 312.7 6.3C294.4 2.2 275.4 0 256 0z'
 const THEME_KEY = 'pigeonchess:theme'
 const theme = ref<'light' | 'dark'>(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light')
+// A captured piece's picture: black ones on the night panel come with a white outline drawn in (so they
+// show in every browser, not only where a CSS filter on an image works).
+const capturedSrc = (colour: string, piece: string) =>
+  colour === 'b' && theme.value === 'dark' ? `/pieces/outlined/b${piece}.svg` : `/pieces/${colour}${piece}.svg`
 const setTheme = (next: 'light' | 'dark') => {
   theme.value = next
   document.documentElement.dataset.theme = next
@@ -4900,11 +4904,6 @@ onUnmounted(() => {
   width: 21px;
   height: 21px;
   margin-right: -7px;
-}
-
-/* Black pieces on the night panel: a thin white outline so they show. */
-:global(html[data-theme='dark'] .seat-captures img[src*='/pieces/b']) {
-  filter: drop-shadow(1px 0 0 #fff) drop-shadow(-1px 0 0 #fff) drop-shadow(0 1px 0 #fff) drop-shadow(0 -1px 0 #fff);
 }
 
 .seat-captures b {
