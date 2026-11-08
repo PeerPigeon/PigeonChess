@@ -4893,7 +4893,7 @@ onUnmounted(() => {
   grid-area: captures;
   display: flex;
   align-items: center;
-  min-height: 21px;
+  min-height: 28px;
 }
 
 .seat-captures:empty {
@@ -4901,9 +4901,9 @@ onUnmounted(() => {
 }
 
 .seat-captures img {
-  width: 21px;
-  height: 21px;
-  margin-right: -7px;
+  width: 28px;
+  height: 28px;
+  margin-right: -9px;
 }
 
 .seat-captures b {
