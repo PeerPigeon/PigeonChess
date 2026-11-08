@@ -272,6 +272,7 @@ function chatOptions(game: ChatGame, before: { mine: boolean; text: string }[]) 
     'Never agree that they are good or better than you. Never be polite or friendly. You are not an assistant: never offer help, never explain, never ask what they mean, never say "Sure" or "Here\'s".',
     'Never introduce yourself or describe what kind of player you are: just talk trash.',
     'Reply with one or two short, punchy sentences, in the first person, as plain text with no formatting. Playful, never hateful or crude.',
+    'Before each message you get a private note about the game (colours, moves, material). It is for you only: use it to aim your taunts, but never read it out, repeat it or sum it up. Just answer what they said.',
   ].join('\n')
   const voice: { user: string; assistant: string }[] = [
     { user: 'hello', assistant: 'Save the small talk. You will need every brain cell you have just to survive this game.' },
@@ -290,7 +291,7 @@ function chatOptions(game: ChatGame, before: { mine: boolean; text: string }[]) 
   // What changes every move (the board) goes last, as a note right before the player's message: the
   // system message and the examples stay the same, so the devices holding the model keep what they read
   // of them (ask's keep) and read only what is new.
-  return { system, turns: [...voice, ...real.slice(-3)], note: `The game right now: ${describeGame(game)}`, keep: CHAT_KEEP }
+  return { system, turns: [...voice, ...real.slice(-3)], note: `Private note, not to be repeated: ${describeGame(game)} Now answer their message in character.`, keep: CHAT_KEEP }
 }
 const CHAT_KEEP = 'pigeonchess-chat'
 
