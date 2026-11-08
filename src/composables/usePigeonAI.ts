@@ -290,6 +290,7 @@ function describeGame(g: ChatGame): string {
 
 type Turn = { user: string; assistant: string }
 const SPEAK_UP_TEXT = '<instructions>Say something to your opponent about how the game is going.</instructions>'
+const CAPTURE_CUE = '<instructions>You just took one of their pieces. Talk trash about it.</instructions>'
 
 /** Its voice: answers to things a player says. Each game hears 8 of them (voiceFor). */
 const SAYINGS: Turn[] = [
@@ -329,13 +330,13 @@ const ON_MOVES: Turn[][] = [[
   { user: SPEAK_UP_TEXT, assistant: 'You are not winning. I am just letting you think you are.' },
 ]]
 
-/** Talking trash when it takes a piece (tookCue). */
+/** Talking trash when it takes a piece (tookCue): the cue names no piece; its answer starts "Took your …". */
 const ON_CAPTURE: Turn[] = [
-  { user: '<instructions>You just took their pawn. Talk trash about it.</instructions>', assistant: 'Thanks for the free pawn. I will be collecting the rest of them too.' },
-  { user: '<instructions>You just took their knight. Talk trash about it.</instructions>', assistant: 'Your knight is mine now. Did you even see that coming?' },
-  { user: '<instructions>You just took their bishop. Talk trash about it.</instructions>', assistant: 'There goes your bishop. You are running out of things to lose.' },
-  { user: '<instructions>You just took their rook. Talk trash about it.</instructions>', assistant: 'A whole rook, just handed to me. You are too generous.' },
-  { user: '<instructions>You just took their queen. Talk trash about it.</instructions>', assistant: 'Your queen is gone. You might as well resign now.' },
+  { user: CAPTURE_CUE, assistant: 'Took your pawn. I will be collecting the rest of them too.' },
+  { user: CAPTURE_CUE, assistant: 'Took your knight. Did you even see that coming?' },
+  { user: CAPTURE_CUE, assistant: 'Took your bishop. You are running out of things to lose.' },
+  { user: CAPTURE_CUE, assistant: 'Took your rook. You are too generous.' },
+  { user: CAPTURE_CUE, assistant: 'Took your queen. You might as well resign now.' },
 ]
 
 /** A number from a text: the same text, the same number (a game's id → its own examples, every time). */
@@ -404,9 +405,13 @@ const CHAT_KEEP = 'pigeonchess-chat'
 export const SPEAK_UP = SPEAK_UP_TEXT
 
 const PIECE_NAMES: Record<string, string> = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen' }
-/** The cue when PigeonAI's move took one of the player's pieces (`piece`: p n b r q). */
-export function tookCue(piece: string): string {
-  return `<instructions>You just took their ${PIECE_NAMES[piece] ?? 'piece'}. Talk trash about it.</instructions>`
+/**
+ * When PigeonAI's move took one of the player's pieces (`piece`: p n b r q): the cue, and how its answer
+ * starts ("Took your rook. "). The start is written for it (the model goes on from there), so the piece is
+ * said once, by it, and the cue has nothing in it to echo.
+ */
+export function tookCue(piece: string): { cue: string; start: string } {
+  return { cue: CAPTURE_CUE, start: `Took your ${PIECE_NAMES[piece] ?? 'piece'}. ` }
 }
 
 /**
@@ -423,7 +428,7 @@ export function warmPigeonAIChat(game: ChatGame, chat: { mine: boolean; text: st
  * PigeonAI's reply to a chat message during (or right after) a game against it, in character: the
  * best player in the world, and a bit of a jerk about it. Throws when it can't answer.
  */
-export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine: boolean; text: string }[], onText?: (soFar: string) => void, onWriting?: () => void): Promise<string> {
+export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine: boolean; text: string }[], onText?: (soFar: string) => void, onWriting?: () => void, start = ''): Promise<string> {
   if (!ai) throw new Error(status.value.startsWith('PigeonAI could not start') ? 'PigeonAI could not start here' : 'PigeonAI is still starting')
   const a = ai
   if (!(await a.whenReady(30_000))) throw new Error('PigeonAI is not ready yet')
@@ -434,13 +439,14 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
   try {
     const once = async () => {
       // The reply as it is written, shown as it comes.
-      let soFar = ''
+      // `start`: how its answer begins, written for it (the model goes on from there).
+      let soFar = start
       onText?.('')
       const r = await a.ask(message, {
-        ...options, prefill: '<think>\n\n</think>\n\n', count: 40, temperature: 0.9, signal: stop.signal, onWriting,
+        ...options, prefill: `<think>\n\n</think>\n\n${start}`, count: 40, temperature: 0.9, signal: stop.signal, onWriting,
         onText: (piece) => { soFar += piece; onText?.(soFar.replace(/<\/?think>/g, '').trimStart()) },
       })
-      return said(r.text)
+      return said(start + r.text)
     }
     try {
       return (await once()) || '…'

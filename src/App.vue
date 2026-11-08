@@ -3203,7 +3203,8 @@ watch(() => currentGame.value?.moves.length ?? 0, (n, before) => {
   // Its move took one of the player's pieces: it always says something. Otherwise one time in four.
   const history = chess.value.history({ verbose: true }) as { captured?: string }[]
   const last = history.length === n ? history[n - 1] : undefined
-  const cue = last?.captured ? tookCue(last.captured) : Math.random() < 0.25 ? SPEAK_UP : null
+  const took = last?.captured ? tookCue(last.captured) : null
+  const cue = took ? took.cue : Math.random() < 0.25 ? SPEAK_UP : null
   console.debug(`[pigeonai] after its move ${n}: ${last?.captured ? `took a ${last.captured}, speaks` : cue ? 'speaks (1 in 4)' : 'quiet'}`)
   if (!cue) return
   // After a moment that varies, like a person: sooner after taking a piece.
@@ -3211,11 +3212,11 @@ watch(() => currentGame.value?.moves.length ?? 0, (n, before) => {
   speakTimer = setTimeout(() => {
     speakTimer = null
     if (!chatWithPigeonAI.value || pigeonTyping.value || currentGame.value?.moves.length !== n) return
-    askPigeonAI(null, cue)
+    askPigeonAI(null, cue, took?.start)
   }, wait)
 })
 /** PigeonAI's reply to `text` (null: it speaks up on its own, about how the game is going), shown as it is written. */
-const askPigeonAI = (text: string | null, cue = SPEAK_UP) => {
+const askPigeonAI = (text: string | null, cue = SPEAK_UP, start = '') => {
   pigeonTyping.value = true
   const said = text ?? cue
   const lines = [...chatMessages.value.map((l) => ({ mine: l.mine, text: l.text })), ...(text === null ? [{ mine: true, text: said }] : [])]
@@ -3227,7 +3228,7 @@ const askPigeonAI = (text: string | null, cue = SPEAK_UP) => {
     setChatLine(line, t)
     if (!t) line = 0
   }
-  void pigeonAIChat(said, chatGameNow(), lines, show, () => { if (!line) pigeonShowWriting.value = true })
+  void pigeonAIChat(said, chatGameNow(), lines, show, () => { if (!line) pigeonShowWriting.value = true }, start)
     .then((reply) => show(text === null && reply === '…' ? '' : reply))
     .catch((err: Error) => { if (text !== null) show(`(${err.message})`); else show('') })
     .finally(() => { pigeonTyping.value = false; pigeonShowWriting.value = false })
