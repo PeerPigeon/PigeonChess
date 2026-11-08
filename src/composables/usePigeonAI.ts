@@ -164,6 +164,27 @@ export interface PigeonAIAnswer { move: string | null; why: string }
  * it is not ready in time, can't answer, or names no legal move (the Computer then
  * plays without it, and says so).
  */
+/** A position as repetition counts it: the pieces, who is to move, castling, en passant. */
+const positionOf = (fen: string) => fen.split(' ').slice(0, 4).join(' ')
+
+/**
+ * The legal moves (of the position `fen`, reached by `history` from the start) that lead to a position not
+ * seen earlier in the game. When the history can't be replayed: all of them.
+ */
+export function movesNotRepeating<M extends { san: string }>(fen: string, history: string[], legal: M[]): M[] {
+  const seen = new Set<string>()
+  try {
+    const replay = createChess()
+    seen.add(positionOf(replay.fen()))
+    for (const m of history) { if (!replay.move(m)) return legal; seen.add(positionOf(replay.fen())) }
+  } catch { return legal }
+  return legal.filter((m) => {
+    const next = createChess(fen)
+    try { next.move(m.san) } catch { return true }
+    return !seen.has(positionOf(next.fen()))
+  })
+}
+
 export async function pigeonAIMove(fen: string, history: string[] = []): Promise<PigeonAIAnswer> {
   if (!ai) return { move: null, why: status.value.startsWith('PigeonAI could not start') ? 'could not start here' : 'is still starting' }
   const a = ai
@@ -171,12 +192,16 @@ export async function pigeonAIMove(fen: string, history: string[] = []): Promise
   const board = createChess(fen)
   const legal = board.moves({ verbose: true }) as { san: string; from: string; to: string; promotion?: string }[]
   if (!legal.length) return { move: null, why: 'had no move to make' }
+  // Its choices: the legal moves that make a position not seen yet in this game. A small model copies the
+  // last moves it is shown, and walked a piece back and forth for good. All of them repeat: all of them.
+  const fresh = movesNotRepeating(fen, history, legal)
+  const choices = fresh.length ? fresh : legal
   const side = board.turn() === 'w' ? 'White' : 'Black'
   // Short: every token of the prompt goes through the whole mesh before the first one of the answer.
   const prompt = [
     `FEN: ${fen}`,
     history.length ? `Last moves: ${history.slice(-6).join(' ')}` : '',
-    `${side} to move. Legal: ${legal.map((m) => m.san).join(' ')}`,
+    `${side} to move. Legal: ${choices.map((m) => m.san).join(' ')}`,
     'Best move:',
   ].filter(Boolean).join('\n')
   const stop = new AbortController()
@@ -192,7 +217,7 @@ export async function pigeonAIMove(fen: string, history: string[] = []): Promise
     temperature: 0.3,
     draft: false,
     // The answer is one of the legal moves: the model picks among them, token by token.
-    choices: legal.map((m) => m.san),
+    choices: choices.map((m) => m.san),
     signal: stop.signal,
   })
   try {
