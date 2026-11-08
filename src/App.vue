@@ -1124,7 +1124,7 @@ const theme = ref<'light' | 'dark'>(document.documentElement.dataset.theme === '
 // A captured piece's picture: black ones on the night panel come with a white outline drawn in (so they
 // show in every browser, not only where a CSS filter on an image works).
 const capturedSrc = (colour: string, piece: string) =>
-  colour === 'b' && theme.value === 'dark' ? `/pieces/edged/b${piece}.svg` : `/pieces/${colour}${piece}.svg`
+  colour === 'b' && theme.value === 'dark' ? `/pieces/edged/b${piece}.svg?v=2` : `/pieces/${colour}${piece}.svg`
 const setTheme = (next: 'light' | 'dark') => {
   theme.value = next
   document.documentElement.dataset.theme = next
