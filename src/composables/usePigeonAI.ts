@@ -68,7 +68,10 @@ const describe = (a: PigeonAI): string => {
   for (const p of a.loading.values()) { done += p.done; total += p.total; servers += p.servers ?? 0; cached += p.cached ?? 0 }
   // Where it is coming from: the storage servers (PigeonFS), or Hugging Face for what they don't have yet.
   const mb = (n: number) => `${Math.round(n / 1e6)} MB`
-  if (total > 0) return `Loading this device's share of the model: ${Math.round((100 * done) / total)}% (${mb(servers)} from PigeonFS, ${mb(Math.max(0, done - servers - cached))} from Hugging Face${cached ? `, ${mb(cached)} already on this device` : ''}).`
+  // From the mesh: the peers here and the storage servers (swarmStats splits them).
+  const sw = a.swarmStats?.() ?? null
+  const mesh = sw ? `${mb(sw.fromPeers)} from peers, ${mb(sw.fromServers)} from PigeonFS` : `${mb(servers)} from PigeonFS`
+  if (total > 0) return `Loading this device's share of the model: ${Math.round((100 * done) / total)}% (${mesh}, ${mb(Math.max(0, done - servers - cached))} from Hugging Face${cached ? `, ${mb(cached)} already on this device` : ''}).`
   // Not enough room among the devices here for the whole model: say so, and how much is missing.
   const room = a.space()
   const gb = (n: number) => (n / 1e9).toFixed(1)
