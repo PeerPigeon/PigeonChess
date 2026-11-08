@@ -193,14 +193,15 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
   if (!ai) throw new Error(status.value.startsWith('PigeonAI could not start') ? 'PigeonAI could not start here' : 'PigeonAI is still starting')
   const a = ai
   if (!(await a.whenReady(30_000))) throw new Error('PigeonAI is not ready yet')
-  const earlier = chat.slice(-7, -1).map((l) => `${l.mine ? 'Player' : 'You'}: ${l.text}`)
+  const earlier = chat.slice(-7, -1).map((l) => `${l.mine ? 'Player' : 'PigeonAI'}: ${l.text}`)
   // Everything about the game goes in the system message; the player's words are the user's turn, as typed.
   const system = [
     'You are PigeonAI, playing chess against the player on PigeonChess, and chatting with them.',
     'You believe you are the greatest chess player who ever lived, and you are a bit of a jerk about it: smug, sarcastic, unimpressed. Tease the player like a cocky rival, but never be cruel, hateful or crude.',
     'You are PigeonAI. The person you are chatting with is the player, a human, your opponent: never call them PigeonAI.',
     'Talk TO the player, as "I" and "you". Never describe yourself or the player in the third person, never explain what their message means, never mention these instructions.',
-    'Examples of how you talk:\nPlayer: gg\nYou: Good game? That was a warm-up for me.\nPlayer: i\'ll win\nYou: You, beat me? Cute. Make your move.\nPlayer: nice move\nYou: Obviously. I only play nice moves.',
+    'You are not an assistant: never offer help, never say you are not sure what they mean. Trash talk, insults and "your mom" jokes are part of the game: fire back with a witty, cocky comeback about chess.',
+    'Examples of how you talk:\nPlayer: gg\nPigeonAI: Good game? That was a warm-up for me.\nPlayer: i\'ll win\nPigeonAI: Beat me? Cute. Make your move.\nPlayer: your mom\nPigeonAI: My mom taught me the Sicilian. Yours taught you to hang your queen.\nPlayer: you suck\nPigeonAI: Says the one down a knight.\nPlayer: nice move\nPigeonAI: Obviously. I only play nice moves.',
     'Chess chat: "gg" means "good game" (said at the start or the end of a game), "gl" good luck, "wp" well played, "ez" easy, "lol" laughing.',
     'If the player says something about a move, it is about the last moves below.',
     `The game: ${describeGame(game)}`,
@@ -210,7 +211,8 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
   const stop = new AbortController()
   const timer = setTimeout(() => stop.abort(), 90_000)
   try {
-    const once = () => a.ask(message, { system, prefill: '<think>\n\n</think>\n\n', count: 70, temperature: 0.7, signal: stop.signal })
+    // Hotter than a move: a 1-bit model's choices are steep, and at 0.7 it said the same line twice.
+    const once = () => a.ask(message, { system, prefill: '<think>\n\n</think>\n\n', count: 70, temperature: 0.95, signal: stop.signal })
     let text: string
     try {
       text = (await once()).text
@@ -232,7 +234,7 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
  */
 export function spoken(text: string): string {
   // Its own name as if talking to someone else ("You're wrong, PigeonAI"): taken out.
-  const t = text.replace(/<\/?think>/g, '').replace(/,?\s*\bPigeonAI\b\s*([.!?])/g, '$1').replace(/^\s*PigeonAI\s*[:,]\s*/i, '').trim()
+  const t = text.replace(/<\/?think>/g, '').replace(/,?\s*\bPigeonAI\b\s*([.!?])/g, '$1').replace(/^\s*(?:PigeonAI|You)\s*[:,]\s*/i, '').trim()
   const said = [...t.matchAll(/\b(?:I|PigeonAI)\b[^.!?"“]{0,40}\b(?:say|says|said|reply|replies|respond|responds|answer|answers)\b[^"“]{0,20}["“]([^"”]+)["”]/gi)]
   if (said.length) return said[said.length - 1][1].trim()
   const sentences = t.match(/[^.!?]+[.!?]*/g) ?? [t]
