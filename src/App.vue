@@ -4889,7 +4889,7 @@ onUnmounted(() => {
   grid-area: captures;
   display: flex;
   align-items: center;
-  min-height: 18px;
+  min-height: 21px;
 }
 
 .seat-captures:empty {
@@ -4897,9 +4897,9 @@ onUnmounted(() => {
 }
 
 .seat-captures img {
-  width: 18px;
-  height: 18px;
-  margin-right: -6px;
+  width: 21px;
+  height: 21px;
+  margin-right: -7px;
 }
 
 /* Black pieces on the night panel: a thin white outline so they show. */
