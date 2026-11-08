@@ -1154,6 +1154,8 @@ const startAIGame = () => {
   boardFlipped.value = false
   if (isGameActive.value) return
   clearChat()
+  pigeonNote.value = ''
+  pigeonTally.value = { pigeon: 0, backup: 0 }
   
   // Clear last move highlight
   lastMove.value = null
@@ -2084,8 +2086,9 @@ const {
 
 // In a PigeonAI game: who made each computer move (PigeonAI, or the backup engine and why).
 watch(() => currentGame.value?.moves?.length ?? 0, (n, before) => {
-  if (!isAIGame.value || gameEngine.value !== 'pigeonai') return
+  // A new game (or moves taken back): the last game's line and tally go, whatever kind of game this is.
   if (n === 0 || n < before) { pigeonNote.value = ''; pigeonTally.value = { pigeon: 0, backup: 0 }; return }
+  if (!isAIGame.value || gameEngine.value !== 'pigeonai') return
   if (n !== before + 1) return
   // A move by the computer: the side that moved is not mine.
   const moved = n % 2 === 1 ? 'white' : 'black'
