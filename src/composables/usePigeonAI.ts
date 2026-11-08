@@ -59,6 +59,8 @@ const loading = (on: boolean) => {
 const status = ref('')
 /** Whether a move can be asked now (every stage of the model held and loaded, somewhere). */
 const ready = ref(false)
+/** How much of this device's share of the model is loaded (0 to 1), while it loads; null otherwise. */
+const progress = ref<number | null>(null)
 let ai: PigeonAI | null = null
 let starting: Promise<void> | null = null
 
@@ -105,8 +107,9 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
         if (!ai) return
         ready.value = ai.ready()
         status.value = describe(ai)
-        let pending = 0
-        for (const p of ai.loading.values()) if (p.done < p.total) pending++
+        let pending = 0, done = 0, total = 0
+        for (const p of ai.loading.values()) { if (p.done < p.total) pending++; done += p.done; total += p.total }
+        progress.value = !ready.value && total > 0 ? Math.min(1, done / total) : null
         loading(pending > 0)
       }
       tick()
@@ -308,5 +311,5 @@ export function short(text: string): string {
 }
 
 export function usePigeonAI() {
-  return { here: PIGEONAI_HERE, status, ready }
+  return { here: PIGEONAI_HERE, status, ready, progress }
 }

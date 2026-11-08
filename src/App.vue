@@ -273,7 +273,7 @@
           </div>
           <template v-if="pigeonAIOffered && aiEngine === 'pigeonai'">
           <p class="engine-note">PigeonAI is a language model (the 1-bit Bonsai) run by everyone on PigeonChess together: each device with a GPU holds a share of it. It is asked for every move, and plays a legal one.</p>
-          <p class="engine-status" :class="{ ready: pigeonAI.ready.value }">{{ pigeonAI.status.value || 'Starting…' }}</p>
+          <p class="engine-status" :class="{ ready: pigeonAI.ready.value }"><PigeonAIStatus :text="pigeonAI.status.value" :progress="pigeonAI.progress.value" :ready="pigeonAI.ready.value" /></p>
           <div class="row">
             <button class="btn btn-go btn-wide" @click="startAIGame">Start against PigeonAI</button>
           </div>
@@ -346,7 +346,8 @@
             <small v-if="aiThinking">{{ pigeonAsking ? 'asking PigeonAI' : 'thinking' }}</small>
           </span>
           <span v-if="isAIGame && gameEngine === 'pigeonai'" class="pigeon-note" :class="{ backup: pigeonNote.includes('backup') }">
-            {{ pigeonNote || pigeonAI.status.value }}
+            <template v-if="pigeonNote">{{ pigeonNote }}</template>
+            <PigeonAIStatus v-else :text="pigeonAI.status.value" :progress="pigeonAI.progress.value" :ready="pigeonAI.ready.value" />
             <template v-if="pigeonTally.pigeon + pigeonTally.backup">· PigeonAI {{ pigeonTally.pigeon }}, backup {{ pigeonTally.backup }}</template>
           </span>
           <span class="seat-captures">
@@ -592,6 +593,7 @@ import { loadSeat, makeSeatKeys, open, saveSeat, seal, type Seat, type SeatKeys 
 import { useNotify } from './composables/useNotify'
 import ChessBoard from './components/ChessBoard.vue'
 import SettingsModal from './components/SettingsModal.vue'
+import PigeonAIStatus from './components/PigeonAIStatus.vue'
 import GameHistory from './components/GameHistory.vue'
 import { useChessGame } from './composables/useChessGame'
 import { useSettings } from './composables/useSettings'
