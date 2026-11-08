@@ -402,7 +402,7 @@
               <span class="chat-who">{{ m.mine ? 'You:' : chatWithPigeonAI ? 'PigeonAI:' : 'Opp:' }}</span>
               <span class="chat-text">{{ m.text }}</span>
             </li>
-            <li v-if="pigeonTyping" class="empty">PigeonAI is writing…</li>
+            <li v-if="pigeonShowWriting" class="empty">PigeonAI is writing…</li>
           </ol>
           <form class="chat-form" @submit.prevent="sendChat">
             <input v-model="chatDraft" class="chat-input" type="text" :maxlength="CHAT_MAX" placeholder="Message" aria-label="Message your opponent" autocomplete="off" />
@@ -3145,6 +3145,8 @@ watch(chatList, (el) => {
 /** Chatting with PigeonAI: in a game against it, messages go to it (usePigeonAI.ts), and it answers. */
 const chatWithPigeonAI = computed(() => isAIGame.value && gameEngine.value === 'pigeonai' && Boolean(currentGame.value))
 const pigeonTyping = ref(false)
+/** "PigeonAI is writing…": only from just before its words come (its prompt read) until they show. */
+const pigeonShowWriting = ref(false)
 const canChat = computed(() => chatWithPigeonAI.value || (!isAIGame.value && Boolean(opponentId.value) && Boolean(currentGame.value)))
 const addChatLine = (mine: boolean, text: string): number => {
   const id = ++chatSeq
@@ -3216,14 +3218,15 @@ const askPigeonAI = (text: string | null, cue = SPEAK_UP) => {
   // Its reply shows as it is written: a line of its own from the first words, finished at the end.
   let line = 0
   const show = (t: string) => {
+    if (t) pigeonShowWriting.value = false
     if (!line) { if (t) line = addChatLine(false, t); return }
     setChatLine(line, t)
     if (!t) line = 0
   }
-  void pigeonAIChat(said, chatGameNow(), lines, show)
+  void pigeonAIChat(said, chatGameNow(), lines, show, () => { if (!line) pigeonShowWriting.value = true })
     .then((reply) => show(text === null && reply === '…' ? '' : reply))
     .catch((err: Error) => { if (text !== null) show(`(${err.message})`); else show('') })
-    .finally(() => { pigeonTyping.value = false })
+    .finally(() => { pigeonTyping.value = false; pigeonShowWriting.value = false })
 }
 const sendChat = () => {
   const text = chatDraft.value.trim().slice(0, CHAT_MAX)

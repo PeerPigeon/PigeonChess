@@ -398,7 +398,7 @@ export function warmPigeonAIChat(game: ChatGame, chat: { mine: boolean; text: st
  * PigeonAI's reply to a chat message during (or right after) a game against it, in character: the
  * best player in the world, and a bit of a jerk about it. Throws when it can't answer.
  */
-export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine: boolean; text: string }[], onText?: (soFar: string) => void): Promise<string> {
+export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine: boolean; text: string }[], onText?: (soFar: string) => void, onWriting?: () => void): Promise<string> {
   if (!ai) throw new Error(status.value.startsWith('PigeonAI could not start') ? 'PigeonAI could not start here' : 'PigeonAI is still starting')
   const a = ai
   if (!(await a.whenReady(30_000))) throw new Error('PigeonAI is not ready yet')
@@ -412,7 +412,7 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
       let soFar = ''
       onText?.('')
       const r = await a.ask(message, {
-        ...options, prefill: '<think>\n\n</think>\n\n', count: 40, temperature: 0.9, signal: stop.signal,
+        ...options, prefill: '<think>\n\n</think>\n\n', count: 40, temperature: 0.9, signal: stop.signal, onWriting,
         onText: (piece) => { soFar += piece; onText?.(soFar.replace(/<\/?think>/g, '').trimStart()) },
       })
       return said(r.text)

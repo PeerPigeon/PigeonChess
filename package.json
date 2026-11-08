@@ -35,6 +35,6 @@
     "vite": "^7.3.7"
   },
   "optionalDependencies": {
-    "pigeonai": "github:PeerPigeon/PigeonAI#f7793277be40138d1d1fbe7e48b061cdc0f6cf91"
+    "pigeonai": "github:PeerPigeon/PigeonAI#11f02431f025c196da566ee2f48713d92d864e0f"
   }
 }
