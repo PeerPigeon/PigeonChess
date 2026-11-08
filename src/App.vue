@@ -4902,6 +4902,11 @@ onUnmounted(() => {
   margin-right: -6px;
 }
 
+/* Black pieces on the night panel: a thin white outline so they show. */
+:global(html[data-theme='dark'] .seat-captures img[src*='/pieces/b']) {
+  filter: drop-shadow(1px 0 0 #fff) drop-shadow(-1px 0 0 #fff) drop-shadow(0 1px 0 #fff) drop-shadow(0 -1px 0 #fff);
+}
+
 .seat-captures b {
   margin-left: 10px;
   font-size: 0.8rem;
