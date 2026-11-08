@@ -20,6 +20,33 @@ type Signaling = { signalingServer?: string; signalingServers?: string[]; automa
 /** A phone or tablet (iPadOS says it is a Mac; it has a touch screen). */
 const PHONE = typeof navigator !== 'undefined' && (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1))
 
+const SAFARI = typeof navigator !== 'undefined' && /Safari\//.test(navigator.userAgent) && !/Chrome\/|Chromium\/|Edg\//.test(navigator.userAgent)
+
+/**
+ * The most of the model this device holds, in bytes. A browser reloads a page that uses too much memory
+ * (Safari: "This webpage was reloaded because it was using significant memory"), and a device alone in
+ * the room would otherwise take the whole model and reload, again and again. Starts from what the browser
+ * can usually take; each time the page dies while loading its share, it is halved (kept for next time).
+ */
+const HOLD_KEY = 'pigeonai:hold-at-most'
+const LOADING_KEY = 'pigeonai:loading-since'
+function holdAtMost(): number {
+  const start = PHONE ? 250e6 : SAFARI ? 1.2e9 : 2e9
+  let hold = start
+  try {
+    const kept = Number(localStorage.getItem(HOLD_KEY))
+    if (kept > 0) hold = Math.min(start, kept)
+    // The page was loading its share and never got there: it was reloaded for its memory. Half next time.
+    if (sessionStorage.getItem(LOADING_KEY)) {
+      hold = Math.floor(hold / 2)
+      localStorage.setItem(HOLD_KEY, String(hold))
+      console.warn(`PigeonAI: this page was reloaded while loading its share; it now holds at most ${Math.round(hold / 1e6)} MB`)
+    }
+  } catch { /* no storage: the start */ }
+  return hold
+}
+const loading = (on: boolean) => { try { if (on) sessionStorage.setItem(LOADING_KEY, String(Date.now())); else sessionStorage.removeItem(LOADING_KEY) } catch { /* no storage */ } }
+
 /** What PigeonAI is doing here, in words (for the Computer panel). */
 const status = ref('')
 /** Whether a move can be asked now (every stage of the model held and loaded, somewhere). */
@@ -44,19 +71,29 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
   starting = (async () => {
     try {
       const { startPigeonAI } = await import('pigeonai')
+      const hold = holdAtMost()
       ai = await startPigeonAI({
         signaling,
         network: 'pigeonchess-ai',
         room,
         // No draft model: a move is a few tokens, not worth a second download.
         draftModel: null,
-        // A phone or tablet holds only small parts (about 250 MB at most): iOS reloads a page that uses
-        // much more (the game and its chat with it). The big first part (823 MB) goes to a computer.
-        ...(PHONE ? { holdAtMost: 250e6 } : {}),
+        // As much of the model as this browser can hold (holdAtMost above): a phone 250 MB (a middle part,
+        // never the 823 MB first one), Safari 1.2 GB, others 2 GB, less if the page died loading before.
+        // Below 100 MB it holds nothing, and only asks.
+        ...(hold >= 100e6 ? { holdAtMost: hold } : { host: () => false }),
         onStatus: (text) => { status.value = text },
       })
       ;(globalThis as Record<string, unknown>).__pigeonai = ai
-      const tick = () => { if (ai) { ready.value = ai.ready(); status.value = describe(ai) } }
+      // Loading its share: marked, so a reload for memory before it is done is noticed (holdAtMost).
+      const tick = () => {
+        if (!ai) return
+        ready.value = ai.ready()
+        status.value = describe(ai)
+        let pending = 0
+        for (const p of ai.loading.values()) if (p.done < p.total) pending++
+        loading(pending > 0)
+      }
       tick()
       setInterval(tick, 1000)
     } catch (error) {
