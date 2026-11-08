@@ -587,7 +587,7 @@ import { boardRef } from './utils/boardRef'
 import { pigeonSearch } from './utils/pigeonAi'
 import { usePeerPigeon, migrateSignalingUrls } from './composables/usePeerPigeon'
 import { forgetSharedGameInUrl, movesPlay, offerLink, sharedGameInUrl, shareUrl, unpackGame } from '@/utils/shareGame'
-import { usePigeonAI, startPigeonAIPeer, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, SPEAK_UP, type ChatGame } from './composables/usePigeonAI'
+import { usePigeonAI, startPigeonAIPeer, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, SPEAK_UP, tookCue, type ChatGame } from './composables/usePigeonAI'
 import { useSeek } from './composables/useSeek'
 import { loadSeat, makeSeatKeys, open, saveSeat, seal, type Seat, type SeatKeys } from './composables/useSeat'
 import { useNotify } from './composables/useNotify'
@@ -3185,19 +3185,22 @@ watch(
   },
   { immediate: true },
 )
-// Now and then, PigeonAI speaks up on its own after a move: when it is the player's turn again (just after
-// its own move, so the mesh is not writing its move at the same time), four times in ten.
+// PigeonAI speaks up on its own after its move (the player's turn again, so the mesh is not writing its
+// move at the same time): always when it took a piece, otherwise now and then.
 watch(() => currentGame.value?.moves.length ?? 0, (n, before) => {
   if (!chatWithPigeonAI.value || !pigeonAI.ready.value || pigeonTyping.value || n <= (before ?? 0)) return
   if (currentGame.value?.status !== 'active') return
   const mine = myPlayer.value?.color === 'white' ? 'w' : 'b'
-  if (chess.value.turn() !== mine || Math.random() >= 0.4) return
-  askPigeonAI(null)
+  if (chess.value.turn() !== mine) return
+  // Its move took one of the player's pieces: it always says something. Otherwise four times in ten.
+  const last = chess.value.history({ verbose: true }).at(-1) as { captured?: string } | undefined
+  if (last?.captured) askPigeonAI(null, tookCue(last.captured))
+  else if (Math.random() < 0.4) askPigeonAI(null)
 })
 /** PigeonAI's reply to `text` (null: it speaks up on its own, about how the game is going), shown as it is written. */
-const askPigeonAI = (text: string | null) => {
+const askPigeonAI = (text: string | null, cue = SPEAK_UP) => {
   pigeonTyping.value = true
-  const said = text ?? SPEAK_UP
+  const said = text ?? cue
   const lines = [...chatMessages.value.map((l) => ({ mine: l.mine, text: l.text })), ...(text === null ? [{ mine: true, text: said }] : [])]
   // Its reply shows as it is written: a line of its own from the first words, finished at the end.
   let line = 0

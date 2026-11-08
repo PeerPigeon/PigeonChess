@@ -304,6 +304,15 @@ const ON_MOVES: Turn[][] = [[
   { user: SPEAK_UP_TEXT, assistant: 'You are not winning. I am just letting you think you are.' },
 ]]
 
+/** Talking trash when it takes a piece (tookCue). */
+const ON_CAPTURE: Turn[] = [
+  { user: '<instructions>You just took their pawn. Talk trash about it.</instructions>', assistant: 'Thanks for the free pawn. I will be collecting the rest of them too.' },
+  { user: '<instructions>You just took their knight. Talk trash about it.</instructions>', assistant: 'Your knight is mine now. Did you even see that coming?' },
+  { user: '<instructions>You just took their bishop. Talk trash about it.</instructions>', assistant: 'There goes your bishop. You are running out of things to lose.' },
+  { user: '<instructions>You just took their rook. Talk trash about it.</instructions>', assistant: 'A whole rook, just handed to me. You are too generous.' },
+  { user: '<instructions>You just took their queen. Talk trash about it.</instructions>', assistant: 'Your queen is gone. You might as well resign now.' },
+]
+
 /** A number from a text: the same text, the same number (a game's id → its own examples, every time). */
 function seedOf(text: string): () => number {
   let h = 2166136261
@@ -328,7 +337,10 @@ function voiceFor(gameId: string): Turn[] {
   // Three of the speak-up examples.
   const speak = [...ON_MOVES[0]]
   for (let i = speak.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [speak[i], speak[j]] = [speak[j], speak[i]] }
-  const moves = speak.slice(0, 3)
+  // Three of the speak-up examples, and two of taking a piece.
+  const took = [...ON_CAPTURE]
+  for (let i = took.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [took[i], took[j]] = [took[j], took[i]] }
+  const moves = [...speak.slice(0, 3), ...took.slice(0, 2)]
   // Sayings and moves interleaved, in the shuffled order.
   const out: Turn[] = []
   const sayings = pool.slice(0, 8)
@@ -365,6 +377,12 @@ function chatOptions(game: ChatGame, before: { mine: boolean; text: string }[]) 
 const CHAT_KEEP = 'pigeonchess-chat'
 /** What the player "says" when PigeonAI speaks up on its own after a move: a cue, no moves (its examples answer it). */
 export const SPEAK_UP = SPEAK_UP_TEXT
+
+const PIECE_NAMES: Record<string, string> = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen' }
+/** The cue when PigeonAI's move took one of the player's pieces (`piece`: p n b r q). */
+export function tookCue(piece: string): string {
+  return `<instructions>You just took their ${PIECE_NAMES[piece] ?? 'piece'}. Talk trash about it.</instructions>`
+}
 
 /**
  * Read the chat ahead (the board and conversation as they are now), in the background: the player's next
