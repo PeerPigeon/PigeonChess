@@ -587,7 +587,7 @@ import { boardRef } from './utils/boardRef'
 import { pigeonSearch } from './utils/pigeonAi'
 import { usePeerPigeon, migrateSignalingUrls } from './composables/usePeerPigeon'
 import { forgetSharedGameInUrl, movesPlay, offerLink, sharedGameInUrl, shareUrl, unpackGame } from '@/utils/shareGame'
-import { usePigeonAI, startPigeonAIPeer, pigeonAIMove, pigeonAIChat } from './composables/usePigeonAI'
+import { usePigeonAI, startPigeonAIPeer, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, type ChatGame } from './composables/usePigeonAI'
 import { useSeek } from './composables/useSeek'
 import { loadSeat, makeSeatKeys, open, saveSeat, seal, type Seat, type SeatKeys } from './composables/useSeat'
 import { useNotify } from './composables/useNotify'
@@ -3144,6 +3144,30 @@ const setChatLine = (id: number, text: string) => {
   chatMessages.value[i] = { ...chatMessages.value[i], text }
   nextTick(() => { if (chatList.value) chatList.value.scrollTop = chatList.value.scrollHeight })
 }
+/** The game as PigeonAI's chat sees it, now. */
+const chatGameNow = (): ChatGame => {
+  const g = currentGame.value
+  const aiColor = myPlayer.value?.color === 'white' ? 'black' : 'white'
+  const result = g?.status !== 'finished' ? null : g.result === 'draw' || !g.result ? 'draw' : g.result === aiColor ? 'ai' : 'player'
+  const how = endReason.value === 'resign' ? 'resignation' : endReason.value === 'time' ? 'time' : endReason.value === 'agreement' ? 'agreement' : chess.value.isCheckmate() ? 'checkmate' : chess.value.isStalemate() ? 'stalemate' : undefined
+  return { fen: chess.value.fen(), moves: [...(g?.moves ?? [])], aiColor, result, how }
+}
+// PigeonAI reads the chat ahead, in the background: when a game against it starts (or it becomes ready),
+// on every new board, and after every reply, so a message has only itself to be read.
+let warmTimer: ReturnType<typeof setTimeout> | null = null
+watch(
+  () => [chatWithPigeonAI.value, pigeonAI.ready.value, currentGame.value?.moves.length ?? -1, currentGame.value?.status, chatMessages.value.length, pigeonTyping.value] as const,
+  ([on, isReady, , , , typing]) => {
+    if (warmTimer) clearTimeout(warmTimer)
+    if (!on || !isReady || typing) return
+    warmTimer = setTimeout(() => {
+      warmTimer = null
+      if (!chatWithPigeonAI.value || pigeonTyping.value) return
+      warmPigeonAIChat(chatGameNow(), chatMessages.value.map((l) => ({ mine: l.mine, text: l.text })))
+    }, 300)
+  },
+  { immediate: true },
+)
 const sendChat = () => {
   const text = chatDraft.value.trim().slice(0, CHAT_MAX)
   if (text && chatWithPigeonAI.value) {
@@ -3151,10 +3175,6 @@ const sendChat = () => {
     addChatLine(true, text)
     pigeonTyping.value = true
     const lines = chatMessages.value.map((l) => ({ mine: l.mine, text: l.text }))
-    const g = currentGame.value
-    const aiColor = myPlayer.value?.color === 'white' ? 'black' : 'white'
-    const result = g?.status !== 'finished' ? null : g.result === 'draw' || !g.result ? 'draw' : g.result === aiColor ? 'ai' : 'player'
-    const how = endReason.value === 'resign' ? 'resignation' : endReason.value === 'time' ? 'time' : endReason.value === 'agreement' ? 'agreement' : chess.value.isCheckmate() ? 'checkmate' : chess.value.isStalemate() ? 'stalemate' : undefined
     // Its reply shows as it is written: a line of its own from the first words, finished at the end.
     let line = 0
     const show = (t: string) => {
@@ -3162,7 +3182,7 @@ const sendChat = () => {
       setChatLine(line, t)
       if (!t) line = 0
     }
-    void pigeonAIChat(text, { fen: chess.value.fen(), moves: [...(g?.moves ?? [])], aiColor, result, how }, lines, show)
+    void pigeonAIChat(text, chatGameNow(), lines, show)
       .then((reply) => show(reply))
       .catch((err: Error) => show(`(${err.message})`))
       .finally(() => { pigeonTyping.value = false })

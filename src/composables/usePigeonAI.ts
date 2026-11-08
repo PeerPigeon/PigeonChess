@@ -261,14 +261,8 @@ function describeGame(g: ChatGame): string {
   return lines.join(' ')
 }
 
-/**
- * PigeonAI's reply to a chat message during (or right after) a game against it, in character: the
- * best player in the world, and a bit of a jerk about it. Throws when it can't answer.
- */
-export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine: boolean; text: string }[], onText?: (soFar: string) => void): Promise<string> {
-  if (!ai) throw new Error(status.value.startsWith('PigeonAI could not start') ? 'PigeonAI could not start here' : 'PigeonAI is still starting')
-  const a = ai
-  if (!(await a.whenReady(30_000))) throw new Error('PigeonAI is not ready yet')
+/** What a chat ask sends before the player's message, from the game and the conversation before it. */
+function chatOptions(game: ChatGame, before: { mine: boolean; text: string }[]) {
   // Who it is: the system message. A small model holds a voice best with examples of it, so the system
   // message comes with conversation it has "already had" in that voice (all of them, every time), then
   // the last few real exchanges, then the player's message.
@@ -279,10 +273,6 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
     'Never introduce yourself or describe what kind of player you are: just talk trash.',
     'Reply with one or two short, punchy sentences, in the first person, as plain text with no formatting. Playful, never hateful or crude.',
   ].join('\n')
-  // What changes every message (the board) goes last, as a note right before the player's message: the
-  // system message and the examples stay the same, so the devices holding the model keep what they read
-  // of them (ask's keep) and read only what is new.
-  const note = `The game right now: ${describeGame(game)}`
   const voice: { user: string; assistant: string }[] = [
     { user: 'hello', assistant: 'Save the small talk. You will need every brain cell you have just to survive this game.' },
     { user: "i'm better than you", assistant: 'Better than me? You can barely find the right square for your knight.' },
@@ -294,10 +284,36 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
     { user: 'can you help me', assistant: 'Help you? I am here to crush you, not to coach you.' },
   ]
   // The last few real exchanges, so it answers in the conversation.
-  const lines = chat.slice(-7, -1)
+  const lines = before.slice(-6)
   const real: { user: string; assistant: string }[] = []
   for (let i = 0; i + 1 < lines.length; i++) if (lines[i].mine && !lines[i + 1].mine) real.push({ user: lines[i].text, assistant: lines[i + 1].text })
-  const turns = [...voice, ...real.slice(-3)]
+  // What changes every move (the board) goes last, as a note right before the player's message: the
+  // system message and the examples stay the same, so the devices holding the model keep what they read
+  // of them (ask's keep) and read only what is new.
+  return { system, turns: [...voice, ...real.slice(-3)], note: `The game right now: ${describeGame(game)}`, keep: CHAT_KEEP }
+}
+const CHAT_KEEP = 'pigeonchess-chat'
+
+/**
+ * Read the chat ahead (the board and conversation as they are now), in the background: the player's next
+ * message then only has itself to be read. Called when a game against PigeonAI starts and on every new
+ * board or reply.
+ */
+export function warmPigeonAIChat(game: ChatGame, chat: { mine: boolean; text: string }[]): void {
+  if (!ai || !ai.ready()) return
+  void ai.prepare(chatOptions(game, chat)).catch(() => {})
+}
+
+/**
+ * PigeonAI's reply to a chat message during (or right after) a game against it, in character: the
+ * best player in the world, and a bit of a jerk about it. Throws when it can't answer.
+ */
+export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine: boolean; text: string }[], onText?: (soFar: string) => void): Promise<string> {
+  if (!ai) throw new Error(status.value.startsWith('PigeonAI could not start') ? 'PigeonAI could not start here' : 'PigeonAI is still starting')
+  const a = ai
+  if (!(await a.whenReady(30_000))) throw new Error('PigeonAI is not ready yet')
+  // The conversation before this message (its last line).
+  const options = chatOptions(game, chat.slice(0, -1))
   const stop = new AbortController()
   const timer = setTimeout(() => stop.abort(), 90_000)
   try {
@@ -306,7 +322,7 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
       let soFar = ''
       onText?.('')
       const r = await a.ask(message, {
-        system, turns, note, keep: 'pigeonchess-chat', prefill: '<think>\n\n</think>\n\n', count: 40, temperature: 0.9, signal: stop.signal,
+        ...options, prefill: '<think>\n\n</think>\n\n', count: 40, temperature: 0.9, signal: stop.signal,
         onText: (piece) => { soFar += piece; onText?.(soFar.replace(/<\/?think>/g, '').trimStart()) },
       })
       return said(r.text)
