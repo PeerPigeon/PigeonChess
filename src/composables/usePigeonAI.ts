@@ -119,7 +119,13 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
         paused.value = !ready.value && pending === 0
         if (ready.value) progress.value = null
         else if (total > 0 && pending > 0) progress.value = Math.max(progress.value ?? 0, Math.min(1, done / total))
-        else progress.value = progress.value ?? 0
+        else {
+          // Not loading: this device's share is all loaded (waiting on another device, e.g. one reloading),
+          // so its bar is full; else it stays where it was.
+          const held = ai.pipeline.held()
+          const mine = held.length > 0 && held.every((st) => ai!.pipeline.runners.has(st))
+          progress.value = mine ? 1 : progress.value ?? 0
+        }
         // Kept for a reload of this tab: the bar starts again where it was (the pieces loaded are kept
         // here too, so the loading itself goes on from there, reading them back first).
         try { if (progress.value === null) sessionStorage.removeItem(PROGRESS_KEY); else sessionStorage.setItem(PROGRESS_KEY, String(progress.value)) } catch { /* no storage */ }
