@@ -34,7 +34,6 @@ const describe = (a: PigeonAI): string => {
   // Where it is coming from: the storage servers (PigeonFS), or Hugging Face for what they don't have yet.
   const mb = (n: number) => `${Math.round(n / 1e6)} MB`
   if (total > 0) return `Loading this device's share of the model: ${Math.round((100 * done) / total)}% (${mb(servers)} from PigeonFS, ${mb(Math.max(0, done - servers - cached))} from Hugging Face${cached ? `, ${mb(cached)} already on this device` : ''}).`
-  if (PHONE) return 'Waiting for computers here to hold the model (a phone only asks).'
   return a.gpu ? 'Waiting for the model to be shared out between the peers…' : 'Waiting for peers with a GPU to hold the model (this device has none).'
 }
 
@@ -51,9 +50,9 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
         room,
         // No draft model: a move is a few tokens, not worth a second download.
         draftModel: null,
-        // A phone asks but holds no part of the model: a share of it is hundreds of MB, and iOS
-        // reloads a page that uses that much (the game and its chat with it).
-        host: () => !PHONE,
+        // A phone or tablet holds only small parts (about 250 MB at most): iOS reloads a page that uses
+        // much more (the game and its chat with it). The big first part (823 MB) goes to a computer.
+        ...(PHONE ? { holdAtMost: 250e6 } : {}),
         onStatus: (text) => { status.value = text },
       })
       ;(globalThis as Record<string, unknown>).__pigeonai = ai
