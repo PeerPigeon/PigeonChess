@@ -61,6 +61,8 @@ const status = ref('')
 const ready = ref(false)
 /** How much of this device's share of the model is loaded (0 to 1), while it loads; null otherwise. */
 const progress = ref<number | null>(null)
+/** Not ready and nothing loading here (waiting on other devices, or for room): the bar stands still. */
+const paused = ref(false)
 let ai: PigeonAI | null = null
 let starting: Promise<void> | null = null
 
@@ -112,8 +114,9 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
         // Not ready: always a bar (the words go in its tooltip). This device loading its share: how far
         // it is. Else how much of the model the peers here have loaded between them (or, short of room,
         // how much of it they can hold).
+        paused.value = !ready.value && pending === 0
         if (ready.value) progress.value = null
-        else if (total > 0) progress.value = Math.min(1, done / total)
+        else if (total > 0 && pending > 0) progress.value = Math.min(1, done / total)
         else {
           const p = ai.pipeline, ids = ai.members.ids()
           let built = 0
@@ -322,5 +325,5 @@ export function short(text: string): string {
 }
 
 export function usePigeonAI() {
-  return { here: PIGEONAI_HERE, status, ready, progress }
+  return { here: PIGEONAI_HERE, status, ready, progress, paused }
 }
