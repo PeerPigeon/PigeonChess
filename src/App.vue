@@ -860,7 +860,8 @@ const saveGameState = () => {
 const watchSeatedGame = () => {
   // Against the computer: kept after each move; let go when the game ends.
   watch(() => currentGame.value?.moves?.length, () => saveAIGame())
-  watch(() => chatMessages.value.length, () => saveAIGame())
+  // A new line, and PigeonAI's reply once it is written (it shows word by word; saved whole at the end).
+  watch(() => [chatMessages.value.length, pigeonTyping.value], () => saveAIGame())
   watch(() => currentGame.value?.status, (status) => { if (isAIGame.value && status && status !== 'active') dropAIGame() })
   setInterval(() => { if (seat && isGameActive.value) saveGameState() }, 2000)
   watch(() => currentGame.value?.moves?.length, () => saveGameState())
