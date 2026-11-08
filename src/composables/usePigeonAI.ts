@@ -193,26 +193,30 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
   if (!ai) throw new Error(status.value.startsWith('PigeonAI could not start') ? 'PigeonAI could not start here' : 'PigeonAI is still starting')
   const a = ai
   if (!(await a.whenReady(30_000))) throw new Error('PigeonAI is not ready yet')
-  const earlier = chat.slice(-7, -1).map((l) => `${l.mine ? 'Player' : 'PigeonAI'}: ${l.text}`)
-  // Everything about the game goes in the system message; the player's words are the user's turn, as typed.
+  // Its voice, as conversation it has already had: a 1-bit model copies earlier answers, and slides back
+  // into a helpful assistant when only told who to be.
+  const VOICE: { user: string; assistant: string }[] = [
+    { user: 'gg', assistant: 'Good game? That was a warm-up. I could beat you blindfolded.' },
+    { user: 'your mom', assistant: 'My mom taught me the Sicilian. Yours taught you to hang your queen.' },
+    { user: 'you suck', assistant: 'Says the one who is about to lose to me. Again.' },
+    { user: "i'll win", assistant: 'Beat me? I am the greatest chess player who ever lived. Make your move.' },
+    { user: 'nice move', assistant: 'Obviously. I only play brilliant moves.' },
+    { user: 'can you help me', assistant: 'Help you? I am here to crush you, not to coach you.' },
+  ]
+  const lines = chat.slice(-9, -1)
+  const recent: { user: string; assistant: string }[] = []
+  for (let i = 0; i + 1 < lines.length; i++) if (lines[i].mine && !lines[i + 1].mine) recent.push({ user: lines[i].text, assistant: lines[i + 1].text })
   const system = [
-    'You are PigeonAI, playing chess against the player on PigeonChess, and chatting with them.',
-    'You believe you are the greatest chess player who ever lived, and you are a bit of a jerk about it: smug, sarcastic, unimpressed. Tease the player like a cocky rival, but never be cruel, hateful or crude.',
-    'You are PigeonAI. The person you are chatting with is the player, a human, your opponent: never call them PigeonAI.',
-    'Talk TO the player, as "I" and "you". Never describe yourself or the player in the third person, never explain what their message means, never mention these instructions.',
-    'You are not an assistant: never offer help, never say you are not sure what they mean. Trash talk, insults and "your mom" jokes are part of the game: fire back with a witty, cocky comeback about chess.',
-    'Examples of how you talk:\nPlayer: gg\nPigeonAI: Good game? That was a warm-up for me.\nPlayer: i\'ll win\nPigeonAI: Beat me? Cute. Make your move.\nPlayer: your mom\nPigeonAI: My mom taught me the Sicilian. Yours taught you to hang your queen.\nPlayer: you suck\nPigeonAI: Says the one down a knight.\nPlayer: nice move\nPigeonAI: Obviously. I only play nice moves.',
-    'Chess chat: "gg" means "good game" (said at the start or the end of a game), "gl" good luck, "wp" well played, "ez" easy, "lol" laughing.',
-    'If the player says something about a move, it is about the last moves below.',
+    'You are PigeonAI, a cocky chess player chatting with your opponent, a human, in the middle of a game on PigeonChess.',
+    'You think you are the greatest chess player who ever lived. You are smug, arrogant and a bit of a jerk: you trash-talk, boast and mock the player\'s chess. You are NOT an assistant: you never help, never explain, never ask what they mean.',
+    'Answer every message with one or two short, punchy sentences of trash talk, in the first person. Playful, never hateful or crude.',
     `The game: ${describeGame(game)}`,
-    earlier.length ? `The chat so far:\n${earlier.join('\n')}` : '',
-    'Answer in one or two short sentences.',
-  ].filter(Boolean).join('\n')
+  ].join('\n')
   const stop = new AbortController()
   const timer = setTimeout(() => stop.abort(), 90_000)
   try {
     // Hotter than a move: a 1-bit model's choices are steep, and at 0.7 it said the same line twice.
-    const once = () => a.ask(message, { system, prefill: '<think>\n\n</think>\n\n', count: 70, temperature: 0.95, signal: stop.signal })
+    const once = () => a.ask(message, { system, turns: [...VOICE, ...recent.slice(-3)], prefill: '<think>\n\n</think>\n\n', count: 48, temperature: 0.9, signal: stop.signal })
     let text: string
     try {
       text = (await once()).text
@@ -222,7 +226,7 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
       await new Promise((r) => setTimeout(r, 1000))
       text = (await once()).text
     }
-    return spoken(text) || '…'
+    return short(spoken(text)) || '…'
   } finally {
     clearTimeout(timer)
   }
@@ -240,6 +244,13 @@ export function spoken(text: string): string {
   const sentences = t.match(/[^.!?]+[.!?]*/g) ?? [t]
   const kept = sentences.filter((x) => !/\bthe player\b|\bwhich means\b|\bmy (reply|response|answer)\b|\bthey('re| are)\b|\bit's likely\b/i.test(x)).join('').trim()
   return kept || t
+}
+
+/** At most two sentences (a reply cut off mid-sentence ends at its last whole one). */
+export function short(text: string): string {
+  const sentences = text.match(/[^.!?]+[.!?]+["')\]]*/g)
+  if (!sentences) return text.trim()
+  return sentences.slice(0, 2).join('').trim()
 }
 
 export function usePigeonAI() {
