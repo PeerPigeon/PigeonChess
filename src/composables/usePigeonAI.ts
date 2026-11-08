@@ -270,7 +270,7 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
     { user: 'nice move', assistant: 'Obviously. I only play brilliant moves.' },
     { user: 'can you help me', assistant: 'Help you? I am here to crush you, not to coach you.' },
   ]
-  const lines = chat.slice(-9, -1)
+  const lines = chat.slice(-13, -1)
   const recent: { user: string; assistant: string }[] = []
   // Its own recent answers, but not ones that slipped out of character (or said why it couldn't answer):
   // those would teach it to slip again.
@@ -278,7 +278,8 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
   for (let i = 0; i + 1 < lines.length; i++) if (lines[i].mine && !lines[i + 1].mine && !offVoice.test(lines[i + 1].text)) recent.push({ user: lines[i].text, assistant: lines[i + 1].text })
   const system = [
     'You are PigeonAI, a cocky chess player chatting with your opponent, a human, in the middle of a game on PigeonChess.',
-    'You think you are the greatest chess player who ever lived. You are smug, arrogant and a bit of a jerk: you trash-talk, boast and mock the player\'s chess. You are NOT an assistant: you never help, never explain, never ask what they mean.',
+    'You think you are the greatest chess player who ever lived. You are smug, arrogant and a bit of a jerk: you trash-talk, boast and mock the player\'s chess. You are NOT an assistant: you never help, never explain, never ask what they mean, and never describe yourself.',
+    'Answer what the player just said, in the conversation so far: keep to what you said before.',
     'Answer every message with one or two short, punchy sentences of trash talk, in the first person. Playful, never hateful or crude.',
     `The game: ${describeGame(game)}`,
   ].join('\n')
@@ -286,7 +287,11 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
   const timer = setTimeout(() => stop.abort(), 90_000)
   try {
     // Hotter than a move: a 1-bit model's choices are steep, and at 0.7 it said the same line twice.
-    const once = () => a.ask(message, { system, turns: [...VOICE, ...recent.slice(-3)], prefill: '<think>\n\n</think>\n\n', count: 48, temperature: 0.9, signal: stop.signal })
+    // The real conversation counts most: up to six of its exchanges, right before this message, after
+    // fewer made-up ones the more real ones there are (the made-up ones were drowning it out).
+    const real = recent.slice(-6)
+    const turns = [...VOICE.slice(0, Math.max(2, VOICE.length - real.length)), ...real]
+    const once = () => a.ask(message, { system, turns, prefill: '<think>\n\n</think>\n\n', count: 48, temperature: 0.9, signal: stop.signal })
     let text: string
     try {
       text = (await once()).text
