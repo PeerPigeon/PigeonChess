@@ -72,7 +72,7 @@
           <img class="seat-colour" :src="`/pieces/${replayGame.myColor === 'white' ? 'b' : 'w'}k.svg`" alt="" />
           <span class="seat-name">{{ replayOpponentName }}</span>
           <span class="seat-captures">
-            <img v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'black' : 'white']" :key="`ro-${idx}`" :src="capturedSrc(replayGame.myColor === 'white' ? 'w' : 'b', piece)" :alt="piece" />
+            <img v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'black' : 'white']" :key="`ro-${idx}`" :class="{ dup: idx > 0 && capturedPieces[replayGame.myColor === 'white' ? 'black' : 'white'][idx - 1] === piece }" :src="capturedSrc(replayGame.myColor === 'white' ? 'w' : 'b', piece)" :alt="piece" />
             <b v-if="materialAdvantage[replayGame.myColor === 'white' ? 'black' : 'white'] > 0">+{{ materialAdvantage[replayGame.myColor === 'white' ? 'black' : 'white'] }}</b>
           </span>
         </div>
@@ -115,7 +115,7 @@
           <img class="seat-colour" :src="`/pieces/${replayGame.myColor === 'white' ? 'w' : 'b'}k.svg`" alt="" />
           <span class="seat-name">{{ (replayGame.myUsername?.trim()) || (sharedView ? 'Player' : 'You') }}</span>
           <span class="seat-captures">
-            <img v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'white' : 'black']" :key="`rm-${idx}`" :src="capturedSrc(replayGame.myColor === 'white' ? 'b' : 'w', piece)" :alt="piece" />
+            <img v-for="(piece, idx) in capturedPieces[replayGame.myColor === 'white' ? 'white' : 'black']" :key="`rm-${idx}`" :class="{ dup: idx > 0 && capturedPieces[replayGame.myColor === 'white' ? 'white' : 'black'][idx - 1] === piece }" :src="capturedSrc(replayGame.myColor === 'white' ? 'b' : 'w', piece)" :alt="piece" />
             <b v-if="materialAdvantage[replayGame.myColor] > 0">+{{ materialAdvantage[replayGame.myColor] }}</b>
           </span>
         </div>
@@ -351,7 +351,7 @@
             <template v-if="pigeonTally.pigeon + pigeonTally.backup">· PigeonAI {{ pigeonTally.pigeon }}, backup {{ pigeonTally.backup }}</template>
           </span>
           <span class="seat-captures">
-            <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']" :key="`go-${idx}`" :src="capturedSrc(myPlayer?.color === 'white' ? 'w' : 'b', piece)" :alt="piece" />
+            <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']" :key="`go-${idx}`" :class="{ dup: idx > 0 && capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white'][idx - 1] === piece }" :src="capturedSrc(myPlayer?.color === 'white' ? 'w' : 'b', piece)" :alt="piece" />
             <b v-if="materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] > 0">+{{ materialAdvantage[myPlayer?.color === 'white' ? 'black' : 'white'] }}</b>
           </span>
           <span v-if="hasClock" class="seat-clock" :class="{ low: isLowTime(opponentTime) }">{{ formatTime(opponentTime) }}</span>
@@ -424,7 +424,7 @@
           <img class="seat-colour" :src="`/pieces/${myPlayer?.color === 'white' ? 'w' : 'b'}k.svg`" alt="" />
           <span class="seat-name">{{ identityUsername || 'You' }}</span>
           <span class="seat-captures">
-            <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black']" :key="`gm-${idx}`" :src="capturedSrc(myPlayer?.color === 'white' ? 'b' : 'w', piece)" :alt="piece" />
+            <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black']" :key="`gm-${idx}`" :class="{ dup: idx > 0 && capturedPieces[myPlayer?.color === 'white' ? 'white' : 'black'][idx - 1] === piece }" :src="capturedSrc(myPlayer?.color === 'white' ? 'b' : 'w', piece)" :alt="piece" />
             <b v-if="materialAdvantage[myPlayer?.color || 'white'] > 0">+{{ materialAdvantage[myPlayer?.color || 'white'] }}</b>
           </span>
           <span v-if="hasClock" class="seat-clock" :class="{ low: isLowTime(myTime) }">{{ formatTime(myTime) }}</span>
@@ -4903,7 +4903,12 @@ onUnmounted(() => {
 .seat-captures img {
   width: 28px;
   height: 28px;
-  margin-right: -4px;
+  margin-right: 1px;
+}
+
+/* More of the same piece overlap a little; a different piece starts apart. */
+.seat-captures img.dup {
+  margin-left: -13px;
 }
 
 .seat-captures b {
