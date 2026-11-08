@@ -111,19 +111,13 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
         status.value = describe(ai)
         let pending = 0, done = 0, total = 0
         for (const p of ai.loading.values()) { if (p.done < p.total) pending++; done += p.done; total += p.total }
-        // Not ready: always a bar (the words go in its tooltip). This device loading its share: how far
-        // it is. Else how much of the model the peers here have loaded between them (or, short of room,
-        // how much of it they can hold).
+        // Not ready: always the one bar (the words go in its tooltip): how far this device has loaded its
+        // share. While it waits (on other devices, or for room) the bar stops where it was, and goes on
+        // from there when loading goes on.
         paused.value = !ready.value && pending === 0
         if (ready.value) progress.value = null
-        else if (total > 0 && pending > 0) progress.value = Math.min(1, done / total)
-        else {
-          const p = ai.pipeline, ids = ai.members.ids()
-          let built = 0
-          for (let s = 0; s < p.stages; s++) if (ids.some((id) => p.hasStage(id, s))) built++
-          const room = ai.space()
-          progress.value = room.have < room.need ? Math.min(1, room.have / room.need) : p.stages ? built / p.stages : 0
-        }
+        else if (total > 0 && pending > 0) progress.value = Math.max(progress.value ?? 0, Math.min(1, done / total))
+        else progress.value = progress.value ?? 0
         loading(pending > 0)
       }
       tick()

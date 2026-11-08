@@ -50,10 +50,6 @@ const text = computed(() => props.text || 'Starting…')
   transition: width 0.6s ease;
 }
 
-.paused .pai-fill {
-  background: var(--line-strong);
-}
-
 .pai-pct {
   flex: none;
   font-variant-numeric: tabular-nums;
