@@ -158,12 +158,10 @@
             'drag-over': isDragOver(rowIndex, colIndex),
             'king-in-check': isKingInCheck(rowIndex, colIndex),
             'last-move': isLastMoveSquare(rowIndex, colIndex),
-            'hint-square': isHintSquare(rowIndex, colIndex)
+            'hint-square': isHintSquare(rowIndex, colIndex),
+            premove: isPremoveSquare(rowIndex, colIndex)
           }"
           @click="handleSquareClick(rowIndex, colIndex)"
-          @dragover.prevent="handleDragOver(rowIndex, colIndex)"
-          @dragleave="handleDragLeave(rowIndex, colIndex)"
-          @drop="handleDrop(rowIndex, colIndex)"
           @mousedown.right.prevent="handleRightMouseDown(rowIndex, colIndex)"
           @contextmenu.prevent
         >
@@ -172,12 +170,9 @@
             class="piece"
             :src="getPieceImageUrl(rowIndex, colIndex)"
             :alt="getPieceSymbol(rowIndex, colIndex)"
-            :draggable="interactive && getPiece(rowIndex, colIndex)?.color === chess.turn()"
-            @dragstart="handleDragStart(rowIndex, colIndex, $event)"
-            @dragend="handleDragEnd"
-            @touchstart="handleTouchStart(rowIndex, colIndex, $event)"
-            @touchmove.prevent="handleTouchMove($event)"
-            @touchend="handleTouchEnd($event)"
+            draggable="false"
+            :class="{ movable: interactive && canPick(getPiece(rowIndex, colIndex)?.color), 'drag-source': drag?.moved && drag.from === getSquareName(rowIndex, colIndex) }"
+            @pointerdown="handlePiecePointerDown(rowIndex, colIndex, $event)"
           />
           <div v-if="showCoordinates && colIndex === (flipped ? 7 : 0)" class="rank-label">
             {{ 8 - rowIndex }}
@@ -189,6 +184,17 @@
       </div>
     </div>
     
+    <!-- The piece being dragged, under the finger or mouse -->
+    <Teleport to="body">
+      <img
+        v-if="drag?.moved"
+        class="drag-ghost"
+        :src="drag.url"
+        alt=""
+        :style="{ left: `${drag.x - drag.size / 2}px`, top: `${drag.y - drag.size / 2}px`, width: `${drag.size}px`, height: `${drag.size}px` }"
+      />
+    </Teleport>
+
     <!-- Promotion Dialog -->
     <div v-if="showPromotionDialog" class="promotion-overlay" @click="showPromotionDialog = false">
       <div class="promotion-dialog" @click.stop>
@@ -252,6 +258,7 @@ function pieceTemplate(path: string): Promise<string> {
 import { ref, shallowRef, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useSounds } from '../composables/useSounds'
 import { boardChanged } from '../utils/boardRef'
+import { createChess } from '../utils/variant'
 
 interface Props {
   chess: any  // Accept any type to handle the ref
@@ -273,6 +280,11 @@ interface Props {
   neutralArrowColor?: string
   /** Draw a piece type with another piece's art, e.g. { n: 'g' } shows knights as pigeons. */
   pieceArt?: Record<string, string>
+  /**
+   * The player's colour, in a game: only their pieces can be picked up, and during the opponent's turn a
+   * move is a pre-move (played the moment their turn comes, if still legal). Without it: the side to move.
+   */
+  myColor?: 'w' | 'b' | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -307,11 +319,93 @@ const boardRef = ref<HTMLElement>()
 const arrowCanvas = ref<SVGElement>()
 const selectedSquare = ref<string | null>(null)
 const legalMoves = ref<any[]>([])
-const draggedSquare = ref<string | null>(null)
 const dragOverSquare = ref<string | null>(null)
 const showPromotionDialog = ref(false)
 const promotionMove = ref<{ from: string; to: string } | null>(null)
 const promotingColor = ref<'w' | 'b'>('w') // Store color to avoid reactivity issues
+
+/** A move queued during the opponent's turn: played the moment the player's turn comes, if still legal. */
+const premove = ref<{ from: string; to: string; promotion?: 'q' } | null>(null)
+/** A piece being dragged: where from, where the pointer is, its picture and size; moved once it left its spot. */
+const drag = ref<{ from: string; x: number; y: number; x0: number; y0: number; url: string; size: number; moved: boolean } | null>(null)
+/** A drag just ended: the click the browser sends after it is not a click. */
+let clickQuietUntil = 0
+
+/** Whether the player picks up pieces of this colour now. */
+const canPick = (color?: string): boolean => {
+  if (!color) return false
+  return props.myColor ? color === props.myColor : color === board().turn()
+}
+/** The opponent is to move: a move now is a pre-move. */
+const isPremoveTime = (): boolean => !!props.myColor && board().turn() !== props.myColor
+/**
+ * Where the piece on `square` can go: its legal moves, or during the opponent's turn the moves it would
+ * have with the player to move (a pre-move; checked again when it is played).
+ */
+const movesFrom = (square: string): any[] => {
+  if (!isPremoveTime()) return board().moves({ square: square as any, verbose: true })
+  try {
+    const parts = board().fen().split(' ')
+    parts[1] = props.myColor!
+    parts[3] = '-'
+    return createChess(parts.join(' ')).moves({ square: square as any, verbose: true })
+  } catch { return [] }
+}
+const isPremoveSquare = (row: number, col: number): boolean => {
+  const sq = getSquareName(row, col)
+  return !!premove.value && (premove.value.from === sq || premove.value.to === sq)
+}
+const clearSelection = () => {
+  selectedSquare.value = null
+  legalMoves.value = []
+}
+
+/** A move from the selected piece to `to`: played, a pre-move, or the promotion question. False: not a move it has. */
+const tryMove = (from: string, to: string): boolean => {
+  const move = legalMoves.value.find((m) => m.to === to)
+  if (!move) return false
+  const fromPiece = board().get(from as any)
+  const isPromotion = fromPiece?.type === 'p' && (to[1] === '8' || to[1] === '1')
+  if (isPremoveTime()) {
+    premove.value = { from, to, ...(isPromotion ? { promotion: 'q' as const } : {}) }
+    clearSelection()
+    return true
+  }
+  if (isPromotion) {
+    promotingColor.value = board().turn()
+    promotionMove.value = { from, to }
+    showPromotionDialog.value = true
+    return true
+  }
+  const isCastle = move.flags.includes('k') || move.flags.includes('q')
+  if (isCastle) playCastleSound()
+  else if (move.captured !== undefined) playCaptureSound()
+  else playMoveSound()
+  emit('move', from, to)
+  clearSelection()
+  return true
+}
+
+// The player's turn comes: the pre-move is played if it is legal now, else dropped. A board changed under
+// it (a new game, a take-back) drops it too.
+watch(() => board().fen(), () => {
+  const p = premove.value
+  if (!p || !props.myColor) return
+  if (board().get(p.from as any)?.color !== props.myColor) { premove.value = null; return }
+  if (board().turn() !== props.myColor) return
+  premove.value = null
+  const legal = board().moves({ square: p.from as any, verbose: true }).find((m: any) => m.to === p.to)
+  if (!legal || !props.interactive) return
+  setTimeout(() => {
+    if (board().turn() !== props.myColor) return
+    const isCastle = legal.flags.includes('k') || legal.flags.includes('q')
+    if (isCastle) playCastleSound()
+    else if (legal.captured !== undefined) playCaptureSound()
+    else playMoveSound()
+    emit('move', p.from, p.to, p.promotion)
+  }, 0)
+})
+watch(() => props.interactive, (on) => { if (!on) { premove.value = null; drag.value = null; dragOverSquare.value = null } })
 
 // Arrow drawing state
 interface Arrow {
@@ -587,6 +681,9 @@ const isLegalMoveSquare = (row: number, col: number): boolean => {
 
 const handleSquareClick = (row: number, col: number) => {
   if (!props.interactive) return
+  if (performance.now() < clickQuietUntil) return
+  // A click with a pre-move queued (and nothing picked up) takes the pre-move back.
+  if (premove.value && !selectedSquare.value) { premove.value = null; return }
   
   // Check if clicking on/near an arrow first
   const clickCenter = getSquareCenterCoordinates(row, col)
@@ -631,60 +728,16 @@ const handleSquareClick = (row: number, col: number) => {
     return
   }
   
-  // If a square is already selected
+  // A piece already picked up: this square is where it goes, another of the player's pieces, or nothing.
   if (selectedSquare.value) {
-    // Check if clicking on a legal move destination
-    const move = legalMoves.value.find(m => m.to === square)
-    
-    if (move) {
-      // Check if this is a pawn promotion
-      const fromPiece = getPiece(
-        8 - parseInt(selectedSquare.value[1]),
-        selectedSquare.value.charCodeAt(0) - 97
-      )
-      
-      const isPromotion = fromPiece?.type === 'p' && 
-                          (square[1] === '8' || square[1] === '1')
-      
-      if (isPromotion) {
-        // Store the promoting color before showing dialog
-        promotingColor.value = board().turn()
-        // Show promotion dialog
-        promotionMove.value = { from: selectedSquare.value, to: square }
-        showPromotionDialog.value = true
-        return
-      }
-      
-      // Check if it's a capture move using chess.js flags
-      const isCapture = move.captured !== undefined
-      const isCastle = move.flags.includes('k') || move.flags.includes('q')
-      
-      // Play appropriate sound
-      if (isCastle) {
-        playCastleSound()
-      } else if (isCapture) {
-        playCaptureSound()
-      } else {
-        playMoveSound()
-      }
-      
-      // Make the move
-      emit('move', selectedSquare.value, square)
-      selectedSquare.value = null
-      legalMoves.value = []
-    } else if (piece && piece.color === board().turn()) {
-      // Select a new piece
+    if (tryMove(selectedSquare.value, square)) return
+    if (piece && canPick(piece.color)) {
       selectedSquare.value = square
-      legalMoves.value = board().moves({ square: square as any, verbose: true })
-    } else {
-      // Deselect
-      selectedSquare.value = null
-      legalMoves.value = []
-    }
-  } else if (piece && piece.color === board().turn()) {
-    // Select a piece
+      legalMoves.value = movesFrom(square)
+    } else clearSelection()
+  } else if (piece && canPick(piece.color)) {
     selectedSquare.value = square
-    legalMoves.value = board().moves({ square: square as any, verbose: true })
+    legalMoves.value = movesFrom(square)
   }
 }
 
@@ -704,200 +757,53 @@ const handlePromotion = (piece: 'q' | 'r' | 'b' | 'n') => {
   playMoveSound()
 }
 
-// Drag and drop handlers
-const handleDragStart = (row: number, col: number, event: DragEvent) => {
-  if (!props.interactive) return
-  
-  // Clear arrows on drag start
-  clearArrows()
-  
-  const square = getSquareName(row, col)
+// Dragging a piece (mouse, finger or pen alike): it follows the pointer, its own square shows it faded,
+// and where it is let go is where it goes (or nothing, back where it was).
+const squareAt = (x: number, y: number): string | null => {
+  for (const el of document.elementsFromPoint(x, y)) {
+    const sq = (el as HTMLElement).dataset?.square
+    if (sq && boardRef.value?.contains(el)) return sq
+  }
+  return null
+}
+const onDragMove = (e: PointerEvent) => {
+  const d = drag.value
+  if (!d) return
+  d.x = e.clientX
+  d.y = e.clientY
+  if (!d.moved && Math.hypot(d.x - d.x0, d.y - d.y0) > 5) {
+    d.moved = true
+    clearArrows()
+    premove.value = premove.value && premove.value.from === d.from ? null : premove.value
+    selectedSquare.value = d.from
+    legalMoves.value = movesFrom(d.from)
+  }
+  if (d.moved) dragOverSquare.value = squareAt(d.x, d.y)
+}
+const endDrag = (e: PointerEvent) => {
+  window.removeEventListener('pointermove', onDragMove)
+  window.removeEventListener('pointerup', endDrag)
+  window.removeEventListener('pointercancel', endDrag)
+  const d = drag.value
+  drag.value = null
+  dragOverSquare.value = null
+  if (!d?.moved) return
+  clickQuietUntil = performance.now() + 400
+  const to = e.type === 'pointerup' ? squareAt(e.clientX, e.clientY) : null
+  if (to && to !== d.from && tryMove(d.from, to)) return
+  clearSelection()
+}
+const handlePiecePointerDown = (row: number, col: number, e: PointerEvent) => {
+  if (!props.interactive || e.button !== 0) return
   const piece = getPiece(row, col)
-  
-  if (!piece || piece.color !== board().turn()) {
-    event.preventDefault()
-    return
-  }
-  
-  draggedSquare.value = square
-  selectedSquare.value = square
-  legalMoves.value = board().moves({ square: square as any, verbose: true })
-  
-  // Set drag image (optional - makes the piece follow cursor)
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', square)
-  }
-}
-
-const handleDragOver = (row: number, col: number) => {
-  if (!props.interactive || !draggedSquare.value) return
-  dragOverSquare.value = getSquareName(row, col)
-}
-
-const handleDragLeave = (row: number, col: number) => {
-  if (!props.interactive) return
-  const square = getSquareName(row, col)
-  if (dragOverSquare.value === square) {
-    dragOverSquare.value = null
-  }
-}
-
-const handleDrop = (row: number, col: number) => {
-  if (!props.interactive || !draggedSquare.value) return
-  
-  const targetSquare = getSquareName(row, col)
-  const move = legalMoves.value.find(m => m.to === targetSquare)
-  
-  if (move) {
-    // Check if this is a pawn promotion
-    const fromPiece = getPiece(
-      8 - parseInt(draggedSquare.value[1]),
-      draggedSquare.value.charCodeAt(0) - 97
-    )
-    
-    const isPromotion = fromPiece?.type === 'p' && 
-                        (targetSquare[1] === '8' || targetSquare[1] === '1')
-    
-    if (isPromotion) {
-      // Store the promoting color before showing dialog
-      promotingColor.value = board().turn()
-      // Show promotion dialog
-      promotionMove.value = { from: draggedSquare.value, to: targetSquare }
-      showPromotionDialog.value = true
-      // Reset drag state but keep promotion state
-      draggedSquare.value = null
-      dragOverSquare.value = null
-      return
-    }
-    
-    // Check if it's a capture move using chess.js flags
-    const isCapture = move.captured !== undefined
-    const isCastle = move.flags.includes('k') || move.flags.includes('q')
-    
-    // Play appropriate sound
-    if (isCastle) {
-      playCastleSound()
-    } else if (isCapture) {
-      playCaptureSound()
-    } else {
-      playMoveSound()
-    }
-    
-    // Make the move
-    emit('move', draggedSquare.value, targetSquare)
-  }
-  
-  // Reset drag state
-  draggedSquare.value = null
-  dragOverSquare.value = null
-  selectedSquare.value = null
-  legalMoves.value = []
-}
-
-const handleDragEnd = () => {
-  draggedSquare.value = null
-  dragOverSquare.value = null
-  selectedSquare.value = null
-  legalMoves.value = []
-}
-
-// Touch handlers for mobile
-const handleTouchStart = (row: number, col: number, _event: TouchEvent) => {
-  if (!props.interactive) return
-  
-  // Clear arrows on touch start
-  clearArrows()
-  
-  const square = getSquareName(row, col)
-  const piece = getPiece(row, col)
-  
-  if (!piece || piece.color !== board().turn()) {
-    return
-  }
-  
-  draggedSquare.value = square
-  selectedSquare.value = square
-  legalMoves.value = board().moves({ square: square as any, verbose: true })
-}
-
-const handleTouchMove = (event: TouchEvent) => {
-  if (!props.interactive || !draggedSquare.value || !boardRef.value) return
-  
-  const touch = event.touches[0]
-  const element = document.elementFromPoint(touch.clientX, touch.clientY)
-  
-  if (element && element.classList.contains('square')) {
-    const allSquares = Array.from(boardRef.value.querySelectorAll('.square'))
-    const index = allSquares.indexOf(element as Element)
-    if (index !== -1) {
-      const row = Math.floor(index / 8)
-      const col = index % 8
-      dragOverSquare.value = getSquareName(row, col)
-    }
-  }
-}
-
-const handleTouchEnd = (event: TouchEvent) => {
-  if (!props.interactive || !draggedSquare.value || !boardRef.value) return
-  
-  const touch = event.changedTouches[0]
-  const element = document.elementFromPoint(touch.clientX, touch.clientY)
-  
-  if (element && element.classList.contains('square')) {
-    const allSquares = Array.from(boardRef.value.querySelectorAll('.square'))
-    const index = allSquares.indexOf(element as Element)
-    if (index !== -1) {
-      const row = Math.floor(index / 8)
-      const col = index % 8
-      const targetSquare = getSquareName(row, col)
-      const move = legalMoves.value.find(m => m.to === targetSquare)
-      
-      if (move) {
-        // Check if this is a pawn promotion
-        const fromPiece = getPiece(
-          8 - parseInt(draggedSquare.value[1]),
-          draggedSquare.value.charCodeAt(0) - 97
-        )
-        
-        const isPromotion = fromPiece?.type === 'p' && 
-                            (targetSquare[1] === '8' || targetSquare[1] === '1')
-        
-        if (isPromotion) {
-          // Store the promoting color before showing dialog
-          promotingColor.value = board().turn()
-          // Show promotion dialog
-          promotionMove.value = { from: draggedSquare.value, to: targetSquare }
-          showPromotionDialog.value = true
-          // Reset drag state but keep promotion state
-          draggedSquare.value = null
-          dragOverSquare.value = null
-          selectedSquare.value = null
-          legalMoves.value = []
-          return
-        }
-        
-        const isCapture = move.captured !== undefined
-        const isCastle = move.flags.includes('k') || move.flags.includes('q')
-        
-        if (isCastle) {
-          playCastleSound()
-        } else if (isCapture) {
-          playCaptureSound()
-        } else {
-          playMoveSound()
-        }
-        
-        emit('move', draggedSquare.value, targetSquare)
-      }
-    }
-  }
-  
-  // Reset state
-  draggedSquare.value = null
-  dragOverSquare.value = null
-  selectedSquare.value = null
-  legalMoves.value = []
+  if (!piece || !canPick(piece.color)) return
+  e.preventDefault()
+  const img = e.currentTarget as HTMLImageElement
+  const size = img.getBoundingClientRect().width * 1.15
+  drag.value = { from: getSquareName(row, col), x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, url: img.src, size, moved: false }
+  window.addEventListener('pointermove', onDragMove)
+  window.addEventListener('pointerup', endDrag)
+  window.addEventListener('pointercancel', endDrag)
 }
 
 const isDragOver = (row: number, col: number): boolean => {
@@ -994,6 +900,7 @@ const getSquareFromCoordinates = (clientX: number, clientY: number): { row: numb
 }
 
 const handleRightMouseDown = (row: number, col: number) => {
+  premove.value = null
   const center = getSquareCenterCoordinates(row, col)
   arrowStartSquare.value = { row, col }
   arrowDragMoved.value = false // Reset flag
@@ -1224,7 +1131,7 @@ const handleMouseDown = (event: MouseEvent) => {
     touch-action: none;
   }
   
-  .piece[draggable="true"] {
+  .piece.movable {
     cursor: default;
     pointer-events: auto;
   }
@@ -1346,13 +1253,24 @@ const handleMouseDown = (event: MouseEvent) => {
   z-index: 10;
 }
 
-.piece[draggable="true"] {
+.piece.movable {
   cursor: grab;
   pointer-events: auto;
+  touch-action: none;
 }
 
-.piece[draggable="true"]:active {
+.piece.movable:active {
   cursor: grabbing;
+}
+
+/* The dragged piece's own square: faded while it is in the air. */
+.piece.drag-source {
+  opacity: 0.25;
+}
+
+/* A queued pre-move: its two squares. */
+.square.premove {
+  box-shadow: inset 0 0 0 100vmax rgba(168, 71, 61, 0.35);
 }
 
 @media (min-width: 768px) {
@@ -1465,5 +1383,17 @@ const handleMouseDown = (event: MouseEvent) => {
   width: 100%;
   height: 100%;
   pointer-events: none;
+}
+</style>
+
+<style>
+/* Outside the board (teleported to the page): the piece being dragged. */
+.drag-ghost {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  filter: drop-shadow(0 6px 8px rgba(28, 33, 38, 0.35));
 }
 </style>

@@ -317,7 +317,8 @@
           <ChessBoard
             :chess="chess"
             :flipped="(myPlayer?.color === 'black') !== boardFlipped"
-            :interactive="isMyTurn && isGameActive && viewingMoveIndex === null"
+            :interactive="isGameActive && viewingMoveIndex === null"
+            :my-color="myPlayer?.color === 'black' ? 'b' : myPlayer?.color === 'white' ? 'w' : null"
             :last-move="lastMove"
             :analysis-arrows="analysisArrows"
             :piece-colors="pieceColors"
