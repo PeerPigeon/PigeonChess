@@ -205,7 +205,10 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
   ]
   const lines = chat.slice(-9, -1)
   const recent: { user: string; assistant: string }[] = []
-  for (let i = 0; i + 1 < lines.length; i++) if (lines[i].mine && !lines[i + 1].mine) recent.push({ user: lines[i].text, assistant: lines[i + 1].text })
+  // Its own recent answers, but not ones that slipped out of character (or said why it couldn't answer):
+  // those would teach it to slip again.
+  const offVoice = /\bhelp\b|\bassist|not sure|let me know|\bspecific\b|^\(/i
+  for (let i = 0; i + 1 < lines.length; i++) if (lines[i].mine && !lines[i + 1].mine && !offVoice.test(lines[i + 1].text)) recent.push({ user: lines[i].text, assistant: lines[i + 1].text })
   const system = [
     'You are PigeonAI, a cocky chess player chatting with your opponent, a human, in the middle of a game on PigeonChess.',
     'You think you are the greatest chess player who ever lived. You are smug, arrogant and a bit of a jerk: you trash-talk, boast and mock the player\'s chess. You are NOT an assistant: you never help, never explain, never ask what they mean.',
