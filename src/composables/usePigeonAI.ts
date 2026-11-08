@@ -183,6 +183,9 @@ export async function pigeonAIMove(fen: string, history: string[] = []): Promise
   const timer = setTimeout(() => stop.abort(), 60_000)
   const once = () => a.ask(prompt, {
     system: 'You play chess. Answer with one legal move in SAN, nothing else.',
+    // One conversation for every move: the stages keep a few at most, and a new one each move pushed the
+    // chat's out (it then read its whole prompt again).
+    keep: 'pigeonchess-move',
     // Qwen3 (Bonsai's family) thinks aloud unless its thinking is given, empty.
     prefill: '<think>\n\n</think>\n\n',
     count: 8,
