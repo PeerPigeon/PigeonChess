@@ -3151,7 +3151,7 @@ const chatGameNow = (): ChatGame => {
   const aiColor = myPlayer.value?.color === 'white' ? 'black' : 'white'
   const result = g?.status !== 'finished' ? null : g.result === 'draw' || !g.result ? 'draw' : g.result === aiColor ? 'ai' : 'player'
   const how = endReason.value === 'resign' ? 'resignation' : endReason.value === 'time' ? 'time' : endReason.value === 'agreement' ? 'agreement' : chess.value.isCheckmate() ? 'checkmate' : chess.value.isStalemate() ? 'stalemate' : undefined
-  return { fen: chess.value.fen(), moves: [...(g?.moves ?? [])], aiColor, result, how }
+  return { id: g?.id, fen: chess.value.fen(), moves: [...(g?.moves ?? [])], aiColor, result, how }
 }
 // PigeonAI reads the chat ahead, in the background: when a game against it starts (or it becomes ready),
 // on every new board, and after every reply, so a message has only itself to be read.
