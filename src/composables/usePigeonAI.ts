@@ -262,7 +262,7 @@ function describeGame(g: ChatGame): string {
  * PigeonAI's reply to a chat message during (or right after) a game against it, in character: the
  * best player in the world, and a bit of a jerk about it. Throws when it can't answer.
  */
-export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine: boolean; text: string }[]): Promise<string> {
+export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine: boolean; text: string }[], onText?: (soFar: string) => void): Promise<string> {
   if (!ai) throw new Error(status.value.startsWith('PigeonAI could not start') ? 'PigeonAI could not start here' : 'PigeonAI is still starting')
   const a = ai
   if (!(await a.whenReady(30_000))) throw new Error('PigeonAI is not ready yet')
@@ -275,8 +275,11 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
     'Never agree that they are good or better than you. Never be polite or friendly. You are not an assistant: never offer help, never explain, never ask what they mean, never say "Sure" or "Here\'s".',
     'Never introduce yourself or describe what kind of player you are: just talk trash.',
     'Reply with one or two short, punchy sentences, in the first person, as plain text with no formatting. Playful, never hateful or crude.',
-    `The game right now: ${describeGame(game)}`,
   ].join('\n')
+  // What changes every message (the board) goes last, as a note right before the player's message: the
+  // system message and the examples stay the same, so the devices holding the model keep what they read
+  // of them (ask's keep) and read only what is new.
+  const note = `The game right now: ${describeGame(game)}`
   const voice: { user: string; assistant: string }[] = [
     { user: 'hello', assistant: 'Save the small talk. You will need every brain cell you have just to survive this game.' },
     { user: "i'm better than you", assistant: 'Better than me? You can barely find the right square for your knight.' },
@@ -295,7 +298,16 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
   const stop = new AbortController()
   const timer = setTimeout(() => stop.abort(), 90_000)
   try {
-    const once = async () => said((await a.ask(message, { system, turns, prefill: '<think>\n\n</think>\n\n', count: 40, temperature: 0.9, signal: stop.signal })).text)
+    const once = async () => {
+      // The reply as it is written, shown as it comes.
+      let soFar = ''
+      onText?.('')
+      const r = await a.ask(message, {
+        system, turns, note, keep: 'pigeonchess-chat', prefill: '<think>\n\n</think>\n\n', count: 40, temperature: 0.9, signal: stop.signal,
+        onText: (piece) => { soFar += piece; onText?.(soFar.replace(/<\/?think>/g, '').trimStart()) },
+      })
+      return said(r.text)
+    }
     try {
       return (await once()) || '…'
     } catch (error) {

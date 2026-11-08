@@ -3129,9 +3129,19 @@ let chatSeq = 0
 const chatWithPigeonAI = computed(() => isAIGame.value && gameEngine.value === 'pigeonai' && Boolean(currentGame.value))
 const pigeonTyping = ref(false)
 const canChat = computed(() => chatWithPigeonAI.value || (!isAIGame.value && Boolean(opponentId.value) && Boolean(currentGame.value)))
-const addChatLine = (mine: boolean, text: string) => {
-  chatMessages.value.push({ id: ++chatSeq, mine, text })
+const addChatLine = (mine: boolean, text: string): number => {
+  const id = ++chatSeq
+  chatMessages.value.push({ id, mine, text })
   if (chatMessages.value.length > 200) chatMessages.value.splice(0, chatMessages.value.length - 200)
+  nextTick(() => { if (chatList.value) chatList.value.scrollTop = chatList.value.scrollHeight })
+  return id
+}
+/** A chat line's text changed (PigeonAI's reply as it is written); '' takes the line out. */
+const setChatLine = (id: number, text: string) => {
+  const i = chatMessages.value.findIndex((l) => l.id === id)
+  if (i < 0) return
+  if (!text) { chatMessages.value.splice(i, 1); return }
+  chatMessages.value[i] = { ...chatMessages.value[i], text }
   nextTick(() => { if (chatList.value) chatList.value.scrollTop = chatList.value.scrollHeight })
 }
 const sendChat = () => {
@@ -3145,9 +3155,16 @@ const sendChat = () => {
     const aiColor = myPlayer.value?.color === 'white' ? 'black' : 'white'
     const result = g?.status !== 'finished' ? null : g.result === 'draw' || !g.result ? 'draw' : g.result === aiColor ? 'ai' : 'player'
     const how = endReason.value === 'resign' ? 'resignation' : endReason.value === 'time' ? 'time' : endReason.value === 'agreement' ? 'agreement' : chess.value.isCheckmate() ? 'checkmate' : chess.value.isStalemate() ? 'stalemate' : undefined
-    void pigeonAIChat(text, { fen: chess.value.fen(), moves: [...(g?.moves ?? [])], aiColor, result, how }, lines)
-      .then((reply) => addChatLine(false, reply))
-      .catch((err: Error) => addChatLine(false, `(${err.message})`))
+    // Its reply shows as it is written: a line of its own from the first words, finished at the end.
+    let line = 0
+    const show = (t: string) => {
+      if (!line) { if (t) line = addChatLine(false, t); return }
+      setChatLine(line, t)
+      if (!t) line = 0
+    }
+    void pigeonAIChat(text, { fen: chess.value.fen(), moves: [...(g?.moves ?? [])], aiColor, result, how }, lines, show)
+      .then((reply) => show(reply))
+      .catch((err: Error) => show(`(${err.message})`))
       .finally(() => { pigeonTyping.value = false })
     return
   }
