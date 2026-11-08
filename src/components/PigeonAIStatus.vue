@@ -1,14 +1,14 @@
 <template>
-  <!-- PigeonAI's state: a bar while this device loads its share of the model (the details on hover),
-       else in words ("Ready: …", or what it is waiting for). -->
+  <!-- PigeonAI's state: words only when ready ("Ready: …"); until then a bar (what it is doing, in words,
+       on hover). -->
   <span class="pai-status" :class="{ ready }" :title="text">
-    <template v-if="progress !== null">
+    <template v-if="!ready">
       <span class="pai-bar" role="progressbar" :aria-valuenow="pct" aria-valuemin="0" aria-valuemax="100" :aria-label="text">
         <span class="pai-fill" :style="{ width: `${pct}%` }"></span>
       </span>
       <span class="pai-pct">{{ pct }}%</span>
     </template>
-    <template v-else>{{ text || 'Starting…' }}</template>
+    <template v-else>{{ text }}</template>
   </span>
 </template>
 
@@ -17,6 +17,7 @@ import { computed } from 'vue'
 
 const props = defineProps<{ text: string; progress: number | null; ready: boolean }>()
 const pct = computed(() => Math.floor(100 * (props.progress ?? 0)))
+const text = computed(() => props.text || 'Starting…')
 </script>
 
 <style scoped>

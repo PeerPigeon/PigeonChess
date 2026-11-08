@@ -30,7 +30,7 @@ const PHONE = typeof navigator !== 'undefined' && (/iPhone|iPad|iPod|Android/i.t
 const HOLD_KEY = 'pigeonai:hold-at-most'
 const LOADING_KEY = 'pigeonai:loading-since'
 function holdAtMost(): number {
-  const start = PHONE ? 250e6 : 2e9
+  const start = PHONE ? 250e6 : 2.5e9
   let hold = start
   try {
     // A cap halved by an older build starts afresh with this one (it may hold its share differently).
@@ -96,7 +96,7 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
         // No draft model: a move is a few tokens, not worth a second download.
         draftModel: null,
         // As much of the model as this browser can hold (holdAtMost above): a phone 250 MB (a middle part,
-        // never the 823 MB first one), a computer 2 GB, less if the page died loading before.
+        // never the 823 MB first one), a computer 2.5 GB, less if the page died loading before.
         // Below 100 MB it holds nothing, and only asks.
         ...(hold >= 100e6 ? { holdAtMost: hold } : { host: () => false }),
         onStatus: (text) => { status.value = text },
@@ -109,7 +109,18 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
         status.value = describe(ai)
         let pending = 0, done = 0, total = 0
         for (const p of ai.loading.values()) { if (p.done < p.total) pending++; done += p.done; total += p.total }
-        progress.value = !ready.value && total > 0 ? Math.min(1, done / total) : null
+        // Not ready: always a bar (the words go in its tooltip). This device loading its share: how far
+        // it is. Else how much of the model the peers here have loaded between them (or, short of room,
+        // how much of it they can hold).
+        if (ready.value) progress.value = null
+        else if (total > 0) progress.value = Math.min(1, done / total)
+        else {
+          const p = ai.pipeline, ids = ai.members.ids()
+          let built = 0
+          for (let s = 0; s < p.stages; s++) if (ids.some((id) => p.hasStage(id, s))) built++
+          const room = ai.space()
+          progress.value = room.have < room.need ? Math.min(1, room.have / room.need) : p.stages ? built / p.stages : 0
+        }
         loading(pending > 0)
       }
       tick()
