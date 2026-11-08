@@ -4903,7 +4903,7 @@ onUnmounted(() => {
 .seat-captures img {
   width: 28px;
   height: 28px;
-  margin-right: -9px;
+  margin-right: -4px;
 }
 
 .seat-captures b {
