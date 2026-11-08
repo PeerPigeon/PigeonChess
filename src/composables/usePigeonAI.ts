@@ -63,6 +63,8 @@ const ready = ref(false)
 const progress = ref<number | null>(null)
 /** Not ready and nothing loading here (waiting on other devices, or for room): the bar stands still. */
 const paused = ref(false)
+const PROGRESS_KEY = 'pigeonai:progress'
+try { const kept = Number(sessionStorage.getItem(PROGRESS_KEY)); if (kept > 0 && kept <= 1) progress.value = kept } catch { /* no storage */ }
 let ai: PigeonAI | null = null
 let starting: Promise<void> | null = null
 
@@ -118,6 +120,9 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
         if (ready.value) progress.value = null
         else if (total > 0 && pending > 0) progress.value = Math.max(progress.value ?? 0, Math.min(1, done / total))
         else progress.value = progress.value ?? 0
+        // Kept for a reload of this tab: the bar starts again where it was (the pieces loaded are kept
+        // here too, so the loading itself goes on from there, reading them back first).
+        try { if (progress.value === null) sessionStorage.removeItem(PROGRESS_KEY); else sessionStorage.setItem(PROGRESS_KEY, String(progress.value)) } catch { /* no storage */ }
         loading(pending > 0)
       }
       tick()
