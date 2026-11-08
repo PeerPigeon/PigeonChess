@@ -587,7 +587,7 @@ import { boardRef } from './utils/boardRef'
 import { pigeonSearch } from './utils/pigeonAi'
 import { usePeerPigeon, migrateSignalingUrls } from './composables/usePeerPigeon'
 import { forgetSharedGameInUrl, movesPlay, offerLink, sharedGameInUrl, shareUrl, unpackGame } from '@/utils/shareGame'
-import { usePigeonAI, startPigeonAIPeer, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, type ChatGame } from './composables/usePigeonAI'
+import { usePigeonAI, startPigeonAIPeer, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, movesJustPlayed, type ChatGame } from './composables/usePigeonAI'
 import { useSeek } from './composables/useSeek'
 import { loadSeat, makeSeatKeys, open, saveSeat, seal, type Seat, type SeatKeys } from './composables/useSeat'
 import { useNotify } from './composables/useNotify'
@@ -3169,24 +3169,38 @@ watch(
   },
   { immediate: true },
 )
+// Now and then, PigeonAI speaks up on its own after a move: when it is the player's turn again (just after
+// its own move, so the mesh is not writing its move at the same time), four times in ten.
+watch(() => currentGame.value?.moves.length ?? 0, (n, before) => {
+  if (!chatWithPigeonAI.value || !pigeonAI.ready.value || pigeonTyping.value || n <= (before ?? 0)) return
+  if (currentGame.value?.status !== 'active') return
+  const mine = myPlayer.value?.color === 'white' ? 'w' : 'b'
+  if (chess.value.turn() !== mine || Math.random() >= 0.4) return
+  askPigeonAI(null)
+})
+/** PigeonAI's reply to `text` (null: it speaks up on its own, about the moves just played), shown as it is written. */
+const askPigeonAI = (text: string | null) => {
+  pigeonTyping.value = true
+  const said = text ?? movesJustPlayed(currentGame.value?.moves ?? [])
+  const lines = [...chatMessages.value.map((l) => ({ mine: l.mine, text: l.text })), ...(text === null ? [{ mine: true, text: said }] : [])]
+  // Its reply shows as it is written: a line of its own from the first words, finished at the end.
+  let line = 0
+  const show = (t: string) => {
+    if (!line) { if (t) line = addChatLine(false, t); return }
+    setChatLine(line, t)
+    if (!t) line = 0
+  }
+  void pigeonAIChat(said, chatGameNow(), lines, show)
+    .then((reply) => show(text === null && reply === '…' ? '' : reply))
+    .catch((err: Error) => { if (text !== null) show(`(${err.message})`); else show('') })
+    .finally(() => { pigeonTyping.value = false })
+}
 const sendChat = () => {
   const text = chatDraft.value.trim().slice(0, CHAT_MAX)
   if (text && chatWithPigeonAI.value) {
     chatDraft.value = ''
     addChatLine(true, text)
-    pigeonTyping.value = true
-    const lines = chatMessages.value.map((l) => ({ mine: l.mine, text: l.text }))
-    // Its reply shows as it is written: a line of its own from the first words, finished at the end.
-    let line = 0
-    const show = (t: string) => {
-      if (!line) { if (t) line = addChatLine(false, t); return }
-      setChatLine(line, t)
-      if (!t) line = 0
-    }
-    void pigeonAIChat(text, chatGameNow(), lines, show)
-      .then((reply) => show(reply))
-      .catch((err: Error) => show(`(${err.message})`))
-      .finally(() => { pigeonTyping.value = false })
+    askPigeonAI(text)
     return
   }
   const to = opponentId.value

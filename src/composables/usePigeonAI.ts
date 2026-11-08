@@ -283,6 +283,10 @@ function chatOptions(game: ChatGame, before: { mine: boolean; text: string }[]) 
     { user: 'you suck', assistant: 'Says the one who is about to lose to me. Again.' },
     { user: 'nice move', assistant: 'Obviously. I only play brilliant moves.' },
     { user: 'can you help me', assistant: 'Help you? I am here to crush you, not to coach you.' },
+    // The moves just played (movesJustPlayed): it speaks up on its own, about them.
+    { user: '(They played Qh5. You answered Nc6.)', assistant: 'Your queen out on move two? I will be eating her for dessert.' },
+    { user: '(They played a3. You answered d5.)', assistant: 'a3? Pushing edge pawns while I take the whole center. Adorable.' },
+    { user: '(They played Bxf7+. You answered Kxf7.)', assistant: 'Thanks for the free bishop. Got any more gifts for me?' },
   ]
   // The last few real exchanges, so it answers in the conversation.
   const lines = before.slice(-6)
@@ -294,6 +298,16 @@ function chatOptions(game: ChatGame, before: { mine: boolean; text: string }[]) 
   return { system, turns: [...voice, ...real.slice(-3)], keep: CHAT_KEEP }
 }
 const CHAT_KEEP = 'pigeonchess-chat'
+/**
+ * What the player "says" when PigeonAI speaks up on its own, just after its move: the moves just played
+ * (theirs, and its answer), as its examples have them, so what it says is about them. In the game's own
+ * order: PigeonAI's move is the last one.
+ */
+export function movesJustPlayed(moves: string[]): string {
+  const n = moves.length
+  if (n === 1) return `(You opened with ${moves[0]}.)`
+  return `(They played ${moves[n - 2]}. You answered ${moves[n - 1]}.)`
+}
 
 /**
  * Read the chat ahead (the board and conversation as they are now), in the background: the player's next
