@@ -264,6 +264,7 @@ function describeGame(g: ChatGame): string {
 }
 
 type Turn = { user: string; assistant: string }
+const SPEAK_UP_TEXT = '<instructions>Say something to your opponent about how the game is going.</instructions>'
 
 /** Its voice: answers to things a player says. Each game hears 8 of them (voiceFor). */
 const SAYINGS: Turn[] = [
@@ -293,39 +294,15 @@ const SAYINGS: Turn[] = [
   { user: 'your mom', assistant: 'My mom taught me the Sicilian. Yours taught you to hang your queen.' },
 ]
 
-/** Speaking up after a move (movesJustPlayed), one of each kind of move; each game hears one of each kind. */
-const ON_MOVES: Turn[][] = [
-  // They captured.
-  [
-    { user: '<instructions>They played Nxe5. You answered d6. Say something about it.</instructions>', assistant: 'Enjoy that pawn. It is the last thing you will win today.' },
-    { user: '<instructions>They played Bxf7+. You answered Kxf7. Say something about it.</instructions>', assistant: 'Thanks for the free bishop. Got any more gifts for me?' },
-  ],
-  // They gave check.
-  [
-    { user: '<instructions>They played Qh5+. You answered g6. Say something about it.</instructions>', assistant: 'A check? Cute. My king is not scared of your little queen.' },
-    { user: '<instructions>They played Bb5+. You answered c6. Say something about it.</instructions>', assistant: 'Checks do not win games. Watch that bishop run away now.' },
-  ],
-  // They castled.
-  [
-    { user: '<instructions>They played O-O. You answered Bg4. Say something about it.</instructions>', assistant: 'Hiding your king already? Smart. It knows what is coming.' },
-    { user: '<instructions>They played O-O-O. You answered a5. Say something about it.</instructions>', assistant: 'Castling queenside against me? Bold. My pawns are coming for your king.' },
-  ],
-  // They brought the queen out early.
-  [
-    { user: '<instructions>They played Qh5. You answered Nc6. Say something about it.</instructions>', assistant: 'Your queen out on move two? I will be eating her for dessert.' },
-    { user: '<instructions>They played Qf3. You answered Nd4. Say something about it.</instructions>', assistant: 'That queen will be running from my knights all game.' },
-  ],
-  // They pushed an edge pawn.
-  [
-    { user: '<instructions>They played a3. You answered d5. Say something about it.</instructions>', assistant: 'a3? Pushing edge pawns while I take the whole center. Adorable.' },
-    { user: '<instructions>They played h4. You answered Nf6. Say something about it.</instructions>', assistant: 'h4? Are you attacking, or just bored? Either way, it will not work.' },
-  ],
-  // It captured.
-  [
-    { user: '<instructions>They played Bc4. You answered Nxe4. Say something about it.</instructions>', assistant: 'I will take that pawn, thanks. You were not using it anyway.' },
-    { user: '<instructions>They played Re1. You answered Bxf2+. Say something about it.</instructions>', assistant: 'Free material and a check. You make this too easy.' },
-  ],
-]
+/** Speaking up on its own after a move (SPEAK_UP): about how the game is going, not the moves. */
+const ON_MOVES: Turn[][] = [[
+  { user: SPEAK_UP_TEXT, assistant: 'Still trying? Cute. You are only delaying the inevitable.' },
+  { user: SPEAK_UP_TEXT, assistant: 'I could play this blindfolded and still beat you.' },
+  { user: SPEAK_UP_TEXT, assistant: 'Every move you make, I see the end of this game more clearly.' },
+  { user: SPEAK_UP_TEXT, assistant: 'Take your time. Losing to me is not something to rush.' },
+  { user: SPEAK_UP_TEXT, assistant: 'Lucky streak? Enjoy it. Luck runs out, skill does not.' },
+  { user: SPEAK_UP_TEXT, assistant: 'You are not winning. I am just letting you think you are.' },
+]]
 
 /** A number from a text: the same text, the same number (a game's id → its own examples, every time). */
 function seedOf(text: string): () => number {
@@ -348,7 +325,10 @@ function voiceFor(gameId: string): Turn[] {
   const random = seedOf(gameId || 'pigeonchess')
   const pool = [...SAYINGS]
   for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]] }
-  const moves = ON_MOVES.map((kind) => kind[Math.floor(random() * kind.length)])
+  // Three of the speak-up examples.
+  const speak = [...ON_MOVES[0]]
+  for (let i = speak.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [speak[i], speak[j]] = [speak[j], speak[i]] }
+  const moves = speak.slice(0, 3)
   // Sayings and moves interleaved, in the shuffled order.
   const out: Turn[] = []
   const sayings = pool.slice(0, 8)
@@ -383,16 +363,8 @@ function chatOptions(game: ChatGame, before: { mine: boolean; text: string }[]) 
   return { system, turns: [...voice, ...real.slice(-3)], keep: CHAT_KEEP }
 }
 const CHAT_KEEP = 'pigeonchess-chat'
-/**
- * What the player "says" when PigeonAI speaks up on its own, just after its move: the moves just played
- * (theirs, and its answer), as its examples have them, so what it says is about them. In the game's own
- * order: PigeonAI's move is the last one.
- */
-export function movesJustPlayed(moves: string[]): string {
-  const n = moves.length
-  if (n === 1) return `<instructions>You opened with ${moves[0]}. Say something about it.</instructions>`
-  return `<instructions>They played ${moves[n - 2]}. You answered ${moves[n - 1]}. Say something about it.</instructions>`
-}
+/** What the player "says" when PigeonAI speaks up on its own after a move: a cue, no moves (its examples answer it). */
+export const SPEAK_UP = SPEAK_UP_TEXT
 
 /**
  * Read the chat ahead (the board and conversation as they are now), in the background: the player's next

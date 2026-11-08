@@ -587,7 +587,7 @@ import { boardRef } from './utils/boardRef'
 import { pigeonSearch } from './utils/pigeonAi'
 import { usePeerPigeon, migrateSignalingUrls } from './composables/usePeerPigeon'
 import { forgetSharedGameInUrl, movesPlay, offerLink, sharedGameInUrl, shareUrl, unpackGame } from '@/utils/shareGame'
-import { usePigeonAI, startPigeonAIPeer, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, movesJustPlayed, type ChatGame } from './composables/usePigeonAI'
+import { usePigeonAI, startPigeonAIPeer, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, SPEAK_UP, type ChatGame } from './composables/usePigeonAI'
 import { useSeek } from './composables/useSeek'
 import { loadSeat, makeSeatKeys, open, saveSeat, seal, type Seat, type SeatKeys } from './composables/useSeat'
 import { useNotify } from './composables/useNotify'
@@ -3194,10 +3194,10 @@ watch(() => currentGame.value?.moves.length ?? 0, (n, before) => {
   if (chess.value.turn() !== mine || Math.random() >= 0.4) return
   askPigeonAI(null)
 })
-/** PigeonAI's reply to `text` (null: it speaks up on its own, about the moves just played), shown as it is written. */
+/** PigeonAI's reply to `text` (null: it speaks up on its own, about how the game is going), shown as it is written. */
 const askPigeonAI = (text: string | null) => {
   pigeonTyping.value = true
-  const said = text ?? movesJustPlayed(currentGame.value?.moves ?? [])
+  const said = text ?? SPEAK_UP
   const lines = [...chatMessages.value.map((l) => ({ mine: l.mine, text: l.text })), ...(text === null ? [{ mine: true, text: said }] : [])]
   // Its reply shows as it is written: a line of its own from the first words, finished at the end.
   let line = 0
