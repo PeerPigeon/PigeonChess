@@ -3126,6 +3126,22 @@ const chatMessages = ref<ChatLine[]>([])
 const chatDraft = ref('')
 const chatList = ref<HTMLElement | null>(null)
 let chatSeq = 0
+// The chat always shows its last line: whenever the list is shown (a reload, a game coming back), its
+// lines change (one added, a reply growing word by word) or its size changes (the page reflowing).
+let chatWatch: { mo: MutationObserver; ro: ResizeObserver } | null = null
+const toChatBottom = () => { const el = chatList.value; if (el) el.scrollTop = el.scrollHeight }
+watch(chatList, (el) => {
+  chatWatch?.mo.disconnect(); chatWatch?.ro.disconnect(); chatWatch = null
+  if (!el) return
+  const mo = new MutationObserver(toChatBottom)
+  mo.observe(el, { childList: true, subtree: true, characterData: true })
+  const ro = new ResizeObserver(toChatBottom)
+  ro.observe(el)
+  chatWatch = { mo, ro }
+  toChatBottom()
+  // After a reload: again once the fonts are in (lines wrap differently, and the last one moved down).
+  void document.fonts?.ready.then(() => requestAnimationFrame(toChatBottom))
+}, { flush: 'post' })
 /** Chatting with PigeonAI: in a game against it, messages go to it (usePigeonAI.ts), and it answers. */
 const chatWithPigeonAI = computed(() => isAIGame.value && gameEngine.value === 'pigeonai' && Boolean(currentGame.value))
 const pigeonTyping = ref(false)
@@ -3134,7 +3150,7 @@ const addChatLine = (mine: boolean, text: string): number => {
   const id = ++chatSeq
   chatMessages.value.push({ id, mine, text })
   if (chatMessages.value.length > 200) chatMessages.value.splice(0, chatMessages.value.length - 200)
-  nextTick(() => { if (chatList.value) chatList.value.scrollTop = chatList.value.scrollHeight })
+  nextTick(toChatBottom)
   return id
 }
 /** A chat line's text changed (PigeonAI's reply as it is written); '' takes the line out. */
@@ -3143,7 +3159,7 @@ const setChatLine = (id: number, text: string) => {
   if (i < 0) return
   if (!text) { chatMessages.value.splice(i, 1); return }
   chatMessages.value[i] = { ...chatMessages.value[i], text }
-  nextTick(() => { if (chatList.value) chatList.value.scrollTop = chatList.value.scrollHeight })
+  nextTick(toChatBottom)
 }
 /** The game as PigeonAI's chat sees it, now. */
 const chatGameNow = (): ChatGame => {
