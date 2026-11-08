@@ -11,6 +11,7 @@ import { ref } from 'vue'
 import { createChess } from '@/utils/variant'
 
 declare const __PIGEONAI__: boolean
+declare const __BUILD__: string
 /** Whether this build has PigeonAI in it. */
 export const PIGEONAI_HERE = __PIGEONAI__
 
@@ -19,8 +20,6 @@ type Signaling = { signalingServer?: string; signalingServers?: string[]; automa
 
 /** A phone or tablet (iPadOS says it is a Mac; it has a touch screen). */
 const PHONE = typeof navigator !== 'undefined' && (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1))
-
-const SAFARI = typeof navigator !== 'undefined' && /Safari\//.test(navigator.userAgent) && !/Chrome\/|Chromium\/|Edg\//.test(navigator.userAgent)
 
 /**
  * The most of the model this device holds, in bytes. A browser reloads a page that uses too much memory
@@ -31,21 +30,30 @@ const SAFARI = typeof navigator !== 'undefined' && /Safari\//.test(navigator.use
 const HOLD_KEY = 'pigeonai:hold-at-most'
 const LOADING_KEY = 'pigeonai:loading-since'
 function holdAtMost(): number {
-  const start = PHONE ? 250e6 : SAFARI ? 1.2e9 : 2e9
+  const start = PHONE ? 250e6 : 2e9
   let hold = start
   try {
-    const kept = Number(localStorage.getItem(HOLD_KEY))
-    if (kept > 0) hold = Math.min(start, kept)
-    // The page was loading its share and never got there: it was reloaded for its memory. Half next time.
-    if (sessionStorage.getItem(LOADING_KEY)) {
+    // A cap halved by an older build starts afresh with this one (it may hold its share differently).
+    const kept = localStorage.getItem(HOLD_KEY)?.split(' ')
+    if (kept && kept[1] === __BUILD__ && Number(kept[0]) > 0) hold = Math.min(start, Number(kept[0]))
+    // The page had been loading its share a while and never got there: reloaded for its memory, most
+    // likely (a quick reload by hand is not counted). Half next time.
+    const since = Number(sessionStorage.getItem(LOADING_KEY))
+    if (since && Date.now() - since > 20_000) {
       hold = Math.floor(hold / 2)
-      localStorage.setItem(HOLD_KEY, String(hold))
+      localStorage.setItem(HOLD_KEY, `${hold} ${__BUILD__}`)
       console.warn(`PigeonAI: this page was reloaded while loading its share; it now holds at most ${Math.round(hold / 1e6)} MB`)
     }
   } catch { /* no storage: the start */ }
   return hold
 }
-const loading = (on: boolean) => { try { if (on) sessionStorage.setItem(LOADING_KEY, String(Date.now())); else sessionStorage.removeItem(LOADING_KEY) } catch { /* no storage */ } }
+// When loading began (kept while it goes on, so a page that dies loading is noticed on its next start).
+const loading = (on: boolean) => {
+  try {
+    if (!on) sessionStorage.removeItem(LOADING_KEY)
+    else if (!sessionStorage.getItem(LOADING_KEY)) sessionStorage.setItem(LOADING_KEY, String(Date.now()))
+  } catch { /* no storage */ }
+}
 
 /** What PigeonAI is doing here, in words (for the Computer panel). */
 const status = ref('')
@@ -61,6 +69,10 @@ const describe = (a: PigeonAI): string => {
   // Where it is coming from: the storage servers (PigeonFS), or Hugging Face for what they don't have yet.
   const mb = (n: number) => `${Math.round(n / 1e6)} MB`
   if (total > 0) return `Loading this device's share of the model: ${Math.round((100 * done) / total)}% (${mb(servers)} from PigeonFS, ${mb(Math.max(0, done - servers - cached))} from Hugging Face${cached ? `, ${mb(cached)} already on this device` : ''}).`
+  // Not enough room among the devices here for the whole model: say so, and how much is missing.
+  const room = a.space()
+  const gb = (n: number) => (n / 1e9).toFixed(1)
+  if (room.have < room.need) return `Not enough devices here yet: the ${room.hosts} here can hold ${gb(room.have)} GB of the model's ${gb(room.need)} GB. Another computer on chess.peer.ooo would do it.`
   return a.gpu ? 'Waiting for the model to be shared out between the peers…' : 'Waiting for peers with a GPU to hold the model (this device has none).'
 }
 
@@ -79,7 +91,7 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
         // No draft model: a move is a few tokens, not worth a second download.
         draftModel: null,
         // As much of the model as this browser can hold (holdAtMost above): a phone 250 MB (a middle part,
-        // never the 823 MB first one), Safari 1.2 GB, others 2 GB, less if the page died loading before.
+        // never the 823 MB first one), a computer 2 GB, less if the page died loading before.
         // Below 100 MB it holds nothing, and only asks.
         ...(hold >= 100e6 ? { holdAtMost: hold } : { host: () => false }),
         onStatus: (text) => { status.value = text },
