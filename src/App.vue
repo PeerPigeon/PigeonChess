@@ -4908,7 +4908,7 @@ onUnmounted(() => {
 
 /* More of the same piece overlap a little; a different piece starts apart. */
 .seat-captures img.dup {
-  margin-left: -13px;
+  margin-left: -22px;
 }
 
 .seat-captures b {
