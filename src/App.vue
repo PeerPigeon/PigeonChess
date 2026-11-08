@@ -3187,15 +3187,26 @@ watch(
 )
 // PigeonAI speaks up on its own after its move (the player's turn again, so the mesh is not writing its
 // move at the same time): always when it took a piece, otherwise now and then.
+let speakTimer: ReturnType<typeof setTimeout> | null = null
+const dropSpeakUp = () => { if (speakTimer) { clearTimeout(speakTimer); speakTimer = null } }
 watch(() => currentGame.value?.moves.length ?? 0, (n, before) => {
+  // A new move (or the game gone): a comment still waiting to start is dropped.
+  dropSpeakUp()
   if (!chatWithPigeonAI.value || !pigeonAI.ready.value || pigeonTyping.value || n <= (before ?? 0)) return
   if (currentGame.value?.status !== 'active') return
   const mine = myPlayer.value?.color === 'white' ? 'w' : 'b'
   if (chess.value.turn() !== mine) return
   // Its move took one of the player's pieces: it always says something. Otherwise four times in ten.
   const last = chess.value.history({ verbose: true }).at(-1) as { captured?: string } | undefined
-  if (last?.captured) askPigeonAI(null, tookCue(last.captured))
-  else if (Math.random() < 0.4) askPigeonAI(null)
+  const cue = last?.captured ? tookCue(last.captured) : Math.random() < 0.4 ? SPEAK_UP : null
+  if (!cue) return
+  // After a moment that varies, like a person: sooner after taking a piece.
+  const wait = last?.captured ? 500 + Math.random() * 2500 : 1000 + Math.random() * 6000
+  speakTimer = setTimeout(() => {
+    speakTimer = null
+    if (!chatWithPigeonAI.value || pigeonTyping.value || currentGame.value?.moves.length !== n) return
+    askPigeonAI(null, cue)
+  }, wait)
 })
 /** PigeonAI's reply to `text` (null: it speaks up on its own, about how the game is going), shown as it is written. */
 const askPigeonAI = (text: string | null, cue = SPEAK_UP) => {
@@ -3218,6 +3229,8 @@ const sendChat = () => {
   const text = chatDraft.value.trim().slice(0, CHAT_MAX)
   if (text && chatWithPigeonAI.value) {
     chatDraft.value = ''
+    // The player spoke first: its own comment, if still waiting to start, is dropped.
+    dropSpeakUp()
     addChatLine(true, text)
     askPigeonAI(text)
     return
