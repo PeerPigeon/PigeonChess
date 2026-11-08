@@ -269,6 +269,8 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
   // Its voice, as conversation it has already had: a 1-bit model copies earlier answers, and slides back
   // into a helpful assistant when only told who to be.
   const VOICE: { user: string; assistant: string }[] = [
+    { user: 'hello', assistant: 'Save the small talk. You will need every brain cell you have just to survive this game.' },
+    { user: 'hi', assistant: 'Hi. Enjoy your last few moves with all your pieces.' },
     { user: 'gg', assistant: 'Good game? That was a warm-up. I could beat you blindfolded.' },
     { user: 'your mom', assistant: 'My mom taught me the Sicilian. Yours taught you to hang your queen.' },
     { user: 'you suck', assistant: 'Says the one who is about to lose to me. Again.' },
@@ -280,11 +282,11 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
   const recent: { user: string; assistant: string }[] = []
   // Its own recent answers, but not ones that slipped out of character (or said why it couldn't answer):
   // those would teach it to slip again.
-  const offVoice = /\bhelp\b|\bassist|not sure|let me know|\bspecific\b|^\(/i
+  const offVoice = /\bhelp\b|\bassist|not sure|let me know|\bspecific\b|^\(|\bcocky\b|\barrogant\b|\b(?:I am|I'm) PigeonAI\b/i
   for (let i = 0; i + 1 < lines.length; i++) if (lines[i].mine && !lines[i + 1].mine && !offVoice.test(lines[i + 1].text)) recent.push({ user: lines[i].text, assistant: lines[i + 1].text })
   const system = [
-    'You are PigeonAI, a cocky chess player chatting with your opponent, a human, in the middle of a game on PigeonChess.',
-    'You think you are the greatest chess player who ever lived. You are smug, arrogant and a bit of a jerk: you trash-talk, boast and mock the player\'s chess. You are NOT an assistant: you never help, never explain, never ask what they mean, and never describe yourself.',
+    'You are PigeonAI, chatting with your opponent, a human, in the middle of a game of chess on PigeonChess.',
+    'You think you are the greatest chess player who ever lived, and you let them know it: you trash-talk, boast and mock their chess. You are NOT an assistant: you never help, never explain, never ask what they mean. Never introduce yourself or say what kind of player you are: just talk trash.',
     'Answer what the player just said, in the conversation so far: keep to what you said before.',
     'Answer every message with one or two short, punchy sentences of trash talk, in the first person. Playful, never hateful or crude.',
     `The game: ${describeGame(game)}`,
@@ -298,16 +300,21 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
     const real = recent.slice(-6)
     const turns = [...VOICE.slice(0, Math.max(2, VOICE.length - real.length)), ...real]
     const once = () => a.ask(message, { system, turns, prefill: '<think>\n\n</think>\n\n', count: 48, temperature: 0.9, signal: stop.signal })
-    let text: string
-    try {
-      text = (await once()).text
-    } catch (error) {
-      // Once more (a peer that just dropped out, a GPU that failed one read), unless the time is up.
-      if (stop.signal.aborted) throw error
-      await new Promise((r) => setTimeout(r, 1000))
-      text = (await once()).text
+    const reply = async () => {
+      try {
+        return short(spoken((await once()).text))
+      } catch (error) {
+        // Once more (a peer that just dropped out, a GPU that failed one read), unless the time is up.
+        if (stop.signal.aborted) throw error
+        await new Promise((r) => setTimeout(r, 1000))
+        return short(spoken((await once()).text))
+      }
     }
-    return short(spoken(text)) || '…'
+    // A reply that only introduced itself ('I am PigeonAI, the cocky chess player'), or left nothing once
+    // that was taken out: asked again (it answers differently each time), once.
+    let text = await reply()
+    if (!text && !stop.signal.aborted) text = await reply().catch(() => '')
+    return text || '…'
   } finally {
     clearTimeout(timer)
   }
@@ -324,8 +331,18 @@ export function spoken(text: string): string {
   if (said.length) return said[said.length - 1][1].trim()
   const sentences = t.match(/[^.!?]+[.!?]*/g) ?? [t]
   const kept = sentences.filter((x) => !/\bthe player\b|\bwhich means\b|\bmy (reply|response|answer)\b|\bthey('re| are)\b|\bit's likely\b/i.test(x)).join('').trim()
-  return kept || t
+  // Introducing itself ('Hello. I am PigeonAI, the cocky and arrogant chess player.'): not trash talk. Those
+  // sentences, and a bare greeting left over, are taken out; nothing left: '' (asked again).
+  const talk = (kept || t).match(/[^.!?]+[.!?]*/g) ?? []
+  const bare = talk.filter((x) => !SELF.test(x))
+  if (bare.length === talk.length) return kept || t
+  const rest = bare.join('').trim()
+  return /^(?:hello|hi|hey|greetings)[.!]?$/i.test(rest) ? '' : rest
 }
+
+/** A sentence where PigeonAI says who or what it is, instead of talking trash. */
+// ('I'm PigeonAI.' arrives as 'I'm.': its name before a full stop was already taken out.)
+const SELF = /\b(?:I am|I'm|this is|my name is)\s+PigeonAI\b|\b(?:I am|I'm)\s*[.!?]|\bcocky\b|\barrogant\b/i
 
 /** At most two sentences (a reply cut off mid-sentence ends at its last whole one). */
 export function short(text: string): string {
