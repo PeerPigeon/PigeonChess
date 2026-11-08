@@ -184,7 +184,7 @@
             <button class="step" :disabled="viewingMoveIndex === null || viewingMoveIndex === currentGame.moves.length - 1" @click="nextMove" aria-label="Next move">›</button>
             <button class="step" :disabled="viewingMoveIndex === null" @click="goToEnd" aria-label="Current position">»</button>
           </div>
-          <ol class="move-list">
+          <ol v-stick-bottom class="move-list">
             <li v-for="(pair, row) in pairMoves(currentGame.moves)" :key="row">
               <span class="move-no">{{ row + 1 }}</span>
               <button v-for="(san, k) in pair" :key="k" class="ply" :class="{ current: row * 2 + k === viewingMoveIndex }" @click="goToMove(row * 2 + k)">{{ san }}</button>
@@ -387,7 +387,7 @@
             <button class="step" :disabled="viewingMoveIndex === null || viewingMoveIndex === (currentGame?.moves.length || 0) - 1" @click="nextMove" aria-label="Next move">›</button>
             <button class="step" :disabled="viewingMoveIndex === null" @click="goToEnd" aria-label="Current position">»</button>
           </div>
-          <ol class="move-list">
+          <ol v-stick-bottom class="move-list">
             <li v-if="!currentGame?.moves?.length" class="empty">No moves yet.</li>
             <li v-for="(pair, row) in pairMoves(currentGame?.moves || [])" :key="row">
               <span class="move-no">{{ row + 1 }}</span>
@@ -3127,6 +3127,26 @@ const chatMessages = ref<ChatLine[]>([])
 const chatDraft = ref('')
 const chatList = ref<HTMLElement | null>(null)
 let chatSeq = 0
+/**
+ * v-stick-bottom: the list always shows its last line: when it appears (a reload), when lines are added or
+ * change (a new move), and when its size changes.
+ */
+const vStickBottom = {
+  mounted(el: HTMLElement & { _stick?: { mo: MutationObserver; ro: ResizeObserver } }) {
+    const bottom = () => { el.scrollTop = el.scrollHeight }
+    const mo = new MutationObserver(bottom)
+    mo.observe(el, { childList: true, subtree: true, characterData: true })
+    const ro = new ResizeObserver(bottom)
+    ro.observe(el)
+    el._stick = { mo, ro }
+    bottom()
+    requestAnimationFrame(bottom)
+  },
+  unmounted(el: HTMLElement & { _stick?: { mo: MutationObserver; ro: ResizeObserver } }) {
+    el._stick?.mo.disconnect()
+    el._stick?.ro.disconnect()
+  },
+}
 // The chat always shows its last line: whenever the list is shown (a reload, a game coming back), its
 // lines change (one added, a reply growing word by word) or its size changes (the page reflowing).
 let chatWatch: { mo: MutationObserver; ro: ResizeObserver } | null = null
