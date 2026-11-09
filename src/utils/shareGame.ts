@@ -100,11 +100,23 @@ export function forgetSharedGameInUrl(): void {
 }
 
 /** Give the link to the player: the system's share sheet where there is one, else the clipboard. */
-export async function offerLink(url: string, title: string): Promise<'shared' | 'copied' | 'failed'> {
+/**
+ * Copy a game's link (the link may still be in the making: it needs the player's key, and the game packed).
+ * Safari copies only inside the tap itself, so the copy is started at once, with the link to come
+ * (ClipboardItem with a promise); elsewhere it is copied once ready. Where nothing can be copied: the
+ * share sheet, if there is one.
+ */
+export async function offerLink(url: string | Promise<string>, title: string): Promise<'shared' | 'copied' | 'failed'> {
+  const link = Promise.resolve(url)
   try {
-    if (navigator.share && matchMedia('(pointer: coarse)').matches) { await navigator.share({ title, url }); return 'shared' }
-  } catch (e) {
-    if ((e as Error).name === 'AbortError') return 'failed'
-  }
-  try { await navigator.clipboard.writeText(url); return 'copied' } catch { return 'failed' }
+    if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+      await navigator.clipboard.write([new ClipboardItem({ 'text/plain': link.then((u) => new Blob([u], { type: 'text/plain' })) })])
+      return 'copied'
+    }
+  } catch { /* the plain way, below */ }
+  try { await navigator.clipboard.writeText(await link); return 'copied' } catch { /* the share sheet, below */ }
+  try {
+    if (navigator.share) { await navigator.share({ title, url: await link }); return 'shared' }
+  } catch { /* nothing more to try */ }
+  return 'failed'
 }

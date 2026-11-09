@@ -55,6 +55,27 @@ async function push(request: Request, env: Env): Promise<Response> {
   return json({ ok: response.ok, status: response.status, gone: response.status === 404 || response.status === 410 }, response.ok ? 200 : 502)
 }
 
+// The card a link to a shared game shows in chats and social apps (index.html has the standard one).
+declare const HTMLRewriter: any
+const SHARED_CARD: Record<string, string> = {
+  'og:title': 'A shared game on PigeonChess',
+  'og:description': 'Replay this game of chess move by move on PigeonChess.',
+  'og:image': 'https://chess.peer.ooo/og-game.png',
+  'og:image:alt': 'PigeonChess: a shared game. Replay it move by move.',
+  'twitter:title': 'A shared game on PigeonChess',
+  'twitter:description': 'Replay this game of chess move by move on PigeonChess.',
+  'twitter:image': 'https://chess.peer.ooo/og-game.png',
+}
+function sharedGameCard(page: Response): Response {
+  if (!(page.headers.get('Content-Type') ?? '').includes('text/html')) return page
+  return new HTMLRewriter().on('meta', {
+    element(el: any) {
+      const name = el.getAttribute('property') ?? el.getAttribute('name')
+      if (name && SHARED_CARD[name]) el.setAttribute('content', SHARED_CARD[name])
+    },
+  }).transform(page)
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
@@ -66,6 +87,8 @@ export default {
       return push(request, env)
     }
     if (url.pathname === '/api/push-key') return json({ key: env.VAPID_PUBLIC_KEY ?? null })
+    // A link to a shared game (?game=…): the same page, with the social card for a shared game.
+    if (url.searchParams.has('game') && request.method === 'GET') return sharedGameCard(await env.ASSETS.fetch(request))
     return env.ASSETS.fetch(request)
   },
 }

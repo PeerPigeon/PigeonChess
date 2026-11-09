@@ -108,7 +108,7 @@
         </div>
 
         <div class="actions">
-          <button class="btn" @click="shareReplayGame">{{ shareWord || 'Share this game' }}</button>
+          <button class="btn" @click="shareReplayGame">{{ shareWord || 'Copy link' }}</button>
           <button class="btn" @click="exitReplayMode">Back to the lobby</button>
         </div>
 
@@ -375,7 +375,7 @@
           <div v-if="currentGame?.status === 'finished'" class="result">
             <p class="result-line">{{ resultLine }}</p>
             <div class="row">
-              <button class="btn" @click="shareFinishedGame">{{ shareWord || 'Share this game' }}</button>
+              <button class="btn" @click="shareFinishedGame">{{ shareWord || 'Copy link' }}</button>
               <button class="btn btn-go" @click="returnToLobby">Back to the lobby</button>
             </div>
           </div>
@@ -4035,7 +4035,7 @@ const sharedNote = ref('')
 const sharedCheck = ref<'checking' | 'verified' | 'unverified' | ''>('')
 const shareWord = ref('')
 
-const giveLink = async (url: string) => {
+const giveLink = async (url: string | Promise<string>) => {
   const how = await offerLink(url, 'A game of chess on PigeonChess')
   shareWord.value = how === 'copied' ? 'Link copied' : how === 'shared' ? 'Shared' : 'Could not copy the link'
   setTimeout(() => { shareWord.value = '' }, 2500)
@@ -4052,7 +4052,8 @@ const linkToOwnGame = async (game: GameHistoryEntry) => {
 
 const shareReplayGame = async () => {
   if (!replayGame.value) return
-  try { await giveLink(sharedView.value ? location.href : await linkToOwnGame(replayGame.value)) }
+  // The link is handed over while still in the making (Safari copies only inside the tap).
+  try { await giveLink(sharedView.value ? location.href : linkToOwnGame(replayGame.value)) }
   catch { shareWord.value = 'Not connected yet: try again in a moment' }
 }
 
@@ -4065,12 +4066,12 @@ const shareFinishedGame = async () => {
     setTimeout(() => { shareWord.value = '' }, 2500)
     return
   }
-  try { await giveLink(await linkToOwnGame(game)) }
+  try { await giveLink(linkToOwnGame(game)) }
   catch { shareWord.value = 'Not connected yet: try again in a moment' }
 }
 
 const shareHistoryGame = async (game: GameHistoryEntry) => {
-  try { await giveLink(await linkToOwnGame(game)) } catch { /* not connected yet */ }
+  try { await giveLink(linkToOwnGame(game)) } catch { /* not connected yet */ }
 }
 
 /** Open the game a link names: the kept one (checked: signed by its player) or, failing that, the link's own copy. */

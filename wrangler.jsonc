@@ -4,6 +4,7 @@
 // VAPID_PRIVATE_JWK and VAPID_PUBLIC_KEY, made and stored once with
 //   npm run push-keys
 // (scripts/push-keys.mjs; the private key is never shown or written to disk).
+// A link to a shared game (/?game=…) gets its own social card from the Worker too.
 // Deploy with `npm run deploy` (builds, then uploads dist/ and the Worker).
 {
   "name": "pigeonchess",
@@ -13,7 +14,7 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": ["/api/*", "/", "/pigeon", "/pigeon/"]
   },
   "routes": [
     { "pattern": "chess.peer.ooo/*", "zone_name": "peer.ooo" }
