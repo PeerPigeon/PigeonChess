@@ -590,7 +590,7 @@
     </div>
 
     <button v-if="soundBlocked && settings.soundEnabled !== false" class="sound-unlock" type="button" @click="unlockSound">Tap for sound</button>
-    <footer class="build-footer">Build {{ BUILD }}</footer>
+    <footer class="build-footer"><a :href="FEATURE_NOTES" target="_blank" rel="noopener" title="What's new: this month's feature notes">Build {{ BUILD }}</a></footer>
   </div>
 </template>
 
@@ -601,6 +601,8 @@ import { createChess, isPigeonVariant } from './utils/variant'
 import { boardRef } from './utils/boardRef'
 import { pigeonSearch } from './utils/pigeonAi'
 import { usePeerPigeon, migrateSignalingUrls } from './composables/usePeerPigeon'
+/** This month's feature notes (a shared doc), opened from the build in the footer. */
+const FEATURE_NOTES = 'https://claude.ai/artifact/BpZpzWsADfExTnGNdJKAmz'
 import { forgetSharedGameInUrl, movesPlay, offerLink, sharedGameInUrl, shareUrl, unpackGame } from '@/utils/shareGame'
 import { usePigeonAI, startPigeonAIPeer, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, SPEAK_UP, tookCue, type ChatGame } from './composables/usePigeonAI'
 import { useSeek } from './composables/useSeek'
@@ -5816,6 +5818,8 @@ a.btn {
   color: var(--ink-2);
 }
 
+.build-footer a { color: inherit; text-decoration: none; }
+.build-footer a:hover, .build-footer a:focus-visible { text-decoration: underline; }
 .build-footer {
   text-align: center;
   font-size: 0.75rem;
