@@ -789,6 +789,11 @@ const tournaments = useTournaments({
     if (seek.isSearching.value) seek.stop()
     showTournaments.value = false
     startMatchedGame({ gameId: match.gameId, opponent: match.opponent, myColor: match.myColor, timeControl: match.timeControl, theirSeat: match.theirSeat })
+    // Their name as they signed up for the tournament (a bot's has no account to prove one): until their
+    // own signed claim names them.
+    const v = tournaments.views.value.find((x) => x.tournament.id === match.tournament)
+    const theirName = v?.names.get(match.opponentKey)
+    if (theirName) opponentName.value = v?.bots.has(match.opponentKey) ? `${theirName} · bot` : theirName
   },
 })
 tournaments.start()
