@@ -590,7 +590,7 @@
     </div>
 
     <button v-if="soundBlocked && settings.soundEnabled !== false" class="sound-unlock" type="button" @click="unlockSound">Tap for sound</button>
-    <footer class="build-footer"><a :href="FEATURE_NOTES" target="_blank" rel="noopener" title="What's new: this month's feature notes">Build {{ BUILD }}</a></footer>
+    <footer class="build-footer"><a :href="FEATURE_NOTES" title="What's new">Build {{ BUILD }}</a></footer>
   </div>
 </template>
 
@@ -601,8 +601,8 @@ import { createChess, isPigeonVariant } from './utils/variant'
 import { boardRef } from './utils/boardRef'
 import { pigeonSearch } from './utils/pigeonAi'
 import { usePeerPigeon, migrateSignalingUrls } from './composables/usePeerPigeon'
-/** This month's feature notes (a shared doc), opened from the build in the footer. */
-const FEATURE_NOTES = 'https://claude.ai/artifact/BpZpzWsADfExTnGNdJKAmz'
+/** What's new (public/notes/index.html), opened from the build in the footer. */
+const FEATURE_NOTES = '/notes/'
 import { forgetSharedGameInUrl, movesPlay, offerLink, sharedGameInUrl, shareUrl, unpackGame } from '@/utils/shareGame'
 import { usePigeonAI, startPigeonAIPeer, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, SPEAK_UP, tookCue, type ChatGame } from './composables/usePigeonAI'
 import { useSeek } from './composables/useSeek'

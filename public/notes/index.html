@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>What's new · PigeonChess</title>
+  <meta name="description" content="What changed on PigeonChess this month." />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <script>
+    // Light or dark as the game page has it (remembered there), else the device's choice.
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('pigeonchess:theme'); } catch (e) {}
+      if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.dataset.theme = t;
+      document.documentElement.style.colorScheme = t;
+    })();
+  </script>
+  <style>
+    @font-face { font-family: 'Archivo Variable'; src: url(/notes/archivo.woff2) format('woff2'); font-weight: 100 900; font-display: swap; }
+    :root { --paper: #e8f6f9; --surface: #f5fbfc; --ink: #2a3747; --ink-2: #46586e; --line: #bee6ee; --line-strong: #8aa7b3; --sheen: #237a50; }
+    html[data-theme='dark'] { --paper: #1b2430; --surface: #151d27; --ink: #e8f6f9; --ink-2: #9dbfc8; --line: #2c394a; --line-strong: #3d4c5f; --sheen: #7fd8a6; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 400 16px/1.55 'Archivo Variable', system-ui, sans-serif; }
+    header { border-bottom: 1px solid var(--line); }
+    header a { display: inline-flex; align-items: center; gap: 10px; padding: 12px 16px; color: var(--ink); text-decoration: none; font-weight: 700; font-size: 1.15rem; }
+    header img { width: 28px; height: 28px; }
+    html[data-theme='dark'] header img { filter: invert(1); }
+    main { max-width: 760px; margin: 0 auto; padding: 24px 16px 56px; }
+    h1 { font-size: 2rem; line-height: 1.15; margin: 8px 0 6px; }
+    .when { color: var(--ink-2); margin: 0 0 20px; }
+    h2 { font-size: 1.3rem; margin: 36px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+    p { margin: 8px 0; }
+    ul { padding-left: 1.2rem; margin: 8px 0; }
+    li { margin: 6px 0; }
+    b { font-weight: 650; }
+    .table { overflow-x: auto; margin: 12px 0; }
+    table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 0.95rem; }
+    th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+    th { color: var(--ink-2); font-weight: 600; }
+    a { color: var(--sheen); }
+    .back { display: inline-block; margin-top: 32px; }
+  </style>
+</head>
+<body>
+  <header><a href="/"><img src="/pigeonlogo.svg" alt="" />PigeonChess</a></header>
+  <main>
+    <h1>What's new: November 2026</h1>
+    <p class="when">November 1 to 9 · 120 changes</p>
+    <p>November brought tournaments, a computer opponent that talks back, pre-moves and post-quantum accounts.</p>
+
+    <h2>Highlights</h2>
+    <ul>
+      <li><b>Tournaments:</b> anyone signed in can run a round robin, Swiss or arena for up to 100 players, with standings and an overall leaderboard.</li>
+      <li><b>PigeonAI:</b> a computer opponent run by the players' own devices together, which chats (and trash-talks) during the game.</li>
+      <li><b>Pre-moves and dragging:</b> queue your next move during the opponent's turn, and drag pieces with the piece under your finger.</li>
+      <li><b>Accounts:</b> post-quantum, signed accounts that work on any device; your games are signed and kept in a room of your own.</li>
+      <li><b>Games survive reloads:</b> a reload mid-game picks the game back up, against a person or the computer.</li>
+      <li><b>Share a game:</b> a link to any finished game, opened by anyone, with the moves checked against your signed copy.</li>
+    </ul>
+
+    <h2>Tournaments</h2>
+    <p>New under <b>Tournaments</b>, next to Puzzles: anyone signed in can create one, starting at a set time or once enough players have joined.</p>
+    <div class="table"><table>
+      <thead><tr><th>Format</th><th>Players</th><th>How it works</th><th>Scoring</th></tr></thead>
+      <tbody>
+        <tr><td>Arena</td><td>up to 100</td><td>Runs for a set time (30 min to 4 h). When a game ends you are paired again with whoever has waited longest. Join late if you like.</td><td>Win 2, draw 1</td></tr>
+        <tr><td>Swiss</td><td>up to 100</td><td>A set number of rounds; each pairs players on the same score who have not met. An odd player out gets a bye.</td><td>Win 1, draw ½, bye 1</td></tr>
+        <tr><td>Round robin</td><td>up to 16</td><td>Everyone plays everyone once, in any order.</td><td>Win 1, draw ½</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li>Games start by themselves when both players are free: keep the page open.</li>
+      <li>Each tournament has a live standings table and a games list; the <b>Standings</b> tab ranks everyone by tournaments won, then points.</li>
+      <li>Results count when both players report the same result; a win also counts when the loser reports it.</li>
+      <li>Computer players can join: the wurl command-line tool runs Stockfish bots that sign up, play and report like anyone else.</li>
+    </ul>
+
+    <h2>Playing</h2>
+    <p>The board got pre-moves, dragging and better sound, and the lobby got simpler.</p>
+    <ul>
+      <li><b>Pre-moves:</b> during the opponent's turn, pick up a piece and choose any square it could reach, recaptures included; it is played the moment your turn comes, if still legal. Tap or right-click to take it back.</li>
+      <li><b>Dragging:</b> drag a piece with mouse, finger or pen; it follows the pointer.</li>
+      <li><b>One Play panel:</b> a Someone/Computer toggle, a difficulty slider, and your last time control remembered. <b>Any</b> plays the first free opponent at the time control of whoever started looking first (10+0 by default, set in Settings).</li>
+      <li><b>Reloads:</b> a reload mid-game picks the game back up, against a person or the computer; a finished game stays finished. A new version of the site waits until you are back in the lobby before it loads.</li>
+      <li><b>Sounds:</b> a snap on check, a different knock for wins, losses and draws, and the opponent's moves are heard on iPhone and iPad too. If an iPad keeps sound off, a <b>Tap for sound</b> button turns it on.</li>
+      <li><b>Notifications:</b> "Your move" and "Your game started" when you are away, on by default in the installed app.</li>
+      <li><b>Look:</b> new dark (Bluewood) and light (Cruise) themes; captured pieces are bigger, outlined in dark mode, and repeats overlap.</li>
+      <li><b>Move list and chat</b> always scroll to the latest line.</li>
+      <li><b>Fair clocks:</b> a win on time counts only once the opponent's page confirms the position.</li>
+    </ul>
+
+    <h2>PigeonAI</h2>
+    <p>PigeonAI is a new choice under <b>Play → Computer</b>, next to Standard (Stockfish): a language model run by the players' own devices together, and a bit of a jerk.</p>
+    <ul>
+      <li><b>Run by everyone:</b> each device with a GPU holds a share of the model (up to 2.5 GB on a computer, 250 MB on a phone or tablet), fetched from other players and PigeonFS. A progress bar shows this device's share loading.</li>
+      <li><b>Always a legal move:</b> the model picks among the legal moves, and never shuffles a piece back and forth.</li>
+      <li><b>Chat:</b> talk to it during the game. It answers as a cocky top player, knows the game (who is ahead, the last moves, chess slang), and streams its reply as it writes.</li>
+      <li><b>Speaks up on its own:</b> always after it takes one of your pieces ("Took your rook."), and now and then after its other moves, after a short, varying pause.</li>
+      <li><b>Kept across reloads:</b> the chat and the game come back after a reload.</li>
+    </ul>
+
+    <h2>Accounts, sharing and history</h2>
+    <p>Accounts are now signed, post-quantum records that follow you to any device, and your games are yours.</p>
+    <ul>
+      <li><b>Post-quantum accounts:</b> keys pair today's P-256 with ML-DSA-65 and ML-KEM-768; passwords are sealed with Argon2id. Older accounts move over at their next login, keeping their name.</li>
+      <li><b>Any device:</b> log in elsewhere and the account arrives from your relay or other players; a name can only be registered once.</li>
+      <li><b>Stay signed in:</b> sign-in stays on a device until you log out, encrypted with a key the browser keeps to itself.</li>
+      <li><b>Names in games:</b> your opponent's signed-in name shows on the board.</li>
+      <li><b>Your games, signed:</b> each finished game is signed by your account and kept, unchangeable, in a storage room of your own on PigeonFS.</li>
+      <li><b>Share a game:</b> <b>Copy link</b> at the end of a game or in History copies a link anyone can open; the page says whether the moves match your signed copy. Shared links show their own preview in chats and social apps.</li>
+    </ul>
+
+    <h2>Fixes</h2>
+    <p>The biggest fix: the page no longer freezes at the end of a game.</p>
+    <ul>
+      <li>The page froze at the end of a game in some browsers; the board no longer redraws itself forever.</li>
+      <li>A move that ends the game reaches the opponent at once.</li>
+      <li>No false game endings after a page was paused in the background.</li>
+      <li>Safari connections no longer drop every 20 seconds.</li>
+      <li>The Standard computer never stalls on a missing engine answer.</li>
+      <li>A promotion reaches the other board as the piece chosen (a bare pawn push was read as a knight).</li>
+      <li>Reloading after finishing a game against the computer no longer brings it back one move short and unfinished.</li>
+      <li>No more repeating console messages.</li>
+    </ul>
+
+    <a class="back" href="/">Back to PigeonChess</a>
+  </main>
+</body>
+</html>
