@@ -60,11 +60,11 @@ declare const HTMLRewriter: any
 const SHARED_CARD: Record<string, string> = {
   'og:title': 'A shared game on PigeonChess',
   'og:description': 'Replay this game of chess move by move on PigeonChess.',
-  'og:image': 'https://chess.peer.ooo/og-game.png',
+  'og:image': 'https://chess.peer.ooo/og-game.png?v=2',
   'og:image:alt': 'PigeonChess: a shared game. Replay it move by move.',
   'twitter:title': 'A shared game on PigeonChess',
   'twitter:description': 'Replay this game of chess move by move on PigeonChess.',
-  'twitter:image': 'https://chess.peer.ooo/og-game.png',
+  'twitter:image': 'https://chess.peer.ooo/og-game.png?v=2',
 }
 function sharedGameCard(page: Response): Response {
   if (!(page.headers.get('Content-Type') ?? '').includes('text/html')) return page
