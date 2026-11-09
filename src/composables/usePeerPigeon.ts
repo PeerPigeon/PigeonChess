@@ -409,19 +409,14 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     return records.filter((r: any) => r.key.startsWith('chess-game:') && r.signer === games.signer && r.value).map((r: any) => r.value)
   }
 
-  // The tournaments: one room on the storage servers everyone writes to (no owner), each record signed by
-  // whoever wrote it (the account once signed in); a record in user space is changed only by its writer.
-  let tournamentsRoom: { node: any; signer: string; storage: Promise<any> } | null = null
+  // The tournaments: kept in this mesh's own storage, which every peer in the room syncs with its
+  // neighbours (records under the tournament prefix are replicated in full: see connect), and the
+  // storage servers keep too. Each record is signed by whoever wrote it (the account once signed in);
+  // a record in user space is changed only by its writer.
   const tournamentRoom = async (): Promise<{ room: any; signer: string } | null> => {
     const storage = await readyStorage()
     const signer = storage?.signer?.()
-    if (!node || !storage || !signer) return null
-    if (tournamentsRoom?.node !== node || tournamentsRoom.signer !== signer) {
-      const before = tournamentsRoom
-      tournamentsRoom = { node, signer, storage: node.openStorage('pigeonchess:tournaments', accountKeys ? { signingKeys: accountKeys } : {}) }
-      if (before?.node === node) before.storage.then((s: any) => s.close()).catch(() => {})
-    }
-    return { room: await tournamentsRoom.storage, signer }
+    return storage && signer ? { room: storage, signer } : null
   }
 
   /** The key this page signs (and keeps) its games with now: the account's once signed in, else this browser's. */
