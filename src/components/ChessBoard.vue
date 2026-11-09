@@ -258,7 +258,6 @@ function pieceTemplate(path: string): Promise<string> {
 import { ref, shallowRef, watch, computed, onMounted, onUnmounted } from 'vue'
 import { useSounds } from '../composables/useSounds'
 import { boardChanged } from '../utils/boardRef'
-import { createChess } from '../utils/variant'
 
 interface Props {
   chess: any  // Accept any type to handle the ref
@@ -339,17 +338,38 @@ const canPick = (color?: string): boolean => {
 /** The opponent is to move: a move now is a pre-move. */
 const isPremoveTime = (): boolean => !!props.myColor && board().turn() !== props.myColor
 /**
- * Where the piece on `square` can go: its legal moves, or during the opponent's turn the moves it would
- * have with the player to move (a pre-move; checked again when it is played).
+ * Where the piece on `square` can go: its legal moves, or during the opponent's turn every square it could
+ * reach on an empty board (a pre-move: a recapture lands where a piece of the player's own stands now, or
+ * where the opponent's piece is still to come). It is checked against the real moves when it is played.
  */
 const movesFrom = (square: string): any[] => {
   if (!isPremoveTime()) return board().moves({ square: square as any, verbose: true })
-  try {
-    const parts = board().fen().split(' ')
-    parts[1] = props.myColor!
-    parts[3] = '-'
-    return createChess(parts.join(' ')).moves({ square: square as any, verbose: true })
-  } catch { return [] }
+  const piece = board().get(square as any)
+  if (!piece) return []
+  const f = square.charCodeAt(0) - 97, r = Number(square[1]) - 1
+  const out = new Set<string>()
+  const add = (df: number, dr: number) => { const x = f + df, y = r + dr; if (x >= 0 && x < 8 && y >= 0 && y < 8) out.add(`${String.fromCharCode(97 + x)}${y + 1}`) }
+  const ray = (df: number, dr: number) => { for (let k = 1; k < 8; k++) add(df * k, dr * k) }
+  const up = piece.color === 'w' ? 1 : -1
+  switch (piece.type) {
+    case 'p':
+      add(0, up); add(-1, up); add(1, up)
+      if (r === (piece.color === 'w' ? 1 : 6)) add(0, 2 * up)
+      break
+    case 'n': for (const [a, b] of [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]]) add(a, b); break
+    case 'b': ray(1, 1); ray(1, -1); ray(-1, 1); ray(-1, -1); break
+    case 'r': ray(1, 0); ray(-1, 0); ray(0, 1); ray(0, -1); break
+    case 'q': ray(1, 1); ray(1, -1); ray(-1, 1); ray(-1, -1); ray(1, 0); ray(-1, 0); ray(0, 1); ray(0, -1); break
+    case 'k':
+      for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if (a || b) add(a, b)
+      // Castling, from the king's own square.
+      if (f === 4 && r === (piece.color === 'w' ? 0 : 7)) { add(2, 0); add(-2, 0) }
+      break
+  }
+  return [...out].map((to) => {
+    const there = board().get(to as any)
+    return { from: square, to, flags: '', ...(there && there.color !== piece.color ? { captured: there.type } : {}) }
+  })
 }
 const isPremoveSquare = (row: number, col: number): boolean => {
   const sq = getSquareName(row, col)
