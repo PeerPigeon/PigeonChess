@@ -16,6 +16,7 @@
 
       <nav class="nav" :class="{ open: showMenu }">
         <button class="nav-link" @click="startPuzzleMode(); showMenu = false">Puzzles</button>
+        <button class="nav-link" @click="showTournaments = true; void tournaments.refresh(); showMenu = false">Tournaments</button>
         <button class="nav-link" @click="showHistory = true; showMenu = false">History</button>
         <button class="nav-link" @click="showSettings = true; showMenu = false">Settings</button>
         <span v-if="isAuthenticated" class="nav-user">
@@ -362,6 +363,7 @@
           <p v-if="currentGame?.status !== 'finished'" class="turn" :class="{ mine: isMyTurn }">
             {{ isMyTurn ? 'Your move' : (aiThinking ? 'The computer is thinking' : 'Their move') }}
           </p>
+          <p v-if="tournamentName" class="note">Tournament: {{ tournamentName }}</p>
           <p v-if="!hasClock && currentGame?.status !== 'finished'" class="note">No clock in this game.</p>
           <p v-if="currentOpeningName" class="opening">{{ currentOpeningName }}</p>
           <p v-if="showBestMoves && isAIGame" class="legend">
@@ -456,6 +458,17 @@
       :notifications-test-result="notifyTestResult"
       @toggle-notifications="(on: boolean) => { void notify.setEnabled(on) }"
       @test-notification="() => { notifyTestResult = 'Sending…'; void notify.test().then((r) => { notifyTestResult = r }) }"
+    />
+
+    <TournamentsView
+      v-if="showTournaments"
+      :client="tournaments.client"
+      :views="tournaments.views.value"
+      :leaders="tournaments.leaders.value"
+      :me="tournamentMe()?.pub ?? null"
+      :time-controls="timeControls"
+      @close="showTournaments = false"
+      @login="showTournaments = false; loginMode = 'login'; loginError = ''; showLoginModal = true"
     />
 
     <GameHistory
@@ -595,6 +608,9 @@ import { useNotify } from './composables/useNotify'
 import ChessBoard from './components/ChessBoard.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import PigeonAIStatus from './components/PigeonAIStatus.vue'
+import TournamentsView from './components/TournamentsView.vue'
+import { useTournaments } from './composables/useTournaments'
+import * as unsea from 'unsea'
 import GameHistory from './components/GameHistory.vue'
 import { useChessGame } from './composables/useChessGame'
 import { useSettings } from './composables/useSettings'
@@ -640,6 +656,7 @@ const showSettings = ref(false)
 const notify = useNotify(settings)
 const notifyTestResult = ref('')
 const showHistory = ref(false)
+const showTournaments = ref(false)
 const showMenu = ref(false)
 
 // Watch showHistory to debug
@@ -668,6 +685,7 @@ const {
   dhtGet,
   relayRequest,
   storageSigner,
+  tournamentRoom,
   loadSharedGame,
   signStorageAs,
   saveGame,
@@ -748,6 +766,44 @@ const seek = useSeek({
   }
 })
 const isSearching = seek.isSearching
+
+// Tournaments (composables/useTournaments.ts, utils/tournamentClient.ts): played as the signed-in account.
+const tournamentMe = () => {
+  const keys = currentIdentity.value
+  if (!isAuthenticated.value || !keys?.pub || !identityUsername.value) return null
+  return { pub: keys.pub as string, name: identityUsername.value, keys: unsea.publicKeysOf(keys) as { pub: string; qpub?: string } }
+}
+const tournaments = useTournaments({
+  room: tournamentRoom,
+  me: tournamentMe,
+  sign: (text) => unsea.signMessage(text, currentIdentity.value),
+  verify: (text, sig, keys) => unsea.verifyMessage(text, sig, keys as any),
+  peerId: () => mesh.value?.peerId ?? null,
+  broadcast: (message: string) => broadcast(message, false),
+  send: (peerId: string, message: string) => sendMessage(peerId, message),
+  isPlaying: () => isGameActive.value,
+  seat: () => nextSeat?.pub ?? null,
+  onMatched: (match) => {
+    // A tournament game: whatever else was going on in the lobby stops, and the game starts as a match does.
+    if (seek.isSearching.value) seek.stop()
+    showTournaments.value = false
+    startMatchedGame({ gameId: match.gameId, opponent: match.opponent, myColor: match.myColor, timeControl: match.timeControl, theirSeat: match.theirSeat })
+  },
+})
+tournaments.start()
+/** The tournament the game on the board belongs to (its name), if any. */
+const tournamentName = computed(() => {
+  const id = currentGame.value?.id
+  if (!id || !id.startsWith('t-')) return null
+  return tournaments.views.value.find((v) => v.pairings.some((p) => p.gameId === id))?.tournament.name ?? null
+})
+/** A finished game of a tournament: its result, reported (signed) to the tournament. */
+const reportTournamentGame = (entry: any) => {
+  if (!entry?.gameId || !tournaments.client.isTournamentGame(entry.gameId) || entry.result === 'abandoned') return
+  const whiteWon = (entry.result === 'win') === (entry.myColor === 'white')
+  const result = entry.result === 'draw' ? '1/2-1/2' : whiteWon ? '1-0' : '0-1'
+  void tournaments.client.report(entry.gameId, result, entry.moves ?? [])
+}
 
 const anyMeansLabel = computed(() => {
   const tc = timeControls.find((c) => c.id === (settings.value.anyTimeControl || 'rapid10'))
@@ -2084,7 +2140,7 @@ const {
   endGame,
   loadHistoryFromDHT
 } = useChessGame({
-  saveGame,
+  saveGame: (entry) => { reportTournamentGame(entry); return saveGame(entry) },
   loadGames,
   dhtGet,
   peerId: computed(() => mesh.value?.peerId).value,
@@ -4392,6 +4448,7 @@ const handleMessage = async (event: any) => {
     
     // Seeking and match offers
     if (seek.handle(message, fromPeer)) return
+    if (tournaments.handle(message, fromPeer)) return
 
     if (fromPeer && fromPeer === opponentId.value) {
       heardFromOpponent()

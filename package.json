@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "vite build && npx wrangler@4 deploy",
-    "push-keys": "node scripts/push-keys.mjs"
+    "push-keys": "node scripts/push-keys.mjs",
+    "test": "node --test --import tsx tests/*.test.ts"
   },
   "keywords": [
     "chess",
@@ -31,6 +32,7 @@
   "devDependencies": {
     "@types/node": "^20.19.24",
     "@vitejs/plugin-vue": "^6.0.10",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vite": "^7.3.7"
   },
