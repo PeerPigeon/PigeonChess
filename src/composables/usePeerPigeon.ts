@@ -1,3 +1,4 @@
+import { KEYS as TOURNAMENT_KEYS } from '../utils/tournament'
 import { ref, shallowRef, triggerRef, onUnmounted } from 'vue'
 import { PeerPigeonNode } from 'peerpigeon'
 import { noteWork, startStallRecorder, timed } from './stallRecorder'
@@ -256,7 +257,8 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
       minPeers: options.minPeers ?? 2,
       maxPeers: options.maxPeers ?? 10,
       crypto: options.enableCrypto === false ? false : {},
-      storage: {},
+      // Every tournament record (utils/tournament.ts): kept by every peer in that room, not only the servers.
+      storage: { replicate: [TOURNAMENT_KEYS] },
     })
     compat.node = node
     // For looking at a running page from the console; read-only by intent.

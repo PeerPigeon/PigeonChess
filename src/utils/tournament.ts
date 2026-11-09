@@ -1,13 +1,15 @@
 /**
  * Round-robin tournaments, worked out the same way on every page (and by the wurl bots) from the records
- * kept in the shared tournaments room on the storage servers. Each record is signed by whoever wrote it
- * (storage checks the signature, and says who signed: `signer`):
+ * of the shared tournaments room. Every peer in it keeps them all (PeerPigeon's `replicate`, for keys
+ * under KEYS), so they reach every page even with no storage server up; the storage servers keep them
+ * too. Each record is in user space (only its writer changes it) and signed by whoever wrote it (storage
+ * checks the signature, and says who signed: `signer`):
  *
- *  - `t:<id>`               the tournament, by its creator (user space: only the creator changes it);
- *  - `j:<id>:<player>`      a sign-up, by that player (they can withdraw before it starts);
- *  - `s:<id>:<writer>`      the start: the players, frozen. Written by the creator, or, when the creator
- *                           has not written one a while after it was due, by one of the players;
- *  - `r:<gameId>:<player>`  a game's result, as one of its two players reports it (frozen).
+ *  - `pc-t/t:<id>`               the tournament, by its creator;
+ *  - `pc-t/j:<id>:<player>`      a sign-up, by that player (they can withdraw before it starts);
+ *  - `pc-t/s:<id>:<writer>`      the start: the players, fixed. Written by the creator, or, when the
+ *                                creator has not written one a while after it was due, by one of the players;
+ *  - `pc-t/r:<gameId>:<player>`  a game's result, as one of its two players reports it.
  *
  * Everyone plays everyone once. The pairings and colours come from the frozen list of players (the
  * circle method), so every page agrees on them; games are played in any order, as both players are there.
@@ -15,6 +17,9 @@
  */
 
 export type TimeControl = { minutes: number; increment: number }
+
+/** The prefix of every tournament record's key: what peers replicate (usePeerPigeon, the wurl bots). */
+export const KEYS = 'pc-t/'
 
 export interface Tournament {
   id: string

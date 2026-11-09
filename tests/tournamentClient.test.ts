@@ -9,7 +9,7 @@ function sharedRoom() {
   return (signer: string) => ({
     async put(space: string, key: string, value: unknown) {
       const k = `${space}:${key}`, have = records.get(k)
-      if (have && (space === 'frozen' || have.signer !== signer)) throw new Error('not yours')
+      if (have && have.signer !== signer) throw new Error('not yours')
       records.set(k, { space, key, value, signer })
       listeners.forEach((l) => l())
     },
@@ -84,7 +84,7 @@ test("records signed by someone else are not taken: a sign-up for another player
   })
   const a = client('a'), mallory = room('mallory')
   const id = await a.create({ name: 'T', timeControl: { minutes: 1, increment: 0 }, start: { kind: 'players', players: 2 }, maxPlayers: 4 })
-  await mallory.put('user', `j:${id}:b`, { tournament: id, player: 'b', name: 'fake b', at: 1 })
+  await mallory.put('user', `pc-t/j:${id}:b`, { tournament: id, player: 'b', name: 'fake b', at: 1 })
   await a.refresh()
   assert.equal(a.view()[0].signups.length, 1, "mallory's sign-up for b is not b's")
 })

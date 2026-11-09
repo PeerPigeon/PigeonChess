@@ -9,5 +9,5 @@ export { makeSeatKeys, type SeatKeys } from '../composables/useSeat'
 export { ENGINE_LEVELS, engineLevel, type EngineLevel } from '../utils/engineLevels'
 /** The mesh a page joins (usePeerPigeon.ts): PeerPigeon's networkId, and the room ('global' unless set in Settings). */
 export const MESH = { networkId: 'pigeonchess', room: 'global' } as const
-/** The tournaments room on the storage servers (usePeerPigeon.ts tournamentRoom). */
+/** The tournaments room (usePeerPigeon.ts tournamentRoom); its peers replicate keys under KEYS (export above). */
 export const TOURNAMENTS_ROOM = 'pigeonchess:tournaments'

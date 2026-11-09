@@ -11,7 +11,7 @@
  *   exactly like a match from the lobby.
  */
 import {
-  chosenStart, dueStart, gameState, gamesToPlay, leaderboard, newTournamentId, readyText, schedule, standings, statusOf, START_GRACE_MS,
+  chosenStart, dueStart, gameState, gamesToPlay, leaderboard, newTournamentId, readyText, schedule, standings, statusOf, START_GRACE_MS, KEYS,
   type Leader, type Pairing, type Report, type Result, type Signup, type Standing, type Start, type Status, type Tournament,
 } from './tournament'
 
@@ -122,7 +122,7 @@ export class TournamentClient {
           pending = setTimeout(() => { pending = null; void this.refresh() }, 500)
         }) ?? null
       }
-      const records = [...(await this.room.list('user').catch(() => [])), ...(await this.room.list('frozen').catch(() => []))]
+      const records = await this.room.list('user').catch(() => [])
       this.take(records)
       this.o.onChange?.()
     })().finally(() => { this.refreshing = null })
@@ -132,12 +132,13 @@ export class TournamentClient {
   /** The records, each checked against who signed it. */
   private take(records: any[]): void {
     for (const r of records) {
-      const v = r?.value, by = r?.signer, key: string = r?.key ?? ''
-      if (!v || typeof v !== 'object' || typeof by !== 'string') continue
-      if (key.startsWith('t:') && r.space === 'user' && v.creator === by && key === `t:${v.id}` && validTournament(v)) this.tournaments.set(v.id, v)
-      else if (key.startsWith('j:') && r.space === 'user' && v.player === by && key === `j:${v.tournament}:${by}` && typeof v.name === 'string') this.signups.set(key, v)
-      else if (key.startsWith('s:') && r.space === 'frozen' && key === `s:${v.tournament}:${by}`) this.starts.set(key, { ...v, by })
-      else if (key.startsWith('r:') && r.space === 'frozen' && key === `r:${v.gameId}:${by}` && (v.white === by || v.black === by)) this.reports.set(key, { ...v, by })
+      const v = r?.value, by = r?.signer, full: string = r?.key ?? ''
+      if (!v || typeof v !== 'object' || typeof by !== 'string' || r.space !== 'user' || !full.startsWith(KEYS)) continue
+      const key = full.slice(KEYS.length)
+      if (key.startsWith('t:') && v.creator === by && key === `t:${v.id}` && validTournament(v)) this.tournaments.set(v.id, v)
+      else if (key.startsWith('j:') && v.player === by && key === `j:${v.tournament}:${by}` && typeof v.name === 'string') this.signups.set(key, v)
+      else if (key.startsWith('s:') && key === `s:${v.tournament}:${by}`) this.starts.set(key, { ...v, by })
+      else if (key.startsWith('r:') && key === `r:${v.gameId}:${by}` && (v.white === by || v.black === by)) this.reports.set(key, { ...v, by })
     }
   }
 
@@ -172,10 +173,11 @@ export class TournamentClient {
     return { leaders: leaderboard(views.map((v) => ({ status: v.status, table: v.table }))), names, bots }
   }
 
-  private async write(space: 'user' | 'frozen', key: string, value: unknown): Promise<void> {
+  /** A record of this player's (user space: only they change it), under KEYS. */
+  private async write(key: string, value: unknown): Promise<void> {
     const opened = await this.o.room()
-    if (!opened) throw new Error('The storage servers are not reachable yet')
-    await opened.room.put(space, key, JSON.parse(JSON.stringify(value)))
+    if (!opened) throw new Error('Not connected yet: try again in a moment')
+    await opened.room.put('user', `${KEYS}${key}`, JSON.parse(JSON.stringify(value)))
     await this.refresh()
   }
 
@@ -185,7 +187,7 @@ export class TournamentClient {
     if (!me) throw new Error('Sign in to create a tournament')
     const t: Tournament = { id: newTournamentId(), name: input.name.trim().slice(0, 60) || 'Tournament', creator: me.pub, creatorName: me.name, timeControl: input.timeControl, start: input.start, maxPlayers: input.maxPlayers, createdAt: this.now() }
     if (!validTournament(t)) throw new Error('That tournament does not add up')
-    await this.write('user', `t:${t.id}`, t)
+    await this.write(`t:${t.id}`, t)
     if (input.play !== false) await this.join(t.id)
     return t.id
   }
@@ -194,14 +196,14 @@ export class TournamentClient {
     const me = this.o.me()
     if (!me) throw new Error('Sign in to play in a tournament')
     const signup: Signup = { tournament, player: me.pub, name: me.name, keys: me.keys, at: this.now(), ...(me.bot ? { bot: me.bot } : {}) }
-    await this.write('user', `j:${tournament}:${me.pub}`, signup)
+    await this.write(`j:${tournament}:${me.pub}`, signup)
   }
 
   async leave(tournament: string): Promise<void> {
     const me = this.o.me()
     const mine = me && this.signups.get(`j:${tournament}:${me.pub}`)
     if (!me || !mine) return
-    await this.write('user', `j:${tournament}:${me.pub}`, { ...mine, withdrawn: true })
+    await this.write(`j:${tournament}:${me.pub}`, { ...mine, withdrawn: true })
   }
 
   /** A game of a tournament that ended (`result` as white–black). Not one of its games: nothing. */
@@ -212,7 +214,7 @@ export class TournamentClient {
     const p = v?.pairings.find((x) => x.gameId === gameId)
     if (!v || !p || (p.white !== me.pub && p.black !== me.pub)) return false
     const report: Omit<Report, 'by'> = { tournament: v.tournament.id, gameId, white: p.white, black: p.black, result, moves: moves.slice(0, 600), at: this.now() }
-    await this.write('frozen', `r:${gameId}:${me.pub}`, report).catch(() => {})
+    await this.write(`r:${gameId}:${me.pub}`, report).catch(() => {})
     return true
   }
 
@@ -261,7 +263,7 @@ export class TournamentClient {
     if (!mine && !(due.players.includes(me.pub) && now > due.at + START_GRACE_MS)) return
     this.wroteStart.add(v.tournament.id)
     const start: Omit<Start, 'by'> = { tournament: v.tournament.id, players: due.players, at: now }
-    await this.write('frozen', `s:${v.tournament.id}:${me.pub}`, start).catch(() => this.wroteStart.delete(v.tournament.id))
+    await this.write(`s:${v.tournament.id}:${me.pub}`, start).catch(() => this.wroteStart.delete(v.tournament.id))
   }
 
   /** A tournament message: true when it was one (handled here). */
