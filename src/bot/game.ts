@@ -7,6 +7,8 @@
  * far when asked (timer_sync, after the page reloads or wonders about a clock), and resign_ack. What it
  * acts on: moves, the moves so far, ping, resign, flag (a clock ran out), abandon and abort. It never
  * offers or accepts a draw or a take-back. Its own clock: when it runs out, it says so (flag), as a page does.
+ * A move that never comes (lost on the way): after a while it asks for the moves so far (time_check), and
+ * once its own game is over it still answers that, so the other side can catch up to how it ended.
  */
 import { createChess } from '../utils/variant'
 import { open, seal, type Seat, type SeatKeys } from '../composables/useSeat'
@@ -28,11 +30,16 @@ export interface BotGameOptions {
   /** The game is over: its result (white–black), or null when it ended without one (aborted). */
   onEnd: (result: Result | null, moves: string[], why: string) => void
   log?: (line: string) => void
+  /** How long a missing move is waited for before asking, and silence before they count as gone (tests). */
+  askMs?: number
+  goneMs?: number
 }
 
 const PING_MS = 3000
-/** Nothing heard from the opponent for this long, on their move with no clock: they left. */
-const GONE_MS = 5 * 60 * 1000
+/** No move from the opponent for this long on their turn: ask for the moves so far (one may be lost). */
+const ASK_MS = 20_000
+/** Nothing at all heard from the opponent (not even a ping) for this long: they left. */
+const GONE_MS = 2 * 60 * 1000
 
 export class BotGame {
   private chess = createChess()
@@ -43,6 +50,7 @@ export class BotGame {
   private myMs: number
   private turnStarted = Date.now()
   private lastHeard = Date.now()
+  private lastAsked = 0
   readonly moves: string[] = []
 
   constructor(private o: BotGameOptions) {
@@ -55,7 +63,7 @@ export class BotGame {
   get finished() { return this.over }
 
   start(): void {
-    this.ping = setInterval(() => this.tick(), PING_MS)
+    this.ping = setInterval(() => this.tick(), Math.min(PING_MS, this.o.askMs ?? PING_MS))
     this.maybeMove()
   }
 
@@ -75,8 +83,16 @@ export class BotGame {
       this.end(this.o.myColor === 'white' ? '0-1' : '1-0', 'its clock ran out')
       return
     }
-    // The opponent went quiet on their move, in a game without a clock: they left.
-    if (!this.myTurn() && this.myMs === Infinity && Date.now() - this.lastHeard > GONE_MS) {
+    if (this.myTurn()) return
+    const now = Date.now()
+    // Their move is long in coming: maybe it was lost (their game may even be over, by it). Ask for the
+    // moves so far; a page and a bot both answer with them (timer_sync), and this side catches up.
+    if (now - this.turnStarted > (this.o.askMs ?? ASK_MS) && now - this.lastAsked > (this.o.askMs ?? ASK_MS)) {
+      this.lastAsked = now
+      void this.say({ type: 'time_check', gameId: this.o.gameId })
+    }
+    // Nothing at all from them for long (a page pings every few seconds): they left.
+    if (now - this.lastHeard > (this.o.goneMs ?? GONE_MS)) {
       const theirs = this.o.myColor === 'white' ? 'black' : 'white'
       void this.say({ type: 'abandon', gameId: this.o.gameId, loser: theirs, reason: 'left' })
       this.end(theirs === 'white' ? '0-1' : '1-0', 'the opponent left')
@@ -88,12 +104,18 @@ export class BotGame {
     if (message?.type !== 'sealed' || message.gameId !== this.o.gameId) return false
     void (async () => {
       const body = await open(this.seat, message)
-      if (!body || this.over) return
+      if (!body) return
       // The same player on a new peer ID (they reloaded): follow them.
       if (fromPeer && fromPeer !== this.o.opponent) this.o.opponent = fromPeer
       this.lastHeard = Date.now()
       let inner: any
       try { inner = JSON.parse(body) } catch { return }
+      // Over here, maybe not there (they missed how it ended): what they ask for, they still get.
+      if (this.over) {
+        if (inner?.type === 'time_check' || inner?.type === 'rejoin') void this.say({ type: 'timer_sync', gameId: this.o.gameId, moves: [...this.moves] })
+        else if (inner?.type === 'ping') void this.say({ type: 'pong', t: inner.t })
+        return
+      }
       this.onMessage(inner)
     })()
     return true
