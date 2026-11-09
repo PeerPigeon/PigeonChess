@@ -609,6 +609,7 @@ import ChessBoard from './components/ChessBoard.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import PigeonAIStatus from './components/PigeonAIStatus.vue'
 import TournamentsView from './components/TournamentsView.vue'
+import { engineLevel } from './utils/engineLevels'
 import { useTournaments } from './composables/useTournaments'
 import * as unsea from 'unsea'
 import GameHistory from './components/GameHistory.vue'
@@ -1852,16 +1853,8 @@ const makeAIMove = () => {
       }, delay)
     }
     
-    // Map difficulty to Stockfish settings - BACK TO ORIGINAL
-    const skillLevel = aiDifficulty.value === 0 ? 0 :
-                       aiDifficulty.value === 1 ? 5 :
-                       aiDifficulty.value === 2 ? 10 : 15
-    const depth = aiDifficulty.value === 0 ? 1 : 
-                  aiDifficulty.value === 1 ? 6 :
-                  aiDifficulty.value === 2 ? 10 : 15
-    
-    // Most it may think, so a move never takes long.
-    const movetime = [300, 1000, 2000, 3000][aiDifficulty.value] ?? 2000
+    // The level's Stockfish settings (utils/engineLevels.ts: the wurl bots play by them too).
+    const { skill: skillLevel, depth, movetime } = engineLevel(aiDifficulty.value)
 
     // Analysis may have left 5 lines and a bigger hash set; the computer's move needs neither.
     stockfish.postMessage('setoption name MultiPV value 1')
@@ -3738,7 +3731,8 @@ const handleMove = async (from: string, to: string, promotion?: 'q' | 'r' | 'b' 
     const message: ChessMessage = {
       type: 'move',
       gameId: currentGame.value.id,
-      data: { from, to },
+      // The piece a pawn became, too: without it the other board made it whatever came first (a knight).
+      data: { from, to, ...(promotion ? { promotion } : {}) },
       // include timer snapshot and vector clock so the peer can reconcile
       timer: {
         whiteTime: myPlayer.value?.color === 'white' ? myTime.value : opponentTime.value,
@@ -4531,7 +4525,7 @@ const handleMessage = async (event: any) => {
           }
           
           // The opponent's move gets the same sound as ours (it had none).
-          if (receiveMove(`${chessMessage.data.from}${chessMessage.data.to}`)) {
+          if (receiveMove(chessMessage.data.from, chessMessage.data.to, (chessMessage.data as any).promotion)) {
             playSoundForLastMove()
             if (currentGame.value) void notify.showHere('move', currentGame.value.id)
           }

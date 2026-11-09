@@ -146,11 +146,24 @@ export function useChessGame(options: ChessGameOptions = {}) {
     }
   }
 
-  const receiveMove = (move: string) => {
+  /**
+   * A move the opponent made: in SAN (`move` alone, as kept moves are), or from and to squares. A pawn
+   * reaching the last rank becomes the piece they chose; an older page names none, and they then had a
+   * queen (as chess.js read "e7e8" alone, it made a knight: the boards parted).
+   */
+  const receiveMove = (move: string, to?: string, promotion?: string) => {
     if (!currentGame.value) return false
     
     try {
-      const result = chess.value.move(move)
+      let result
+      if (to) {
+        const piece = chess.value.get(move)
+        const promotes = piece?.type === 'p' && (to[1] === '8' || to[1] === '1')
+        const as = promotes ? (typeof promotion === 'string' && /^[qrbn]$/.test(promotion) ? promotion : 'q') : undefined
+        result = chess.value.move({ from: move, to, ...(as ? { promotion: as } : {}) })
+      } else {
+        result = chess.value.move(move)
+      }
       
       if (result) {
         currentGame.value.moves.push(result.san)

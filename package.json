@@ -38,5 +38,9 @@
   },
   "optionalDependencies": {
     "pigeonai": "github:PeerPigeon/PigeonAI#e0bebd14f3f6fe5e031045a2792a67f166e78eaf"
+  },
+  "exports": {
+    "./bot": "./src/bot/index.ts",
+    "./package.json": "./package.json"
   }
 }
