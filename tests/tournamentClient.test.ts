@@ -46,7 +46,8 @@ function harness(names: string[]) {
   }
   const all = [...byName.values()]
   const refresh = async () => { for (const x of all) await x.refresh() }
-  const tick = async () => { clock.now += 3000; for (const x of all) await (x as any).tick(); await new Promise((r) => setTimeout(r, 5)) }
+  // Each player in its own turn each tick (in real life they tick at their own times).
+  const tick = async () => { clock.now += 3000; for (const x of [...all].sort(() => Math.random() - 0.5)) await (x as any).tick(); await new Promise((r) => setTimeout(r, 5)) }
   /** Play until it is over (or `ticks` run out): each game matched is won by white, reported by both. */
   const play = async (ticks: number) => {
     for (let n = 0; n < ticks && all[0].view()[0].status !== 'finished'; n++) {
@@ -139,4 +140,24 @@ test("records signed by someone else are not taken: a sign-up for another player
   await mallory.put('user', `pc-t/j:${id}:b`, { tournament: id, player: 'b', name: 'fake b', at: 1 })
   await a.refresh()
   assert.equal(a.view()[0].signups.length, 1, "mallory's sign-up for b is not b's")
+})
+
+test('arena, nine bots and a late joiner with the lowest key: the late joiner gets games like everyone else', async () => {
+  const bots = ['b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']
+  const h = harness([...bots, '0'])
+  const [a, ...rest] = h.all
+  const late = h.byName.get('0')!
+  const id = await a.create({ name: 'Arena', format: 'arena', minutes: 10, timeControl: { minutes: 1, increment: 0 }, start: { kind: 'players', players: 9 }, maxPlayers: 100 })
+  for (const x of rest) if (x !== late) { await x.refresh(); await x.join(id) }
+  await h.refresh()
+  await h.play(20)
+  await late.refresh(); await late.join(id)
+  await h.refresh()
+  await h.play(400)
+  const v = a.view()[0]
+  assert.equal(v.status, 'finished')
+  const games = (p: string) => v.pairings.filter((x) => x.white === p || x.black === p).length
+  const typical = bots.map(games).sort((x, y) => x - y)[4]
+  assert.ok(games("0") >= typical * 0.75, `the late joiner played ${games('0')} games; a bot typically ${typical}`)
+  h.stop()
 })

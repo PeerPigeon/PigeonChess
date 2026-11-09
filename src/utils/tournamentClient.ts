@@ -8,8 +8,9 @@
  * - Swiss: writes each round's pairings when it is due (the creator; or a player, a while after).
  * - Plays: while a tournament it plays in runs, it says it is ready (signed by the player, so nobody else
  *   can be them). Round robin and Swiss: of two players who owe each other a game and are both ready and
- *   free, the one with white offers and the other answers. Arena: of two ready players, the one with the
- *   lower key offers the other a new game (whoever has had white less gets it). The game then starts
+ *   free, the one with white offers and the other answers. Arena: anyone free offers a new game to whoever
+ *   has waited longest (white to whoever has had it less); two offering each other: the lower key's
+ *   offer stands. A player says when a game starts (t_busy), so nobody offers them one meanwhile. The game then starts
  *   through the page's (or bot's) own game code, exactly like a match from the lobby.
  */
 import {
@@ -99,7 +100,10 @@ export class TournamentClient {
   private version = 0
   private cached: { version: number; second: number; views: TournamentView[] } | null = null
   /** Players seen ready: `${tournament}:${player}` → their peer and when (checked: they signed it). */
-  private ready = new Map<string, { peerId: string; seenAt: number }>()
+  private ready = new Map<string, { peerId: string; seenAt: number; since: number }>()
+  /** Free since (no game being played): told with t_ready, so whoever waited longest is paired first. */
+  private freeSince = 0
+  private lastUnknown = 0
   private offer: { gameId: string; to: string; sentAt: number; match: Omit<TournamentMatch, 'theirSeat'> } | null = null
   private timers: ReturnType<typeof setInterval>[] = []
   private unsubscribe: (() => void) | null = null
@@ -292,7 +296,8 @@ export class TournamentClient {
     const views = this.view()
     for (const v of views) { await this.maybeStart(v, me, now); await this.maybeRound(v, me, now) }
     if (this.offer && now - this.offer.sentAt > OFFER_MS) this.offer = null
-    if (this.o.isPlaying()) return
+    if (this.o.isPlaying()) { this.freeSince = 0; return }
+    if (!this.freeSince) this.freeSince = now
     for (const v of this.view()) {
       if (v.status !== 'running' || !v.players.includes(me.pub)) continue
       const arena = v.format === 'arena'
@@ -304,12 +309,13 @@ export class TournamentClient {
         const sig = await this.o.sign(readyText(v.tournament.id, me.pub, peerId, now)).catch(() => null)
         if (!sig) continue
         this.lastReady.set(v.tournament.id, now)
-        void this.o.broadcast(JSON.stringify({ type: 't_ready', tournament: v.tournament.id, player: me.pub, peerId, at: now, sig })).catch(() => {})
+        void this.o.broadcast(JSON.stringify({ type: 't_ready', tournament: v.tournament.id, player: me.pub, peerId, at: now, since: this.freeSince, sig })).catch(() => {})
       }
-      // Not every time: of three players each offering the next a game, all would decline for ever.
-      if (this.offer || Math.random() < 0.3) continue
+      if (this.offer) continue
       const gone = every * 3.5
       if (arena) { this.offerArena(v, me, now, gone); continue }
+      // Not every time: of three players each offering the next a game, all would decline for ever.
+      if (Math.random() < 0.3) continue
       // White offers the first game owed to someone who is there.
       for (const p of owed) {
         if (p.white !== me.pub) continue
@@ -325,27 +331,37 @@ export class TournamentClient {
   }
 
   /**
-   * Arena: offer a new game to a ready player with a higher key (they offer to those lower), preferring
-   * whoever this player has met least and not the one just played.
+   * Arena: the free players in order of how long they have waited (then key), paired off in that order,
+   * each with the next one who is not the opponent they just played; every page works out the same pairs
+   * from the same t_ready messages. Of each pair, the one who waited less offers; the other waits for it.
    */
   private offerArena(v: TournamentView, me: Me, now: number, gone: number): void {
-    const met = new Map<string, number>()
-    let last: string | null = null
+    const last = new Map<string, string>()
     let whites = 0, blacks = 0
     for (const p of v.pairings) {
-      if (p.white === me.pub) { met.set(p.black, (met.get(p.black) ?? 0) + 1); last = p.black; whites++ }
-      else if (p.black === me.pub) { met.set(p.white, (met.get(p.white) ?? 0) + 1); last = p.white; blacks++ }
+      last.set(p.white, p.black); last.set(p.black, p.white)
+      if (p.white === me.pub) whites++
+      else if (p.black === me.pub) blacks++
     }
-    const busy = new Set([...this.arenaGames.values()].flatMap((g) => [g.white, g.black]))
-    const there = v.players
-      .filter((p) => p > me.pub && !busy.has(p))
-      .map((p) => ({ p, r: this.ready.get(`${v.tournament.id}:${p}`) }))
-      .filter((x): x is { p: string; r: { peerId: string; seenAt: number } } => !!x.r && now - x.r.seenAt <= gone)
-    if (!there.length) return
-    const fresh = there.length > 1 ? there.filter((x) => x.p !== last) : there
-    const least = Math.min(...fresh.map((x) => met.get(x.p) ?? 0))
-    const pick = fresh.filter((x) => (met.get(x.p) ?? 0) === least)
-    const { p: them, r } = pick[Math.floor(Math.random() * pick.length)]
+    const free = v.players
+      .map((p) => ({ p, r: p === me.pub ? { peerId: '', seenAt: now, since: this.freeSince } : this.ready.get(`${v.tournament.id}:${p}`) }))
+      .filter((x): x is { p: string; r: { peerId: string; seenAt: number; since: number } } => !!x.r && now - x.r.seenAt <= gone)
+      .sort((a, b) => (a.r.since - b.r.since) || (a.p < b.p ? -1 : 1))
+    const partner = new Map<string, string>()
+    const left = free.map((x) => x.p)
+    while (left.length > 1) {
+      const a = left.shift()!
+      let j = left.findIndex((b) => last.get(a) !== b && last.get(b) !== a)
+      if (j < 0) j = 0
+      const b = left.splice(j, 1)[0]
+      partner.set(a, b); partner.set(b, a)
+    }
+    const them = partner.get(me.pub)
+    if (!them) return
+    // The one of the two who has waited longer is offered the game.
+    const rank = new Map(free.map((x, i) => [x.p, i]))
+    if (rank.get(them)! > rank.get(me.pub)!) return
+    const r = free.find((x) => x.p === them)!.r
     const meWhite = whites !== blacks ? whites < blacks : Math.random() < 0.5
     const white = meWhite ? me.pub : them, black = meWhite ? them : me.pub
     const before = v.pairings.filter((x) => x.white === white && x.black === black).length
@@ -382,6 +398,13 @@ export class TournamentClient {
     await this.write(`p:${v.tournament.id}:${due.round}:${me.pub}`, round).catch(() => this.wroteRound.delete(key))
   }
 
+  /** Arena: a game started here, so nobody offers this player another meanwhile. */
+  private sayBusy(tournament: string, me: Me): void {
+    this.freeSince = 0
+    this.lastReady.delete(tournament)
+    void this.o.broadcast(JSON.stringify({ type: 't_busy', tournament, player: me.pub })).catch(() => {})
+  }
+
   /** A tournament message: true when it was one (handled here). */
   handle(message: any, fromPeer: string): boolean {
     if (!message || typeof message.type !== 'string' || !message.type.startsWith('t_')) return false
@@ -396,11 +419,23 @@ export class TournamentClient {
     if (!v) return
     if (m.type === 't_ready') {
       // Checked: their own key signed it, for this peer, lately.
-      if (typeof m.player !== 'string' || typeof m.peerId !== 'string' || typeof m.sig !== 'string' || !v.players.includes(m.player)) return
+      if (typeof m.player !== 'string' || typeof m.peerId !== 'string' || typeof m.sig !== 'string') return
+      if (!v.players.includes(m.player)) {
+        // Someone who joined since this side last read the records (an arena takes players late): read again.
+        if (v.status === 'running' && this.now() - this.lastUnknown > 10_000) { this.lastUnknown = this.now(); void this.refresh() }
+        return
+      }
       if (Math.abs(this.now() - Number(m.at)) > 60_000) return
       const keys = v.signups.find((s) => s.player === m.player)?.keys ?? { pub: m.player }
       if (!(await this.o.verify(readyText(m.tournament, m.player, m.peerId, Number(m.at)), m.sig, keys).catch(() => false))) return
-      this.ready.set(`${m.tournament}:${m.player}`, { peerId: m.peerId, seenAt: this.now() })
+      const since = Number(m.since)
+      this.ready.set(`${m.tournament}:${m.player}`, { peerId: m.peerId, seenAt: this.now(), since: Number.isFinite(since) && since > 0 && since <= this.now() + 60_000 ? since : this.now() })
+      return
+    }
+    if (m.type === 't_busy') {
+      // They started a game: not free now (only from the peer they said they were ready on).
+      const key = `${m.tournament}:${m.player}`
+      if (this.ready.get(key)?.peerId === fromPeer) this.ready.delete(key)
       return
     }
     let p: { gameId: string; white: string; black: string } | undefined = v.pairings.find((x) => x.gameId === m.gameId)
@@ -418,11 +453,13 @@ export class TournamentClient {
       // peer they said they are ready on.
       const arena = v.format === 'arena'
       const theirs = arena ? (p.white === me.pub ? p.black : p.white) : p.white
-      const mineToo = arena ? (p.white === me.pub || p.black === me.pub) && m.player === theirs && theirs < me.pub : p.black === me.pub && m.player === p.white
+      const mineToo = arena ? (p.white === me.pub || p.black === me.pub) && m.player === theirs : p.black === me.pub && m.player === p.white
       if (!mineToo) return
       const there = this.ready.get(`${m.tournament}:${theirs}`)
       const owed = gameState({ round: 0, ...p }, v.reports).state === 'unplayed'
       const late = arena && v.endsAt !== null && this.now() >= v.endsAt - 30_000
+      // Arena, both offering each other at once: the lower key's offer stands, the other is dropped.
+      if (arena && this.offer && this.offer.to === fromPeer && theirs < me.pub) this.offer = null
       // Not now (busy, not sure it is them yet, or the game is done): said at once, so they don't wait on it.
       if (!there || there.peerId !== fromPeer || !owed || late || v.status !== 'running' || this.o.isPlaying() || this.offer) {
         void this.o.send(fromPeer, JSON.stringify({ type: 't_decline', tournament: m.tournament, gameId: p.gameId })).catch(() => {})
@@ -430,7 +467,7 @@ export class TournamentClient {
       }
       const seat = this.o.seat?.() ?? undefined
       await this.o.send(fromPeer, JSON.stringify({ type: 't_accept', tournament: m.tournament, gameId: p.gameId, player: me.pub, seat })).catch(() => {})
-      if (arena) { this.arenaGames.set(p.gameId, { tournament: m.tournament, white: p.white, black: p.black }); this.keepArena() }
+      if (arena) { this.arenaGames.set(p.gameId, { tournament: m.tournament, white: p.white, black: p.black }); this.keepArena(); this.sayBusy(m.tournament, me) }
       this.o.onMatched({ tournament: m.tournament, gameId: p.gameId, opponent: fromPeer, opponentKey: theirs, myColor: p.white === me.pub ? 'white' : 'black', timeControl: v.tournament.timeControl, theirSeat: typeof m.seat === 'string' ? m.seat : undefined })
       return
     }
@@ -439,7 +476,7 @@ export class TournamentClient {
       if (!o || o.gameId !== m.gameId || o.to !== fromPeer || m.player !== o.match.opponentKey) return
       this.offer = null
       if (this.o.isPlaying()) return
-      if (v.format === 'arena') { this.arenaGames.set(o.gameId, { tournament: v.tournament.id, white: p.white, black: p.black }); this.keepArena() }
+      if (v.format === 'arena') { this.arenaGames.set(o.gameId, { tournament: v.tournament.id, white: p.white, black: p.black }); this.keepArena(); this.sayBusy(v.tournament.id, me) }
       this.o.onMatched({ ...o.match, theirSeat: typeof m.seat === 'string' ? m.seat : undefined })
       return
     }
