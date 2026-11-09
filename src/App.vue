@@ -776,6 +776,8 @@ const tournamentMe = () => {
 }
 const tournaments = useTournaments({
   room: tournamentRoom,
+  // Arena games being played, kept across a reload (so their result still gets reported).
+  keep: { get: (k) => { try { return localStorage.getItem(k) } catch { return null } }, set: (k, v) => { try { localStorage.setItem(k, v) } catch {} } },
   me: tournamentMe,
   sign: (text) => unsea.signMessage(text, currentIdentity.value),
   verify: (text, sig, keys) => unsea.verifyMessage(text, sig, keys as any),
@@ -801,7 +803,8 @@ tournaments.start()
 const tournamentName = computed(() => {
   const id = currentGame.value?.id
   if (!id || !id.startsWith('t-')) return null
-  return tournaments.views.value.find((v) => v.pairings.some((p) => p.gameId === id))?.tournament.name ?? null
+  void tournaments.views.value
+  return tournaments.client.tournamentOf(id)?.name ?? null
 })
 /** A finished game of a tournament: its result, reported (signed) to the tournament. */
 const reportTournamentGame = (entry: any) => {

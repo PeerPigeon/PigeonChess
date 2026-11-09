@@ -9,10 +9,10 @@
       <!-- One tournament -->
       <template v-if="open">
         <p class="meta">
-          Round robin · {{ tcLabel(open.tournament.timeControl) }} · by {{ open.tournament.creatorName }} · {{ statusLine(open) }}
+          {{ formatLabel(open) }} · {{ tcLabel(open.tournament.timeControl) }} · by {{ open.tournament.creatorName }} · {{ statusLine(open) }}
         </p>
 
-        <div v-if="open.status === 'open'" class="actions">
+        <div v-if="open.status === 'open' || (lateJoin(open))" class="actions">
           <template v-if="me">
             <button v-if="!joined(open)" class="primary" :disabled="busy || full(open)" @click="act(() => client.join(open!.tournament.id))">{{ full(open) ? 'Full' : 'Join' }}</button>
             <button v-else class="secondary" :disabled="busy" @click="act(() => client.leave(open!.tournament.id))">Leave</button>
@@ -21,6 +21,7 @@
         </div>
 
         <p v-if="open.status === 'running' && me && open.players.includes(me)" class="next">{{ nextGameLine(open) }}</p>
+        <p class="rules">{{ rulesLine(open) }}</p>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
 
         <template v-if="open.status === 'open'">
@@ -45,10 +46,10 @@
             </tbody>
           </table>
 
-          <h3>Games</h3>
+          <h3>Games<span v-if="shownGames(open).hidden" class="count"> (yours, and the latest {{ GAMES_SHOWN }} of {{ open.pairings.length }})</span></h3>
           <ol class="plain games">
-            <li v-for="p in open.pairings" :key="p.gameId">
-              <span class="round">R{{ p.round }}</span>
+            <li v-for="p in shownGames(open).games" :key="p.gameId">
+              <span class="round">{{ p.round ? `R${p.round}` : '' }}</span>
               <span class="pair">{{ nameOf(open, p.white) }} – {{ nameOf(open, p.black) }}</span>
               <span class="res" :class="gameClass(open, p)">{{ gameWord(open, p) }}</span>
             </li>
@@ -71,6 +72,19 @@
 
           <form v-if="creating && me" class="create" @submit.prevent="create">
             <label class="field">Name <input v-model="form.name" type="text" maxlength="60" placeholder="Sunday blitz" required /></label>
+            <label class="field">Format
+              <select v-model="form.format">
+                <option value="arena">Arena: play as many games as you can in a set time</option>
+                <option value="swiss">Swiss: a set number of rounds against players on your score</option>
+                <option value="round-robin">Round robin: everyone plays everyone once (up to {{ MAX_ROUND_ROBIN }})</option>
+              </select>
+            </label>
+            <label v-if="form.format === 'arena'" class="field">Lasts
+              <select v-model.number="form.minutes">
+                <option v-for="m in durations" :key="m" :value="m">{{ hoursLabel(m) }}</option>
+              </select>
+            </label>
+            <label v-if="form.format === 'swiss'" class="field">Rounds <input v-model.number="form.rounds" class="num" type="number" min="1" max="30" /></label>
             <label class="field">Time control
               <select v-model="form.tc">
                 <option v-for="tc in clockChoices" :key="tc.id" :value="tc.id">{{ tc.minutes === 0 ? 'No clock' : `${tc.display} ${tc.name.toLowerCase()}` }}</option>
@@ -78,10 +92,10 @@
             </label>
             <fieldset class="field">
               <legend>Starts</legend>
-              <label class="choice"><input v-model="form.when" type="radio" value="players" /> when <input v-model.number="form.players" class="num" type="number" min="2" :max="MAX_PLAYERS" /> players have joined</label>
+              <label class="choice"><input v-model="form.when" type="radio" value="players" /> when <input v-model.number="form.players" class="num" type="number" min="2" :max="maxFor(form.format)" /> players have joined</label>
               <label class="choice"><input v-model="form.when" type="radio" value="at" /> at <input v-model="form.at" type="datetime-local" :disabled="form.when !== 'at'" /></label>
             </fieldset>
-            <label class="field">At most <input v-model.number="form.max" class="num" type="number" min="2" :max="MAX_PLAYERS" /> players (everyone plays everyone once)</label>
+            <label class="field">At most <input v-model.number="form.max" class="num" type="number" min="2" :max="maxFor(form.format)" /> players (up to {{ maxFor(form.format) }})</label>
             <label class="choice"><input v-model="form.play" type="checkbox" /> I'm playing in it</label>
             <p v-if="error" class="error" role="alert">{{ error }}</p>
             <button class="primary" type="submit" :disabled="busy">Create</button>
@@ -122,7 +136,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import type { TournamentClient, TournamentView } from '../utils/tournamentClient'
-import { gameState, gamesToPlay, signedUp, MAX_PLAYERS, type Pairing, type TimeControl } from '../utils/tournament'
+import { gameState, gamesToPlay, signedUp, maxPlayersOf, roundLimitMs, MAX_PLAYERS, MAX_ROUND_ROBIN, type Format, type Pairing, type TimeControl } from '../utils/tournament'
 import type { Leader } from '../utils/tournament'
 
 const props = defineProps<{
@@ -144,7 +158,11 @@ const error = ref('')
 
 const clockChoices = computed(() => props.timeControls.filter((tc) => tc.id !== 'any'))
 const inAnHour = () => { const d = new Date(Date.now() + 60 * 60 * 1000); d.setSeconds(0, 0); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16) }
-const form = reactive({ name: '', tc: 'blitz3-1', when: 'players' as 'players' | 'at', players: 4, at: inAnHour(), max: 8, play: true })
+const form = reactive({ name: '', format: 'arena' as Format, minutes: 60, rounds: 7, tc: 'blitz3-1', when: 'players' as 'players' | 'at', players: 4, at: inAnHour(), max: 50, play: true })
+const durations = [30, 45, 60, 90, 120, 180, 240]
+const maxFor = (f: Format) => (f === 'round-robin' ? MAX_ROUND_ROBIN : MAX_PLAYERS)
+const hoursLabel = (m: number) => (m < 60 ? `${m} minutes` : m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} hour${m === 60 ? '' : 's'}`)
+const GAMES_SHOWN = 100
 
 const act = async (fn: () => Promise<unknown>) => {
   busy.value = true
@@ -154,12 +172,12 @@ const act = async (fn: () => Promise<unknown>) => {
 
 const create = () => act(async () => {
   const tc = clockChoices.value.find((c) => c.id === form.tc) ?? clockChoices.value[0]
-  const max = Math.max(2, Math.min(MAX_PLAYERS, Math.round(form.max) || 8))
+  const max = Math.max(2, Math.min(maxFor(form.format), Math.round(form.max) || 8))
   const start = form.when === 'at'
     ? { kind: 'at' as const, at: new Date(form.at).getTime() }
     : { kind: 'players' as const, players: Math.max(2, Math.min(max, Math.round(form.players) || 4)) }
   if (start.kind === 'at' && !(start.at > Date.now())) throw new Error('Pick a start time in the future')
-  const id = await props.client.create({ name: form.name, timeControl: { minutes: tc.minutes, increment: tc.increment }, start, maxPlayers: max, play: form.play })
+  const id = await props.client.create({ name: form.name, format: form.format, rounds: form.rounds, minutes: form.minutes, timeControl: { minutes: tc.minutes, increment: tc.increment }, start, maxPlayers: max, play: form.play })
   creating.value = false
   form.name = ''
   openId.value = id
@@ -173,7 +191,23 @@ const groups = computed(() => [
 
 const standing = (v: TournamentView) => signedUp(v.signups)
 const joined = (v: TournamentView) => !!props.me && standing(v).some((s) => s.player === props.me)
-const full = (v: TournamentView) => standing(v).length >= v.tournament.maxPlayers
+const full = (v: TournamentView) => (v.status === 'running' ? v.players.length : standing(v).length) >= maxPlayersOf(v.tournament)
+/** Arena: players can join while it runs (not in its last minutes). */
+const lateJoin = (v: TournamentView) => v.format === 'arena' && v.status === 'running' && !(props.me && v.players.includes(props.me)) && v.endsAt !== null && v.endsAt - Date.now() > 5 * 60_000
+const formatLabel = (v: TournamentView) => v.format === 'arena' ? `Arena, ${hoursLabel(v.tournament.minutes ?? 60)}` : v.format === 'swiss' ? `Swiss, ${v.tournament.rounds} rounds` : 'Round robin'
+const until = (at: number) => { const m = Math.max(0, Math.round((at - Date.now()) / 60_000)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min` }
+const rulesLine = (v: TournamentView): string =>
+  v.format === 'arena' ? 'Win 2, draw 1. When a game ends you are paired again with whoever is free; play as many as you like until time is up. A win counts once your opponent has reported it too.'
+  : v.format === 'swiss' ? `Win 1, draw ½, a bye 1. Each round pairs players on the same score who have not met; a round ends when its games are done, or after ${Math.round(roundLimitMs(v.tournament) / 60_000)} minutes.`
+  : 'Win 1, draw ½. Everyone plays everyone once, in any order.'
+/** Many games: yours, and the latest of the rest. */
+const shownGames = (v: TournamentView) => {
+  const all = v.format === 'round-robin' ? v.pairings : [...v.pairings].reverse()
+  if (all.length <= 2 * GAMES_SHOWN) return { games: all, hidden: false }
+  const mine = (p: Pairing) => p.white === props.me || p.black === props.me
+  const latest = new Set(all.filter((p) => !mine(p)).slice(0, GAMES_SHOWN))
+  return { games: all.filter((p) => mine(p) || latest.has(p)), hidden: true }
+}
 const short = (key: string) => `${key.slice(0, 6)}…`
 const nameOf = (v: TournamentView, key: string) => v.names.get(key) ?? short(key)
 const points = (n: number) => (Number.isInteger(n) ? String(n) : `${Math.floor(n) || ''}½`)
@@ -187,7 +221,12 @@ const statusLine = (v: TournamentView): string => {
       : `starts ${new Date(v.tournament.start.at).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' })}; ${n} joined`
   }
   if (v.status === 'cancelled') return 'cancelled (fewer than two players)'
+  if (v.status === 'running' && v.format === 'arena') return `${v.players.length} players, ${v.pairings.length} games so far; ends in ${until(v.endsAt ?? Date.now())}`
   const done = v.pairings.filter((p) => gameState(p, v.reports).state !== 'unplayed').length
+  if (v.status === 'running' && v.format === 'swiss') {
+    const now = v.pairings.filter((p) => p.round === v.round)
+    return `${v.players.length} players, round ${v.round} of ${v.tournament.rounds}: ${now.filter((p) => gameState(p, v.reports).state !== 'unplayed').length} of ${now.length} games played`
+  }
   if (v.status === 'running') return `${v.players.length} players, ${done} of ${v.pairings.length} games played`
   const top = v.table[0]
   return top && top.played ? `won by ${nameOf(v, top.player)} (${points(top.points)})` : 'finished'
@@ -195,8 +234,10 @@ const statusLine = (v: TournamentView): string => {
 
 const nextGameLine = (v: TournamentView): string => {
   if (!props.me) return ''
-  const owed = gamesToPlay(props.me, v.pairings, v.reports)
-  if (!owed.length) return 'You have played all your games.'
+  if (v.format === 'arena') return `Your next game starts by itself as soon as another player is free (keep this page open). Ends in ${until(v.endsAt ?? Date.now())}.`
+  if (v.format === 'swiss' && v.byes.length && v.rounds.at(-1)?.byes.includes(props.me)) return `You have a bye this round (1 point). Round ${v.round + 1} starts once this one is done.`
+  const owed = gamesToPlay(props.me, v.format === 'swiss' ? v.pairings.filter((p) => p.round === v.round) : v.pairings, v.reports)
+  if (!owed.length) return v.format === 'swiss' ? (v.round < (v.tournament.rounds ?? 0) ? `Your round ${v.round} game is done. The next round starts once the others finish.` : 'You have played all your rounds.') : 'You have played all your games.'
   const names = owed.map((p) => nameOf(v, p.white === props.me ? p.black : p.white))
   return `Still to play: ${names.join(', ')}. Your game starts by itself when one of them is here and free (keep this page open).`
 }
@@ -245,6 +286,8 @@ fieldset.field { border: 0; padding: 0; margin: 0; }
 .table tr.mine td { background: var(--wing, rgba(127, 127, 127, 0.08)); }
 .games li { display: grid; grid-template-columns: 2.4rem 1fr auto; gap: 0.5rem; border-bottom: 1px solid var(--line); }
 .round { color: var(--ink-2); }
+.rules { color: var(--ink-2); font-size: 0.9rem; margin: 0.3rem 0 0; }
+.count { text-transform: none; letter-spacing: 0; font-weight: 400; }
 .res.unplayed { color: var(--ink-2); }
 .res.disputed { color: var(--stop); }
 @media (max-width: 520px) {

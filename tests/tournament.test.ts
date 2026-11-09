@@ -81,3 +81,27 @@ test('status and leaderboard', () => {
   assert.equal(board[0].won, 2)
   assert.equal(board[0].tournaments, 2)
 })
+
+test('a hundred players: Swiss pairs everyone with no rematch for 7 rounds, and the state of it is quick to work out', async () => {
+  const { swissPairings, tournamentState, gameIdOf } = await import('../src/utils/tournament.ts')
+  const players = Array.from({ length: 100 }, (_, i) => `p${String(i).padStart(3, '0')}`)
+  const t: Tournament = { id: 'S', name: 'S', creator: players[0], creatorName: 'x', format: 'swiss', rounds: 7, timeControl: { minutes: 3, increment: 0 }, start: { kind: 'players', players: 100 }, maxPlayers: 100, createdAt: 0 }
+  const rounds: any[] = [], reports: Report[] = []
+  const met = new Set<string>()
+  for (let n = 1; n <= 7; n++) {
+    const r = swissPairings('S', players, rounds, reports)
+    assert.equal(r.pairings.length, 50)
+    for (const p of r.pairings) {
+      const k = [p.white, p.black].sort().join('|')
+      assert.ok(!met.has(k), `no rematch in round ${n}`); met.add(k)
+      const gameId = gameIdOf('S', n, p.white, p.black)
+      for (const by of [p.white, p.black]) reports.push({ tournament: 'S', gameId, white: p.white, black: p.black, result: p.white < p.black ? '1-0' : '0-1', moves: [], at: n, by })
+    }
+    rounds.push({ tournament: 'S', round: n, ...r, at: n * 1000, by: players[0] })
+  }
+  const began = performance.now()
+  const s = tournamentState(t, players.map((p) => su(p, 1)), [{ tournament: 'S', players, at: 0, by: players[0] }], rounds, reports, 10_000)
+  assert.ok(performance.now() - began < 200, 'quick')
+  assert.equal(s.status, 'finished')
+  assert.equal(s.table[0].points, 7, 'someone won them all')
+})
