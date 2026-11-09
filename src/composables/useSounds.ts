@@ -1,3 +1,4 @@
+import { ref } from 'vue'
 import { useSettings } from './useSettings'
 
 /**
@@ -16,6 +17,15 @@ const VOLUME = 0.5
 const PRELOAD = [MOVE, CAPTURE, '/sounds/win-wood.mp3', '/sounds/lose-wood.mp3', '/sounds/draw-wood.mp3', '/sounds/start-wood.mp3']
 
 let context: AudioContext | null = null
+
+/**
+ * A sound was wanted but the browser has not let the page play any yet (on an iPad, only a tap does;
+ * the end of a drag does not, so a game played by dragging stayed silent). The page offers a button.
+ */
+export const soundBlocked = ref(false)
+const blockedCheck = () => {
+  setTimeout(() => { soundBlocked.value = !!context && context.state !== 'running' }, 400)
+}
 const buffers = new Map<string, Promise<AudioBuffer | null>>()
 
 function audioContext(): AudioContext | null {
@@ -24,6 +34,7 @@ function audioContext(): AudioContext | null {
   if (!Ctor) return null
   try {
     context = new Ctor() as AudioContext
+    context.addEventListener?.('statechange', () => { if (context?.state === 'running') soundBlocked.value = false })
   } catch {
     context = null
   }
@@ -45,6 +56,9 @@ function load(url: string): Promise<AudioBuffer | null> {
   return pending
 }
 
+/** Turn the sound on (from a tap). */
+export function unlockSound() { unlock() }
+
 function unlock() {
   const ctx = audioContext()
   if (!ctx) return
@@ -64,7 +78,8 @@ if (typeof window !== 'undefined') {
   // Every tap, not only the first: iOS stops the context ("interrupted") for
   // a system dialog (such as the notification permission prompt), a call, or
   // the app going to the background, and only a tap starts it again.
-  const events = ['pointerdown', 'touchend', 'click', 'keydown']
+  // The start of a touch too: a move made by dragging a piece has no tap in it.
+  const events = ['pointerdown', 'touchstart', 'touchend', 'pointerup', 'click', 'keydown']
   const onGesture = () => { if (!context || context.state !== 'running') unlock() }
   events.forEach((name) => window.addEventListener(name, onGesture, true))
   // Coming back to the page can leave the context suspended or interrupted.
@@ -89,7 +104,7 @@ export function playSoundFile(url: string, { volume = VOLUME, delayMs = 0, rate 
     else playElement(url, volume, rate)
     return
   }
-  if (ctx.state !== 'running') ctx.resume().catch(() => {})
+  if (ctx.state !== 'running') { ctx.resume().catch(() => {}); blockedCheck() }
   load(url).then((buffer) => {
     if (!buffer) {
       playElement(url, volume, rate)
@@ -138,7 +153,7 @@ function snap(ctx: AudioContext): AudioBuffer {
 function playSnap(volume: number) {
   const ctx = audioContext()
   if (!ctx) return
-  if (ctx.state !== 'running') ctx.resume().catch(() => {})
+  if (ctx.state !== 'running') { ctx.resume().catch(() => {}); blockedCheck() }
   try {
     const source = ctx.createBufferSource()
     source.buffer = snap(ctx)

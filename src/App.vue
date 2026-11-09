@@ -589,6 +589,7 @@
       </div>
     </div>
 
+    <button v-if="soundBlocked && settings.soundEnabled !== false" class="sound-unlock" type="button" @click="unlockSound">Tap for sound</button>
     <footer class="build-footer">Build {{ BUILD }}</footer>
   </div>
 </template>
@@ -615,7 +616,7 @@ import * as unsea from 'unsea'
 import GameHistory from './components/GameHistory.vue'
 import { useChessGame } from './composables/useChessGame'
 import { useSettings } from './composables/useSettings'
-import { useSounds, playSoundFile } from './composables/useSounds'
+import { useSounds, playSoundFile, soundBlocked, unlockSound } from './composables/useSounds'
 import { timed } from './composables/stallRecorder'
 
 declare const __BUILD__: string
@@ -6099,5 +6100,10 @@ a.btn {
   }
 }
 
+.sound-unlock {
+  position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 50;
+  padding: 10px 18px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
+  font: inherit; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); cursor: pointer;
+}
 </style>
 
