@@ -3,6 +3,50 @@ import { ref } from 'vue'
 import * as unsea from 'unsea'
 import { aliasKey, createAccountRecord, decryptKeys, isPostQuantumRecord, openAccountRecord, upgradeAccountRecord, validAlias, verifyAccountRecord } from 'pigeonidp/records'
 
+/**
+ * Staying signed in on this device until logging out: the account's keys, encrypted with an AES key the
+ * browser keeps and will not hand out (non-extractable), both in IndexedDB. (Before, the keys sat in
+ * sessionStorage, gone with the tab, and for 24 hours at most.)
+ */
+const SESSION_DB = 'pigeonchess-session'
+const openSessionDb = (): Promise<IDBDatabase> => new Promise((resolve, reject) => {
+  const req = indexedDB.open(SESSION_DB, 1)
+  req.onupgradeneeded = () => req.result.createObjectStore('kv')
+  req.onsuccess = () => resolve(req.result)
+  req.onerror = () => reject(req.error)
+})
+const idb = async <T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest): Promise<T> => {
+  const db = await openSessionDb()
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      const req = run(db.transaction('kv', mode).objectStore('kv'))
+      req.onsuccess = () => resolve(req.result as T)
+      req.onerror = () => reject(req.error)
+    })
+  } finally { db.close() }
+}
+const deviceKey = async (): Promise<CryptoKey> => {
+  const kept = await idb<CryptoKey | undefined>('readonly', (s) => s.get('device-key'))
+  if (kept) return kept
+  const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+  await idb('readwrite', (s) => s.put(key, 'device-key'))
+  return key
+}
+async function keepSession(session: { alias: string; keys: any }): Promise<void> {
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await deviceKey(), new TextEncoder().encode(JSON.stringify(session)))
+  await idb('readwrite', (s) => s.put({ iv, data }, 'session'))
+}
+async function keptSession(): Promise<{ alias: string; keys: any } | null> {
+  const kept = await idb<{ iv: Uint8Array; data: ArrayBuffer } | undefined>('readonly', (s) => s.get('session'))
+  if (!kept) return null
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: kept.iv }, await deviceKey(), kept.data)
+  return JSON.parse(new TextDecoder().decode(plain))
+}
+async function forgetSession(): Promise<void> {
+  await idb('readwrite', (s) => s.delete('session'))
+}
+
 export function useIdentity() {
   const currentIdentity = ref<any>(null)
   const isAuthenticated = ref(false)
@@ -11,39 +55,35 @@ export function useIdentity() {
 
   // Session management constants
   const SESSION_KEY = 'chess-session'
-  const SESSION_TIMEOUT = 24 * 60 * 60 * 1000 // 24 hours
 
   const initializeIdP = async () => {
     try {
       console.log('Identity system initialized with UnSEA')
       
-      // Try to restore session from sessionStorage
-      const sessionData = sessionStorage.getItem(SESSION_KEY)
-      if (sessionData) {
+      // Signed in on this device before (until logging out).
+      let session: { alias: string; keys: any } | null = await keptSession().catch(() => null)
+      // A session from before (in this tab only): kept the new way from now on.
+      if (!session) {
         try {
-          const session = JSON.parse(sessionData)
-          const now = Date.now()
-          
-          // Check if session is still valid (within 24 hours)
-          if (session.timestamp && (now - session.timestamp) < SESSION_TIMEOUT) {
-            console.log('Restoring session for:', session.alias)
-            currentIdentity.value = session.keys
-            username.value = session.alias
-            publicKeys.value = unsea.publicKeysOf(session.keys)
-            isAuthenticated.value = true
-            localStorage.setItem('chess-username', session.alias)
-            console.log('Session restored successfully')
-            return true
-          } else {
-            console.log('Session expired, clearing')
-            sessionStorage.removeItem(SESSION_KEY)
-          }
+          const old = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null')
+          if (old?.alias && old?.keys) { session = { alias: old.alias, keys: old.keys }; void keepSession(session).catch(() => {}) }
+        } catch {}
+      }
+      sessionStorage.removeItem(SESSION_KEY)
+      if (session?.alias && session.keys) {
+        try {
+          currentIdentity.value = session.keys
+          username.value = session.alias
+          publicKeys.value = unsea.publicKeysOf(session.keys)
+          isAuthenticated.value = true
+          localStorage.setItem('chess-username', session.alias)
+          return true
         } catch (sessionError) {
           console.warn('Failed to restore session:', sessionError)
-          sessionStorage.removeItem(SESSION_KEY)
+          void forgetSession().catch(() => {})
         }
       }
-      
+
       // Check if there's a stored username (but don't auto-load encrypted keys)
       const storedUsername = localStorage.getItem('chess-username')
       if (storedUsername) {
@@ -60,22 +100,12 @@ export function useIdentity() {
   }
 
   const saveSession = (alias: string, keys: any) => {
-    try {
-      const session = {
-        alias,
-        keys,
-        timestamp: Date.now()
-      }
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
-      console.log('Session saved for:', alias)
-    } catch (error) {
-      console.warn('Failed to save session:', error)
-    }
+    void keepSession({ alias, keys }).catch((error) => console.warn('Failed to save session:', error))
   }
 
   const clearSession = () => {
     sessionStorage.removeItem(SESSION_KEY)
-    console.log('Session cleared')
+    void forgetSession().catch(() => {})
   }
 
   // Accounts are signed records (pigeonidp/records): name, public keys, and
