@@ -929,7 +929,9 @@ const watchSeatedGame = () => {
   watch(() => currentGame.value?.moves?.length, () => saveAIGame())
   // A new line, and PigeonAI's reply once it is written (it shows word by word; saved whole at the end).
   watch(() => [chatMessages.value.length, pigeonTyping.value], () => saveAIGame())
-  watch(() => currentGame.value?.status, (status) => { if (isAIGame.value && status && status !== 'active') dropAIGame() })
+  // (By the game's opponent, not isAIGame: the move that ends a game against the computer turns that off
+  // first, and the game was then picked up again on a reload from the move before.)
+  watch(() => currentGame.value?.status, (status) => { if (opponentId.value === 'AI-Opponent' && status && status !== 'active') dropAIGame() })
   setInterval(() => { if (seat && isGameActive.value) saveGameState() }, 2000)
   watch(() => currentGame.value?.moves?.length, () => saveGameState())
   watch(() => currentGame.value?.status, (status) => {
