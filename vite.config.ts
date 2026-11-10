@@ -6,7 +6,8 @@ import { existsSync, readFileSync } from 'fs'
 
 // Which build a page is running, shown under the lobby, so a stale page is easy to spot.
 const commit = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim() } catch { return 'dev' } })()
-const builtAt = new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
+// When it was built: the month and year only (as people say it), in the site's own time zone.
+const builtAt = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'America/Chicago' })
 // The commits of the packages installed from GitHub, as the lockfile names them (shown with the build).
 const pinned = (name: string): string | null => {
   try {
@@ -27,11 +28,11 @@ export default defineConfig({
     // reload when a newer one is out (src/main.ts).
     name: 'build-version',
     generateBundle() {
-      this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: `${commit} (${parts}), built ${builtAt}` }) })
+      this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ build: `${commit} (${parts}), ${builtAt}` }) })
     },
   }],
   define: {
-    __BUILD__: JSON.stringify(`${commit} (${parts}), built ${builtAt}`),
+    __BUILD__: JSON.stringify(`${commit} (${parts}), ${builtAt}`),
     __PIGEONAI__: JSON.stringify(hasPigeonAI),
   },
   resolve: {
