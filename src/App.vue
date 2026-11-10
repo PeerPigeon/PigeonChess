@@ -2737,7 +2737,7 @@ const playLowTimeWarning = () => {
   })
 }
 
-const playWinSound = () => playSoundFile('/sounds/win-wood.mp3', { volume: 0.6 })
+const playWinSound = () => playSoundFile('/sounds/win-rise.mp3', { volume: 0.6 })
 
 const playLoseSound = () => playSoundFile('/sounds/lose-wood.mp3', { volume: 0.6 })
 
