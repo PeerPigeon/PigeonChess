@@ -494,6 +494,16 @@
           <span>Password</span>
           <input v-model="loginPassword" type="password" :autocomplete="loginMode === 'login' ? 'current-password' : 'new-password'" @keyup.enter="handleLogin" />
         </label>
+        <template v-if="loginMode === 'register'">
+          <div class="generate">
+            <button class="btn" type="button" @click="generatePassword">Generate password</button>
+            <template v-if="generatedPassword && generatedPassword === loginPassword">
+              <code class="generated">{{ generatedPassword }}</code>
+              <button class="btn" type="button" @click="copyGeneratedPassword">{{ passwordCopied ? 'Copied' : 'Copy' }}</button>
+            </template>
+          </div>
+          <p class="keep-note">Save this password somewhere safe, such as a password manager. You need it, with this username, to log in again, and it cannot be reset.</p>
+        </template>
         <ul v-if="loginMode === 'register' && loginPassword" class="rules">
           <li :class="{ met: loginPassword.length >= 12 }">12 or more characters</li>
           <li :class="{ met: /[A-Z]/.test(loginPassword) && /[a-z]/.test(loginPassword) }">Upper and lower case letters</li>
@@ -3525,6 +3535,31 @@ const calculateRetryDelay = (attempt: number): number => {
 }
 
 // Password strength validation
+/** A password made here (shown so it can be saved), and whether it was just copied. */
+const generatedPassword = ref('')
+const passwordCopied = ref(false)
+/** A random 20-character password that meets the rules below (no look-alike characters: l, I, 1, O, 0). */
+const generatePassword = () => {
+  const sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!@#$%*-_=+?']
+  const all = sets.join('')
+  // Evenly picked (a random number past the last whole multiple is thrown again).
+  const pick = (from: string) => {
+    const limit = 256 - (256 % from.length)
+    const byte = new Uint8Array(1)
+    do crypto.getRandomValues(byte); while (byte[0] >= limit)
+    return from[byte[0] % from.length]
+  }
+  let out: string[]
+  do out = Array.from({ length: 20 }, () => pick(all)); while (!sets.every((set) => out.some((c) => set.includes(c))))
+  generatedPassword.value = out.join('')
+  loginPassword.value = generatedPassword.value
+  passwordCopied.value = false
+  loginError.value = ''
+}
+const copyGeneratedPassword = async () => {
+  try { await navigator.clipboard.writeText(generatedPassword.value); passwordCopied.value = true } catch { /* it is on screen to copy by hand */ }
+}
+
 const validatePasswordStrength = (password: string): { valid: boolean; error: string } => {
   if (password.length < 12) {
     return { valid: false, error: 'Password must be at least 12 characters' }
@@ -3581,6 +3616,7 @@ const handleLogin = async () => {
       showLoginModal.value = false
       loginUsername.value = ''
       loginPassword.value = ''
+      generatedPassword.value = ''
       console.log('Identity created successfully!')
     } else {
       // Load existing identity (with DHT fallback for cross-device login)
@@ -5885,6 +5921,10 @@ a.btn {
   font-weight: 600;
   font-size: 0.875rem;
 }
+
+.generate { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.generated { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95rem; padding: 0.3rem 0.5rem; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--paper); user-select: all; overflow-wrap: anywhere; }
+.keep-note { font-size: 0.85rem; color: var(--ink-2); margin: 0; }
 
 .rules {
   list-style: none;
