@@ -325,6 +325,8 @@ const promotingColor = ref<'w' | 'b'>('w') // Store color to avoid reactivity is
 
 /** A move queued during the opponent's turn: played the moment the player's turn comes, if still legal. */
 const premove = ref<{ from: string; to: string; promotion?: 'q' } | null>(null)
+/** A pre-move's sound waits this long after the opponent's move lands. */
+const PREMOVE_SOUND_AFTER_MS = 180
 /** A piece being dragged: where from, where the pointer is, its picture and size; moved once it left its spot. */
 const drag = ref<{ from: string; x: number; y: number; x0: number; y0: number; url: string; size: number; moved: boolean } | null>(null)
 /** A drag just ended: the click the browser sends after it is not a click. */
@@ -419,10 +421,14 @@ watch(() => board().fen(), () => {
   setTimeout(() => {
     if (board().turn() !== props.myColor) return
     const isCastle = legal.flags.includes('k') || legal.flags.includes('q')
-    if (isCastle) playCastleSound()
-    else if (legal.captured !== undefined) playCaptureSound()
-    else playMoveSound()
     emit('move', p.from, p.to, p.promotion)
+    // The move goes at once; its sound just after the opponent's (which plays as their move lands, and is
+    // over in about 0.13 s), so the two are heard one after the other, not as one.
+    setTimeout(() => {
+      if (isCastle) playCastleSound()
+      else if (legal.captured !== undefined) playCaptureSound()
+      else playMoveSound()
+    }, PREMOVE_SOUND_AFTER_MS)
   }, 0)
 })
 watch(() => props.interactive, (on) => { if (!on) { premove.value = null; drag.value = null; dragOverSquare.value = null } })
