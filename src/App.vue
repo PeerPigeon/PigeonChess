@@ -2739,7 +2739,7 @@ const playLowTimeWarning = () => {
 
 const playWinSound = () => playSoundFile('/sounds/win-rise.mp3', { volume: 0.6 })
 
-const playLoseSound = () => playSoundFile('/sounds/lose-wood.mp3', { volume: 0.6 })
+const playLoseSound = () => playSoundFile('/sounds/lose-fall.mp3', { volume: 0.6 })
 
 // Two even knocks, halfway in pitch between the win's rising pair and the
 // loss's falling one: a draw, an abort or an abandoned game.

@@ -14,7 +14,7 @@ import { useSettings } from './useSettings'
 const MOVE = '/sounds/move.mp3'
 const CAPTURE = '/sounds/capture.mp3'
 const VOLUME = 0.5
-const PRELOAD = [MOVE, CAPTURE, '/sounds/win-rise.mp3', '/sounds/lose-wood.mp3', '/sounds/draw-wood.mp3', '/sounds/start-wood.mp3']
+const PRELOAD = [MOVE, CAPTURE, '/sounds/win-rise.mp3', '/sounds/lose-fall.mp3', '/sounds/draw-wood.mp3', '/sounds/start-wood.mp3']
 
 let context: AudioContext | null = null
 
