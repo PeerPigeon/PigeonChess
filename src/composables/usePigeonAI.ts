@@ -102,18 +102,19 @@ const describe = (a: PigeonAI): string => {
 let ticker: ReturnType<typeof setInterval> | null = null
 
 /** This device's PigeonAI choices (Settings → PigeonAI). */
-export interface PigeonAIPrefs { model?: string; serveWhole?: boolean; hold?: boolean }
+export interface PigeonAIPrefs { model?: string; serveWhole?: boolean; hold?: boolean; room?: string }
 
 /**
  * PigeonAI's network for a chess network: global plays on pigeonchess-ai, whose model its server sets
  * (no page picks another there); any other chess network has a PigeonAI network of its own, whose model
  * the players pick.
  */
-export function pigeonAINetwork(chessNetwork: string): { network: string; room: string; own: boolean } {
-  const name = (chessNetwork || 'global').trim().replace(/[^\w.@-]/g, '-').slice(0, 60) || 'global'
-  if (name === 'global') return { network: 'pigeonchess-ai', room: 'global', own: false }
+export function pigeonAINetwork(chessNetwork: string, roomName = 'global'): { network: string; room: string; own: boolean } {
+  const clean = (x: string) => (x || '').trim().replace(/[^\w.@-]/g, '-').slice(0, 60)
+  const name = clean(chessNetwork) || 'global', room = clean(roomName) || 'global'
+  if (name === 'global') return { network: 'pigeonchess-ai', room, own: false }
   // "test" and "chess-test" both: chess-test (the name the PigeonAI server's page is given).
-  return { network: name.startsWith('chess-') ? name : `chess-${name}`, room: 'global', own: true }
+  return { network: name.startsWith('chess-') ? name : `chess-${name}`, room, own: true }
 }
 /** The PigeonAI network this page is on now. */
 const networkName = ref('pigeonchess-ai')
@@ -136,7 +137,7 @@ export function restartPigeonAIPeer(chessNetwork: string, prefs: PigeonAIPrefs):
 export function startPigeonAIPeer(signaling: Signaling, chessNetwork: string, prefs: PigeonAIPrefs = {}): void {
   if (!PIGEONAI_HERE || starting) return
   lastStart = { signaling, chessNetwork, prefs }
-  const { network, room, own } = pigeonAINetwork(chessNetwork)
+  const { network, room, own } = pigeonAINetwork(chessNetwork, prefs.room)
   networkName.value = network
   ownNetwork.value = own
   // On a network of its own: the model picked here (and, set, it becomes the network's), kept whole and

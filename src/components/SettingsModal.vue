@@ -107,9 +107,16 @@
       <div v-if="pigeonAI.here" class="settings-section">
         <h3>PigeonAI</h3>
         <p class="description">
-          PigeonAI runs on the <b>{{ aiNet.network }}</b> network<template v-if="pigeonAI.modelName.value">, with {{ pigeonAI.modelName.value }}</template>.
+          PigeonAI runs on the <b>{{ aiNet.network }}</b> network, room <b>{{ aiNet.room }}</b><template v-if="pigeonAI.modelName.value">, with {{ pigeonAI.modelName.value }}</template>.
           <template v-if="!aiNet.own"> On global its model is set by the PigeonAI server. To pick your own, change Network above (your PigeonAI network is then that network's).</template>
         </p>
+        <label class="ai-model">
+          <span>Room</span>
+          <input type="text" spellcheck="false" autocomplete="off" placeholder="global"
+            :value="settings.pigeonAIRoom ?? ''"
+            @change="(e) => { settings.pigeonAIRoom = (e.target as HTMLInputElement).value.trim() }" />
+        </label>
+        <p class="description">Devices in the same room share the model and its work. Empty: global.</p>
         <template v-if="aiNet.own">
           <label class="ai-model">
             <span>Model</span>
@@ -350,7 +357,7 @@ interface Props {
 const props = defineProps<Props>()
 const pigeonAI = usePigeonAI()
 /** PigeonAI's network for the chess network typed above. */
-const aiNet = computed(() => pigeonAINetwork(props.settings.networkName || 'global'))
+const aiNet = computed(() => pigeonAINetwork(props.settings.networkName || 'global', props.settings.pigeonAIRoom || 'global'))
 const anyChoices = computed(() => (props.timeControls ?? []).filter((tc) => tc.id !== 'any'))
 const emit = defineEmits<{
   close: []

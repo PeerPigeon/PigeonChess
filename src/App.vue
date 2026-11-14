@@ -1160,7 +1160,7 @@ const currentOpeningName = computed(() => {
 type AIEngine = 'standard' | 'pigeonai'
 const pigeonAI = usePigeonAI()
 /** This device's PigeonAI choices (Settings → PigeonAI). */
-const pigeonAIPrefs = () => ({ model: settings.value.pigeonAIModel ?? '', serveWhole: settings.value.pigeonAIServeWhole === true, hold: settings.value.pigeonAIHold !== false })
+const pigeonAIPrefs = () => ({ room: settings.value.pigeonAIRoom || 'global', model: settings.value.pigeonAIModel ?? '', serveWhole: settings.value.pigeonAIServeWhole === true, hold: settings.value.pigeonAIHold !== false })
 // PigeonAI starts again when Settings close with its network, model or way of holding it changed.
 let pigeonAIKey = ''
 const pigeonAIKeyNow = () => JSON.stringify([settings.value.networkName || 'global', pigeonAIPrefs()])
