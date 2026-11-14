@@ -188,7 +188,7 @@
           <ol v-stick-bottom class="move-list">
             <li v-for="(pair, row) in pairMoves(currentGame.moves)" :key="row">
               <span class="move-no">{{ row + 1 }}</span>
-              <button v-for="(san, k) in pair" :key="k" class="ply" :class="{ current: row * 2 + k === viewingMoveIndex }" @click="goToMove(row * 2 + k)">{{ san }}</button>
+              <button v-for="(san, k) in pair" :key="k" class="ply" :class="{ current: row * 2 + k === viewingMoveIndex, backup: !!pigeonBy[row * 2 + k] }" :title="pigeonBy[row * 2 + k] ? `The backup engine played this (PigeonAI ${pigeonBy[row * 2 + k]})` : (pigeonBy[row * 2 + k] === '' ? 'PigeonAI played this' : undefined)" @click="goToMove(row * 2 + k)">{{ san }}</button>
             </li>
           </ol>
         </div>
@@ -350,7 +350,7 @@
           <span v-if="isAIGame && gameEngine === 'pigeonai'" class="pigeon-note" :class="{ backup: pigeonNote.includes('backup') }">
             <template v-if="pigeonNote">{{ pigeonNote }}</template>
             <PigeonAIStatus v-else :text="pigeonAI.status.value" :progress="pigeonAI.progress.value" :ready="pigeonAI.ready.value" :paused="pigeonAI.paused.value" />
-            <template v-if="pigeonTally.pigeon + pigeonTally.backup">· PigeonAI {{ pigeonTally.pigeon }}, backup {{ pigeonTally.backup }}</template>
+            <template v-if="pigeonTally.pigeon + pigeonTally.backup">· PigeonAI {{ pigeonTally.pigeon }}, backup {{ pigeonTally.backup }}<template v-if="pigeonTally.backup"> (marked * in the moves)</template></template>
           </span>
           <span class="seat-captures">
             <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']" :key="`go-${idx}`" :class="{ dup: idx > 0 && capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white'][idx - 1] === piece }" :src="capturedSrc(myPlayer?.color === 'white' ? 'w' : 'b', piece)" :alt="piece" />
@@ -1047,11 +1047,11 @@ const restoreGame = () => {
 
 // A game against the computer, kept for this tab and this browser as it goes, so a reload picks it up.
 const AI_GAME = 'pigeonchess:ai-game'
-interface SavedAIGame { moves: string[]; myColor: 'white' | 'black'; difficulty: number; pigeon: boolean; engine?: AIEngine; chat?: { mine: boolean; text: string }[]; savedAt: number }
+interface SavedAIGame { moves: string[]; myColor: 'white' | 'black'; difficulty: number; pigeon: boolean; engine?: AIEngine; chat?: { mine: boolean; text: string }[]; savedAt: number; by?: Record<number, string> }
 const saveAIGame = () => {
   const game = currentGame.value
   if (!isAIGame.value || !game || game.status !== 'active' || !myPlayer.value) return
-  const text = JSON.stringify({ moves: [...game.moves], myColor: myPlayer.value.color, difficulty: aiDifficulty.value, pigeon: isPigeonVariant, engine: gameEngine.value, chat: chatMessages.value.slice(-50).map((l) => ({ mine: l.mine, text: l.text })), savedAt: Date.now() } satisfies SavedAIGame)
+  const text = JSON.stringify({ moves: [...game.moves], myColor: myPlayer.value.color, difficulty: aiDifficulty.value, pigeon: isPigeonVariant, engine: gameEngine.value, chat: chatMessages.value.slice(-50).map((l) => ({ mine: l.mine, text: l.text })), savedAt: Date.now(), by: { ...pigeonBy.value } } satisfies SavedAIGame)
   try { sessionStorage.setItem(AI_GAME, text) } catch { /* no storage here */ }
   try { localStorage.setItem(AI_GAME, text) } catch { /* no storage here */ }
 }
@@ -1089,6 +1089,12 @@ const restoreAIGame = () => {
   // The chat with PigeonAI, as it was.
   clearChat()
   for (const l of g.chat ?? []) if (typeof l?.text === 'string') addChatLine(!!l.mine, l.text)
+  // Who made each computer move, and the last one's line.
+  const by: Record<number, string> = {}
+  for (const [k, w] of Object.entries(g.by ?? {})) if (Number(k) < g.moves.length && typeof w === 'string') by[Number(k)] = w
+  pigeonBy.value = by
+  const lastPly = Math.max(-1, ...Object.keys(by).map(Number))
+  if (lastPly >= 0) pigeonNote.value = !by[lastPly] ? `PigeonAI played ${g.moves[lastPly]}` : `PigeonAI ${by[lastPly]}: the backup engine played ${g.moves[lastPly]}`
   const last = chess.value.history({ verbose: true }).slice(-1)[0] as any
   lastMove.value = last ? { from: last.from, to: last.to } : null
   if (!isGameActive.value) { dropAIGame(); return false }
@@ -1186,7 +1192,12 @@ const gameEngine = ref<AIEngine>('standard')
 const pigeonAsking = ref(false)
 let pigeonOutcome: { fen: string; why: string } | null = null
 const pigeonNote = ref('')
-const pigeonTally = ref({ pigeon: 0, backup: 0 })
+/** Who made each computer move (by its ply): '' PigeonAI, else why the backup engine did. Kept with the game. */
+const pigeonBy = ref<Record<number, string>>({})
+const pigeonTally = computed(() => {
+  const all = Object.values(pigeonBy.value)
+  return { pigeon: all.filter((w) => !w).length, backup: all.filter((w) => !!w).length }
+})
 
 const aiLevels = [
   { name: 'Easy', elo: 'about 900' },
@@ -1252,7 +1263,7 @@ const startAIGame = () => {
   if (isGameActive.value) return
   clearChat()
   pigeonNote.value = ''
-  pigeonTally.value = { pigeon: 0, backup: 0 }
+  pigeonBy.value = {}
   
   // Clear last move highlight
   lastMove.value = null
@@ -2176,7 +2187,8 @@ const {
 // In a PigeonAI game: who made each computer move (PigeonAI, or the backup engine and why).
 watch(() => currentGame.value?.moves?.length ?? 0, (n, before) => {
   // A new game (or moves taken back): the last game's line and tally go, whatever kind of game this is.
-  if (n === 0 || n < before) { pigeonNote.value = ''; pigeonTally.value = { pigeon: 0, backup: 0 }; return }
+  if (n === 0) { pigeonNote.value = ''; pigeonBy.value = {}; return }
+  if (n < before) { pigeonNote.value = ''; pigeonBy.value = Object.fromEntries(Object.entries(pigeonBy.value).filter(([k]) => Number(k) < n)); return }
   if (!isAIGame.value || gameEngine.value !== 'pigeonai') return
   if (n !== before + 1) return
   // A move by the computer: the side that moved is not mine.
@@ -2185,8 +2197,8 @@ watch(() => currentGame.value?.moves?.length ?? 0, (n, before) => {
   const san = currentGame.value!.moves[n - 1]
   const why = pigeonOutcome?.why ?? 'gave no move'
   pigeonOutcome = null
-  if (!why) { pigeonTally.value.pigeon++; pigeonNote.value = `PigeonAI played ${san}` }
-  else { pigeonTally.value.backup++; pigeonNote.value = `PigeonAI ${why}: the backup engine played ${san}` }
+  pigeonBy.value = { ...pigeonBy.value, [n - 1]: why }
+  pigeonNote.value = !why ? `PigeonAI played ${san}` : `PigeonAI ${why}: the backup engine played ${san}`
 })
 
 // Signed in: what this player writes (their games) is signed by their account, so it follows them to
@@ -5308,6 +5320,8 @@ onUnmounted(() => {
   align-items: center;
 }
 
+.move-list .ply.backup { color: var(--warning-color); }
+.move-list .ply.backup::after { content: '*'; font-size: 0.75em; vertical-align: super; margin-left: 1px; }
 .move-list li:nth-child(even) {
   background: rgba(214, 220, 224, 0.45);
 }
