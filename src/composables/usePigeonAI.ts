@@ -111,7 +111,9 @@ export interface PigeonAIPrefs { model?: string; serveWhole?: boolean; hold?: bo
  */
 export function pigeonAINetwork(chessNetwork: string): { network: string; room: string; own: boolean } {
   const name = (chessNetwork || 'global').trim().replace(/[^\w.@-]/g, '-').slice(0, 60) || 'global'
-  return name === 'global' ? { network: 'pigeonchess-ai', room: 'global', own: false } : { network: `chess-${name}`, room: 'global', own: true }
+  if (name === 'global') return { network: 'pigeonchess-ai', room: 'global', own: false }
+  // "test" and "chess-test" both: chess-test (the name the PigeonAI server's page is given).
+  return { network: name.startsWith('chess-') ? name : `chess-${name}`, room: 'global', own: true }
 }
 /** The PigeonAI network this page is on now. */
 const networkName = ref('pigeonchess-ai')
