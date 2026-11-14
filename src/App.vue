@@ -2190,6 +2190,24 @@ const {
   opponentUsername: () => opponentName.value
 })
 
+// A finished game stays on screen across a reload (in this tab) until the player leaves it.
+const LAST_FINISHED = 'pigeonchess:finished-game'
+const forgetFinished = () => { try { sessionStorage.removeItem(LAST_FINISHED) } catch { /* no storage */ } }
+watch([() => currentGame.value?.status, () => gameHistory.value.length], () => {
+  const g = currentGame.value
+  if (!g || isReplayMode.value || isPuzzleMode.value) return
+  if (g.status === 'active') { forgetFinished(); return }
+  if (g.status !== 'finished') return
+  const entry = gameHistory.value.find((h) => h.gameId === g.id)
+  if (entry) { try { sessionStorage.setItem(LAST_FINISHED, JSON.stringify(entry)) } catch { /* no storage */ } }
+})
+const finishedGame = (): GameHistoryEntry | null => {
+  try {
+    const g = JSON.parse(sessionStorage.getItem(LAST_FINISHED) || 'null') as GameHistoryEntry | null
+    return g && Array.isArray(g.moves) && typeof g.gameId === 'string' ? g : null
+  } catch { return null }
+}
+
 // In a PigeonAI game: who made each computer move (PigeonAI, or the backup engine and why).
 watch(() => currentGame.value?.moves?.length ?? 0, (n, before) => {
   // A new game (or moves taken back): the last game's line and tally go, whatever kind of game this is.
@@ -4015,6 +4033,7 @@ const declineTakebackRequest = () => {
 }
 
 const returnToLobby = () => {
+  forgetFinished()
   dropAIGame()
   seat = null
   saveSeat(null)
@@ -4081,6 +4100,7 @@ const startReplayMode = (game: GameHistoryEntry) => {
 }
 
 const exitReplayMode = () => {
+  forgetFinished()
   const wasShared = sharedView.value
   sharedView.value = false
   sharedNote.value = ''
@@ -4809,8 +4829,11 @@ onMounted(async () => {
   // A game this browser was in the middle of (a reload, or a tap on a notification). Against the
   // computer it needs no network; against a person, it waits for this page's peer ID, however long.
   else if (!isGameActive.value) restoreAIGame()
-  for (let i = 0; i < 480 && !shared && !mesh.value?.peerId && !isGameActive.value; i++) await new Promise((r) => setTimeout(r, 250))
-  if (!isGameActive.value && !shared) restoreGame()
+  // A game that had just finished here: on screen again (the lobby once the player leaves it).
+  const finished = !shared && !isGameActive.value ? finishedGame() : null
+  if (finished) startReplayMode(finished)
+  for (let i = 0; i < 480 && !shared && !finished && !mesh.value?.peerId && !isGameActive.value; i++) await new Promise((r) => setTimeout(r, 250))
+  if (!isGameActive.value && !shared && !finished) restoreGame()
   
   // Initialize PigeonIdP
   try {
