@@ -87,6 +87,12 @@ export interface Settings {
   whiteArrowColor?: string
   blackArrowColor?: string
   emptyArrowColor?: string
+  /** PigeonAI's model on a network of your own (not global): a Hugging Face model or .gguf; unset: the network's. */
+  pigeonAIModel?: string
+  /** Keep PigeonAI's whole model on this device and serve it to the others (not on global). */
+  pigeonAIServeWhole?: boolean
+  /** Hold a share of PigeonAI's model on this device's GPU (unset: yes). */
+  pigeonAIHold?: boolean
 }
 
 export interface BoardTheme {

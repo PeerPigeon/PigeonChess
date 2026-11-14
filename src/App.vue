@@ -614,7 +614,7 @@ import { usePeerPigeon, migrateSignalingUrls } from './composables/usePeerPigeon
 /** What's new (public/notes/index.html), opened from the build in the footer. */
 const FEATURE_NOTES = '/notes/'
 import { forgetSharedGameInUrl, movesPlay, offerLink, sharedGameInUrl, shareUrl, unpackGame } from '@/utils/shareGame'
-import { usePigeonAI, startPigeonAIPeer, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, SPEAK_UP, tookCue, type ChatGame } from './composables/usePigeonAI'
+import { usePigeonAI, startPigeonAIPeer, restartPigeonAIPeer, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, SPEAK_UP, tookCue, type ChatGame } from './composables/usePigeonAI'
 import { useSeek } from './composables/useSeek'
 import { loadSeat, makeSeatKeys, open, saveSeat, seal, type Seat, type SeatKeys } from './composables/useSeat'
 import { useNotify } from './composables/useNotify'
@@ -1159,6 +1159,15 @@ const currentOpeningName = computed(() => {
 // together (offered when this build has it, on the standard board). Remembered.
 type AIEngine = 'standard' | 'pigeonai'
 const pigeonAI = usePigeonAI()
+/** This device's PigeonAI choices (Settings → PigeonAI). */
+const pigeonAIPrefs = () => ({ model: settings.value.pigeonAIModel ?? '', serveWhole: settings.value.pigeonAIServeWhole === true, hold: settings.value.pigeonAIHold !== false })
+// PigeonAI starts again when Settings close with its network, model or way of holding it changed.
+let pigeonAIKey = ''
+const pigeonAIKeyNow = () => JSON.stringify([settings.value.networkName || 'global', pigeonAIPrefs()])
+watch(showSettings, (open) => {
+  if (open) { pigeonAIKey = pigeonAIKeyNow(); return }
+  if (pigeonAIKey && pigeonAIKeyNow() !== pigeonAIKey) restartPigeonAIPeer(settings.value.networkName || 'global', pigeonAIPrefs())
+})
 const pigeonAIOffered = pigeonAI.here && !isPigeonVariant
 const AI_ENGINE_KEY = 'pigeonchess:ai-engine'
 const aiEngine = ref<AIEngine>((() => {
@@ -3669,7 +3678,7 @@ const initializeAndConnect = async () => {
     await connect(activeSignalingUrls)
     // Every page here is a PigeonAI peer too: it joins PigeonAI's mesh for chess on the same relays.
     const aiUrls = migrateSignalingUrls(activeSignalingUrls)
-    startPigeonAIPeer({ signalingServer: aiUrls[0], signalingServers: aiUrls.slice(1), automaticSignalingServer: true }, settings.value.networkName || 'global')
+    startPigeonAIPeer({ signalingServer: aiUrls[0], signalingServers: aiUrls.slice(1), automaticSignalingServer: true }, settings.value.networkName || 'global', pigeonAIPrefs())
 
     // Reset retry count - we're operational even without signaling servers
     retryAttempts.value = 0

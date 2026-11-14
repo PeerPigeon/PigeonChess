@@ -103,6 +103,40 @@
           placeholder="Network name"
         />
       </div>
+
+      <div v-if="pigeonAI.here" class="settings-section">
+        <h3>PigeonAI</h3>
+        <p class="description">
+          PigeonAI runs on the <b>{{ aiNet.network }}</b> network<template v-if="pigeonAI.modelName.value">, with {{ pigeonAI.modelName.value }}</template>.
+          <template v-if="!aiNet.own"> On global its model is set by the PigeonAI server. To pick your own, change Network above (your PigeonAI network is then that network's).</template>
+        </p>
+        <template v-if="aiNet.own">
+          <label class="ai-model">
+            <span>Model</span>
+            <input type="text" list="pigeonai-models" spellcheck="false" autocomplete="off"
+              :value="settings.pigeonAIModel ?? ''"
+              @change="(e) => { settings.pigeonAIModel = (e.target as HTMLInputElement).value.trim() }"
+              placeholder="The network's model, or one from Hugging Face" />
+          </label>
+          <datalist id="pigeonai-models">
+            <option value="LiquidAI/LFM3-1.7B-GGUF/LFM3-1.7B-Q8_0.gguf">Liquid AI's LFM3</option>
+            <option value="prism-ml/Bonsai-1.7B-unpacked">The 1-bit Bonsai</option>
+            <option value="prism-ml/Bonsai-1.7B-gguf/Bonsai-1.7B-Q1_0.gguf">The 1-bit Bonsai (GGUF)</option>
+          </datalist>
+          <p class="description">A Hugging Face model (owner/name, or owner/name/file.gguf). Picking one makes it this network's model: other players on {{ settings.networkName }} switch to it. Empty: whatever the network runs.</p>
+        </template>
+        <label class="check">
+          <input type="checkbox" :checked="settings.pigeonAIHold !== false" @change="(e) => { settings.pigeonAIHold = (e.target as HTMLInputElement).checked }" />
+          <span>Hold a share of the model on this device's GPU (the devices here split it between them)</span>
+        </label>
+        <label class="check">
+          <input type="checkbox" :disabled="!aiNet.own" :checked="aiNet.own && settings.pigeonAIServeWhole === true" @change="(e) => { settings.pigeonAIServeWhole = (e.target as HTMLInputElement).checked }" />
+          <span>Keep the whole model on this device and serve it to the others</span>
+        </label>
+        <p class="description" v-if="!aiNet.own">Serving the whole model is for networks of your own; on global the PigeonAI server does it.</p>
+        <p class="description" v-else>The others then load it all from here, as well as from each other. It takes the model's whole download and its room on this device.</p>
+        <p class="description">Applied when you press Done.</p>
+      </div>
       
       <div class="settings-section">
         <h3>Board</h3>
@@ -300,6 +334,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { Settings, BoardTheme, PieceTheme } from '@/types'
+import { usePigeonAI, pigeonAINetwork } from '@/composables/usePigeonAI'
 
 interface Props {
   settings: Settings
@@ -313,6 +348,9 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const pigeonAI = usePigeonAI()
+/** PigeonAI's network for the chess network typed above. */
+const aiNet = computed(() => pigeonAINetwork(props.settings.networkName || 'global'))
 const anyChoices = computed(() => (props.timeControls ?? []).filter((tc) => tc.id !== 'any'))
 const emit = defineEmits<{
   close: []
@@ -425,6 +463,8 @@ const toggleMuteUrl = (url: string) => {
   border-top: 1px solid var(--line);
 }
 
+.ai-model { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+.ai-model input { flex: 1; min-width: 0; }
 .settings-section h3 {
   font-size: 1rem;
   font-weight: 700;

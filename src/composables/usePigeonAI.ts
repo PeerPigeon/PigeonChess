@@ -100,19 +100,61 @@ const describe = (a: PigeonAI): string => {
 
 /** Join PigeonAI's mesh for chess (once): on the game's own relays, in the game's network. */
 let ticker: ReturnType<typeof setInterval> | null = null
-export function startPigeonAIPeer(signaling: Signaling, room: string): void {
+
+/** This device's PigeonAI choices (Settings → PigeonAI). */
+export interface PigeonAIPrefs { model?: string; serveWhole?: boolean; hold?: boolean }
+
+/**
+ * PigeonAI's network for a chess network: global plays on pigeonchess-ai, whose model its server sets
+ * (no page picks another there); any other chess network has a PigeonAI network of its own, whose model
+ * the players pick.
+ */
+export function pigeonAINetwork(chessNetwork: string): { network: string; room: string; own: boolean } {
+  const name = (chessNetwork || 'global').trim().replace(/[^\w.@-]/g, '-').slice(0, 60) || 'global'
+  return name === 'global' ? { network: 'pigeonchess-ai', room: 'global', own: false } : { network: `chess-${name}`, room: 'global', own: true }
+}
+/** The PigeonAI network this page is on now. */
+const networkName = ref('pigeonchess-ai')
+const ownNetwork = ref(false)
+
+let lastStart: { signaling: Signaling; chessNetwork: string; prefs: PigeonAIPrefs } | null = null
+/** Start again with new choices (a new network, model, or way of holding it). */
+export function restartPigeonAIPeer(chessNetwork: string, prefs: PigeonAIPrefs): void {
+  if (!PIGEONAI_HERE || !lastStart) return
+  const old = ai
+  ai = null
+  ready.value = false
+  modelName.value = null
+  if (ticker) { clearInterval(ticker); ticker = null }
+  status.value = 'Starting again…'
+  const signaling = lastStart.signaling
+  void (old?.close() ?? Promise.resolve()).catch(() => {}).then(() => { starting = null; startPigeonAIPeer(signaling, chessNetwork, prefs) })
+}
+
+export function startPigeonAIPeer(signaling: Signaling, chessNetwork: string, prefs: PigeonAIPrefs = {}): void {
   if (!PIGEONAI_HERE || starting) return
+  lastStart = { signaling, chessNetwork, prefs }
+  const { network, room, own } = pigeonAINetwork(chessNetwork)
+  networkName.value = network
+  ownNetwork.value = own
+  // On a network of its own: the model picked here (and, set, it becomes the network's), kept whole and
+  // served if asked. Elsewhere: the network's.
+  const picked = own && prefs.model?.trim() ? prefs.model.trim() : null
   status.value = 'Starting…'
   starting = (async () => {
     try {
       const { startPigeonAI } = await import('pigeonai')
       const hold = holdAtMost()
+      const holding = prefs.hold !== false && hold >= 100e6
       ai = await startPigeonAI({
         signaling,
-        network: 'pigeonchess-ai',
+        network,
         room,
-        // The model the network runs (its server sets it); on a change, start again on the new one.
-        model: 'network',
+        // The model picked here, which then becomes the network's; else the one the network runs (its
+        // server, or another player, sets it); on a change, start again on the new one.
+        model: picked ?? 'network',
+        ...(picked ? { setModel: true as const } : {}),
+        ...(own && prefs.serveWhole ? { serveWholeModel: true } : {}),
         onModelChange: () => {
           const old = ai
           ai = null
@@ -121,14 +163,14 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
           progress.value = 0
           if (ticker) { clearInterval(ticker); ticker = null }
           status.value = 'Switching to the new model…'
-          void (old?.close() ?? Promise.resolve()).catch(() => {}).then(() => { starting = null; startPigeonAIPeer(signaling, room) })
+          void (old?.close() ?? Promise.resolve()).catch(() => {}).then(() => { starting = null; startPigeonAIPeer(signaling, chessNetwork, prefs) })
         },
         // No draft model: a move is a few tokens, not worth a second download.
         draftModel: null,
         // As much of the model as this browser can hold (holdAtMost above): a phone 250 MB (a middle part,
         // never the 823 MB first one), a computer 2.5 GB, less if the page died loading before.
         // Below 100 MB it holds nothing, and only asks.
-        ...(hold >= 100e6 ? { holdAtMost: hold } : { host: () => false }),
+        ...(holding ? { holdAtMost: hold } : { host: () => false }),
         onStatus: (text) => { status.value = text },
       })
       ;(globalThis as Record<string, unknown>).__pigeonai = ai
@@ -497,5 +539,5 @@ export function said(text: string): string {
 }
 
 export function usePigeonAI() {
-  return { here: PIGEONAI_HERE, status, ready, progress, paused, modelName }
+  return { here: PIGEONAI_HERE, status, ready, progress, paused, modelName, networkName, ownNetwork }
 }
