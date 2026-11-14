@@ -1251,20 +1251,11 @@ const handleMouseDown = (event: MouseEvent) => {
   width: 30%;
   height: 30%;
   border-radius: 50%;
-  background: var(--board-move-dot, rgba(0, 0, 0, 0.2));
+  /* The negative of what it covers, in grey (inverted, its colour taken out): dark on a light square,
+     light on a dark one, the piece's white turned black and its black white, on any board's colours. */
+  -webkit-backdrop-filter: invert(1) grayscale(1);
+  backdrop-filter: invert(1) grayscale(1);
   pointer-events: none;
-}
-
-/* On a capture square the dot is the negative of what it covers: white
-   blended by difference turns the piece's white to black and its black to white. */
-.square.legal-move:has(.piece)::after,
-.square.legal-move:has(.piece):hover::after {
-  background: #ffffff;
-  mix-blend-mode: difference;
-}
-
-.square.legal-move:hover::after {
-  background: var(--board-move-dot, rgba(0, 0, 0, 0.2));
 }
 
 
