@@ -350,7 +350,7 @@
           <span v-if="isAIGame && gameEngine === 'pigeonai'" class="pigeon-note" :class="{ backup: pigeonNote.includes('backup') }">
             <template v-if="pigeonNote">{{ pigeonNote }}</template>
             <PigeonAIStatus v-else :text="pigeonAI.status.value" :progress="pigeonAI.progress.value" :ready="pigeonAI.ready.value" :paused="pigeonAI.paused.value" />
-            <template v-if="pigeonTally.pigeon + pigeonTally.backup">· PigeonAI {{ pigeonTally.pigeon }}, backup {{ pigeonTally.backup }}<template v-if="pigeonTally.backup"> (marked * in the moves)</template></template>
+            <template v-if="pigeonTally.pigeon + pigeonTally.backup">&nbsp;· PigeonAI {{ pigeonTally.pigeon }}, backup {{ pigeonTally.backup }}<template v-if="pigeonTally.backup"> (marked * in the moves)</template></template>
           </span>
           <span class="seat-captures">
             <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']" :key="`go-${idx}`" :class="{ dup: idx > 0 && capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white'][idx - 1] === piece }" :src="capturedSrc(myPlayer?.color === 'white' ? 'w' : 'b', piece)" :alt="piece" />
@@ -1084,6 +1084,8 @@ const restoreAIGame = () => {
   gameEngine.value = g.engine === 'pigeonai' && pigeonAIOffered ? 'pigeonai' : 'standard'
   setAIOpponent(true, g.difficulty, gameEngine.value)
   opponentName.value = null
+  // Replaying the saved moves: not new moves (who made each comes from the save, below).
+  pigeonReplaying = true
   startNewGame(myPeerId.value, 'AI-Opponent', g.myColor)
   for (const san of g.moves) if (!receiveMove(san)) break
   // The chat with PigeonAI, as it was.
@@ -1095,6 +1097,8 @@ const restoreAIGame = () => {
   pigeonBy.value = by
   const lastPly = Math.max(-1, ...Object.keys(by).map(Number))
   if (lastPly >= 0) pigeonNote.value = !by[lastPly] ? `PigeonAI played ${g.moves[lastPly]}` : `PigeonAI ${by[lastPly]}: the backup engine played ${g.moves[lastPly]}`
+  // After Vue has seen the replayed moves (queued above, so nextTick waits for them).
+  void nextTick(() => { pigeonReplaying = false })
   const last = chess.value.history({ verbose: true }).slice(-1)[0] as any
   lastMove.value = last ? { from: last.from, to: last.to } : null
   if (!isGameActive.value) { dropAIGame(); return false }
@@ -1194,6 +1198,8 @@ let pigeonOutcome: { fen: string; why: string } | null = null
 const pigeonNote = ref('')
 /** Who made each computer move (by its ply): '' PigeonAI, else why the backup engine did. Kept with the game. */
 const pigeonBy = ref<Record<number, string>>({})
+/** A saved game being replayed onto the board (a reload): its moves are not new computer moves. */
+let pigeonReplaying = false
 const pigeonTally = computed(() => {
   const all = Object.values(pigeonBy.value)
   return { pigeon: all.filter((w) => !w).length, backup: all.filter((w) => !!w).length }
@@ -2187,6 +2193,7 @@ const {
 // In a PigeonAI game: who made each computer move (PigeonAI, or the backup engine and why).
 watch(() => currentGame.value?.moves?.length ?? 0, (n, before) => {
   // A new game (or moves taken back): the last game's line and tally go, whatever kind of game this is.
+  if (pigeonReplaying) return
   if (n === 0) { pigeonNote.value = ''; pigeonBy.value = {}; return }
   if (n < before) { pigeonNote.value = ''; pigeonBy.value = Object.fromEntries(Object.entries(pigeonBy.value).filter(([k]) => Number(k) < n)); return }
   if (!isAIGame.value || gameEngine.value !== 'pigeonai') return
