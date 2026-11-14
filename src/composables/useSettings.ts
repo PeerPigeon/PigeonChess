@@ -172,6 +172,40 @@ const getMoveDotColor = (hexColor: string): string => {
   return luminance > 0.5 ? 'rgba(0, 0, 0, 0.25)' : 'rgba(255, 255, 255, 0.4)'
 }
 
+/** '#rrggbb' or 'rgba(r, g, b, a)' as [r, g, b, a] (0–255, alpha 0–1); null when it can't be read. */
+const parseColor = (text: string): [number, number, number, number] | null => {
+  const hex = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(text.trim())
+  if (hex) {
+    const n = (i: number) => parseInt(hex[1].slice(i, i + 2), 16)
+    return [n(0), n(2), n(4), hex[2] ? parseInt(hex[2], 16) / 255 : 1]
+  }
+  const fn = /^rgba?\(([^)]+)\)$/i.exec(text.trim())
+  if (!fn) return null
+  const [r, g, b, a] = fn[1].split(',').map((x) => Number(x.trim()))
+  return [r, g, b, Number.isFinite(a) ? a : 1]
+}
+/** WCAG contrast ratio of two colours (1: the same, 21: black on white). */
+const contrast = (a: number[], b: number[]) => {
+  const lum = ([r, g, b]: number[]) => {
+    const ch = (v: number) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }
+    return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
+  }
+  const [lo, hi] = [lum(a), lum(b)].sort((x, y) => x - y)
+  return (hi + 0.05) / (lo + 0.05)
+}
+/** Below this the board's own dot blends into its square: the dot is drawn by difference there instead. */
+const DOT_MIN_CONTRAST = 1.2
+/**
+ * A square colour's move dot: the board's own (grey) dot, unless it blends into the square, then white
+ * blended by difference (the square's negative). As CSS: [background, mix-blend-mode].
+ */
+const dotFor = (square: string, dot: string): [string, string] => {
+  const sq = parseColor(square), d = parseColor(dot)
+  if (!sq || !d) return [dot, 'normal']
+  const shown = [0, 1, 2].map((i) => d[3] * d[i] + (1 - d[3]) * sq[i])
+  return contrast(shown, sq) < DOT_MIN_CONTRAST ? ['#ffffff', 'difference'] : [dot, 'normal']
+}
+
 const DEFAULT_SETTINGS: Settings = {
   settingsVersion: 3,
   signalingUrls: [...DEFAULT_SIGNALING_URLS],
@@ -238,6 +272,14 @@ export function useSettings() {
       document.documentElement.style.setProperty('--board-move-dot-dark', darkDotColor)
     } else if (!theme) {
       theme = BOARD_THEMES[0]
+    }
+    // Each square colour's move dot (see dotFor): a custom board has its own dot for dark squares.
+    const darkDot = theme.id === 'custom' ? getMoveDotColor(theme.dark) : theme.moveDot
+    const root = document.documentElement.style
+    for (const [which, square, dot] of [['light', theme.light, theme.moveDot], ['dark', theme.dark, darkDot]] as const) {
+      const [background, blend] = dotFor(square, dot)
+      root.setProperty(`--board-dot-${which}`, background)
+      root.setProperty(`--board-dot-${which}-blend`, blend)
     }
     
     document.documentElement.style.setProperty('--board-light', theme.light)
