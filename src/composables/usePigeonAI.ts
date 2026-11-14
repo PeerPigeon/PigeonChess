@@ -1,8 +1,9 @@
 /**
  * PigeonAI in PigeonChess: every page that joins PigeonChess is a PigeonAI peer.
  * It joins PigeonAI's mesh for chess (on the same relays as the game), holds its
- * share of the model (the 1-bit Bonsai, by default) on its GPU when it has one,
- * and the Computer can play as PigeonAI: a move is asked of the whole mesh.
+ * share of the model on its GPU when it has one, and the Computer can play as
+ * PigeonAI: a move is asked of the whole mesh. The model is the one the network
+ * runs (set on the PigeonAI server's page); when it changes, PigeonAI starts again on it.
  *
  * PigeonAI is an optional dependency (a private repository): a build without it
  * offers no PigeonAI (PIGEONAI_HERE false; see vite.config.ts).
@@ -67,6 +68,18 @@ const PROGRESS_KEY = 'pigeonai:progress'
 try { const kept = Number(sessionStorage.getItem(PROGRESS_KEY)); if (kept > 0 && kept <= 1) progress.value = kept } catch { /* no storage */ }
 let ai: PigeonAI | null = null
 let starting: Promise<void> | null = null
+/** The model, in words ("the 1-bit Bonsai"), once known; null before. */
+const modelName = ref<string | null>(null)
+
+/** A model's name for players. */
+function nameOf(a: PigeonAI): string {
+  const repo = a.hf?.repo ?? ''
+  if (/bonsai/i.test(repo)) return 'the 1-bit Bonsai'
+  if (/lfm3/i.test(repo)) return "Liquid AI's LFM3"
+  return repo.split('/').pop() || 'a language model'
+}
+/** What an answer starts with so the model doesn't think aloud first: Qwen3's (Bonsai) empty thinking; LFM3's PigeonAI writes itself. */
+const quiet = (a: PigeonAI) => (a.hf?.raw?.model_type === 'qwen3' ? '<think>\n\n</think>\n\n' : '')
 
 const describe = (a: PigeonAI): string => {
   if (a.ready()) return 'Ready: the model is held by the peers here.'
@@ -86,6 +99,7 @@ const describe = (a: PigeonAI): string => {
 }
 
 /** Join PigeonAI's mesh for chess (once): on the game's own relays, in the game's network. */
+let ticker: ReturnType<typeof setInterval> | null = null
 export function startPigeonAIPeer(signaling: Signaling, room: string): void {
   if (!PIGEONAI_HERE || starting) return
   status.value = 'Starting…'
@@ -97,6 +111,18 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
         signaling,
         network: 'pigeonchess-ai',
         room,
+        // The model the network runs (its server sets it); on a change, start again on the new one.
+        model: 'network',
+        onModelChange: () => {
+          const old = ai
+          ai = null
+          ready.value = false
+          modelName.value = null
+          progress.value = 0
+          if (ticker) { clearInterval(ticker); ticker = null }
+          status.value = 'Switching to the new model…'
+          void (old?.close() ?? Promise.resolve()).catch(() => {}).then(() => { starting = null; startPigeonAIPeer(signaling, room) })
+        },
         // No draft model: a move is a few tokens, not worth a second download.
         draftModel: null,
         // As much of the model as this browser can hold (holdAtMost above): a phone 250 MB (a middle part,
@@ -106,6 +132,7 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
         onStatus: (text) => { status.value = text },
       })
       ;(globalThis as Record<string, unknown>).__pigeonai = ai
+      modelName.value = nameOf(ai)
       // Loading its share: marked, so a reload for memory before it is done is noticed (holdAtMost).
       const tick = () => {
         if (!ai) return
@@ -132,7 +159,7 @@ export function startPigeonAIPeer(signaling: Signaling, room: string): void {
         loading(pending > 0)
       }
       tick()
-      setInterval(tick, 1000)
+      ticker = setInterval(tick, 1000)
     } catch (error) {
       status.value = `PigeonAI could not start here: ${(error as Error).message}`
       starting = null
@@ -211,8 +238,8 @@ export async function pigeonAIMove(fen: string, history: string[] = []): Promise
     // One conversation for every move: the stages keep a few at most, and a new one each move pushed the
     // chat's out (it then read its whole prompt again).
     keep: 'pigeonchess-move',
-    // Qwen3 (Bonsai's family) thinks aloud unless its thinking is given, empty.
-    prefill: '<think>\n\n</think>\n\n',
+    // Not thinking aloud first (Qwen3's empty thinking).
+    prefill: quiet(a),
     count: 8,
     temperature: 0.3,
     draft: false,
@@ -443,7 +470,7 @@ export async function pigeonAIChat(message: string, game: ChatGame, chat: { mine
       let soFar = start
       onText?.('')
       const r = await a.ask(message, {
-        ...options, prefill: `<think>\n\n</think>\n\n${start}`, count: 40, temperature: 0.9, signal: stop.signal, onWriting,
+        ...options, prefill: `${quiet(a)}${start}`, count: 40, temperature: 0.9, signal: stop.signal, onWriting,
         onText: (piece) => { soFar += piece; onText?.(soFar.replace(/<\/?think>/g, '').trimStart()) },
       })
       return said(start + r.text)
@@ -470,5 +497,5 @@ export function said(text: string): string {
 }
 
 export function usePigeonAI() {
-  return { here: PIGEONAI_HERE, status, ready, progress, paused }
+  return { here: PIGEONAI_HERE, status, ready, progress, paused, modelName }
 }

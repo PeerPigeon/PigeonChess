@@ -273,7 +273,7 @@
             <button type="button" role="radio" class="mode-option" :class="{ picked: aiEngine === 'pigeonai' }" :aria-checked="aiEngine === 'pigeonai'" @click="setAIEngine('pigeonai')">PigeonAI</button>
           </div>
           <template v-if="pigeonAIOffered && aiEngine === 'pigeonai'">
-          <p class="engine-note">PigeonAI is a language model (the 1-bit Bonsai) run by everyone on PigeonChess together: each device with a GPU holds a share of it. It is asked for every move, and plays a legal one.</p>
+          <p class="engine-note">PigeonAI is a language model<template v-if="pigeonAI.modelName.value"> ({{ pigeonAI.modelName.value }})</template> run by everyone on PigeonChess together: each device with a GPU holds a share of it. It is asked for every move, and plays a legal one.</p>
           <p class="engine-status" :class="{ ready: pigeonAI.ready.value }"><PigeonAIStatus :text="pigeonAI.status.value" :progress="pigeonAI.progress.value" :ready="pigeonAI.ready.value" :paused="pigeonAI.paused.value" /></p>
           <div class="row">
             <button class="btn btn-go btn-wide" @click="startAIGame">Start against PigeonAI</button>
