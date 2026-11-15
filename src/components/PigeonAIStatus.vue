@@ -1,12 +1,13 @@
 <template>
-  <!-- PigeonAI's state: words only when ready ("Ready: …"); until then a bar (what it is doing, in words,
-       on hover). -->
+  <!-- PigeonAI's state: words only when ready ("Ready: …"); until then a bar, and under it what it is
+       doing, in words. -->
   <span class="pai-status" :class="{ ready, paused }" :title="text">
     <template v-if="!ready">
       <span class="pai-bar" role="progressbar" :aria-valuenow="pct" aria-valuemin="0" aria-valuemax="100" :aria-label="text">
         <span class="pai-fill" :style="{ width: `${pct}%` }"></span>
       </span>
       <span class="pai-pct">{{ pct }}%</span>
+      <span class="pai-words">{{ text }}</span>
     </template>
     <template v-else>{{ text }}</template>
   </span>
@@ -48,6 +49,14 @@ const text = computed(() => props.text || 'Starting…')
   border-radius: inherit;
   background: var(--sheen);
   transition: width 0.6s ease;
+}
+
+.pai-status:not(.ready) { flex-wrap: wrap; }
+.pai-words {
+  flex: 1 0 100%;
+  font-size: 0.8rem;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
 }
 
 .pai-pct {

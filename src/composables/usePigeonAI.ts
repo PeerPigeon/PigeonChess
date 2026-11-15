@@ -174,7 +174,8 @@ export function startPigeonAIPeer(signaling: Signaling, chessNetwork: string, pr
         // never the 823 MB first one), a computer 2.5 GB, less if the page died loading before.
         // Below 100 MB it holds nothing, and only asks.
         ...(holding ? { holdAtMost: hold } : { host: () => false }),
-        onStatus: (text) => { status.value = text },
+        // Following the network, it may start on a model it then drops: not named until it is the one.
+        onStatus: (text) => { status.value = picked ? text : text.replace(/^Reading \S+…/, 'Reading the model…') },
       })
       ;(globalThis as Record<string, unknown>).__pigeonai = ai
       modelName.value = nameOf(ai)
@@ -182,22 +183,24 @@ export function startPigeonAIPeer(signaling: Signaling, chessNetwork: string, pr
       const tick = () => {
         if (!ai) return
         ready.value = ai.ready()
-        status.value = describe(ai)
-        let pending = 0, done = 0, total = 0
-        for (const p of ai.loading.values()) { if (p.done < p.total) pending++; done += p.done; total += p.total }
-        // Not ready: always the one bar (the words go in its tooltip): how far this device has loaded its
-        // share. While it waits (on other devices, or for room) the bar stops where it was, and goes on
-        // from there when loading goes on.
-        paused.value = !ready.value && pending === 0
+        let pending = 0
+        for (const p of ai.loading.values()) if (p.done < p.total) pending++
+        // The bar: how much of the whole model is loaded and ready on the devices here (this one and the
+        // others), a part loading here counted as far as it has got. It only goes forward.
+        const parts = ai.pipeline.stages
+        const built = new Set<number>(ai.pipeline.runners.keys())
+        for (const id of ai.members.ids()) for (const k of Object.keys((ai.members.advertOf(id)?.sv as Record<string, number> | undefined) ?? {})) built.add(Number(k))
+        let have = built.size
+        for (const [s, p] of ai.loading) if (!built.has(s) && p.total > 0) have += Math.min(1, p.done / p.total)
+        const whole = parts > 0 ? Math.min(1, have / parts) : 0
+        paused.value = !ready.value && pending === 0 && whole < 1
         if (ready.value) progress.value = null
-        else if (total > 0 && pending > 0) progress.value = Math.max(progress.value ?? 0, Math.min(1, done / total))
-        else {
-          // Not loading: this device's share is all loaded (waiting on another device, e.g. one reloading),
-          // so its bar is full; else it stays where it was.
-          const held = ai.pipeline.held()
-          const mine = held.length > 0 && held.every((st) => ai!.pipeline.runners.has(st))
-          progress.value = mine ? 1 : progress.value ?? 0
-        }
+        else progress.value = Math.max(progress.value ?? 0, whole)
+        // And in words, what it is waiting on.
+        status.value = ready.value || pending > 0 ? describe(ai)
+          : built.size < parts ? `The model is loading on the devices here: ${built.size} of ${parts} parts ready.`
+          : !ai.settled() ? "Checking which model this network runs…"
+          : 'Linking to the devices that hold the model…'
         // Kept for a reload of this tab: the bar starts again where it was (the pieces loaded are kept
         // here too, so the loading itself goes on from there, reading them back first).
         try { if (progress.value === null) sessionStorage.removeItem(PROGRESS_KEY); else sessionStorage.setItem(PROGRESS_KEY, String(progress.value)) } catch { /* no storage */ }

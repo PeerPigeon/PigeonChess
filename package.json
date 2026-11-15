@@ -37,7 +37,7 @@
     "vite": "^7.3.7"
   },
   "optionalDependencies": {
-    "pigeonai": "github:PeerPigeon/PigeonAI#6105dc3860df0149b61ba54afd30a05738eadd1f"
+    "pigeonai": "github:PeerPigeon/PigeonAI#10d1fa1aebb23189578efd2099d21a8b5424ceef"
   },
   "exports": {
     "./bot": "./src/bot/index.ts",
