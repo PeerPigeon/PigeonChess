@@ -51,6 +51,8 @@ npm run build
 
 ## Architecture
 
+Diagrams of how it all fits together (pages, relays, peers, rooms, networks, matching, PigeonAI): [docs/architecture.md](docs/architecture.md).
+
 ### P2P Networking with PeerPigeon
 
 PigeonChess uses [PeerPigeon](https://github.com/PeerPigeon/PeerPigeon) for decentralized peer-to-peer communication:
