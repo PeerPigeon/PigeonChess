@@ -464,11 +464,22 @@
       v-if="showTournaments"
       :client="tournaments.client"
       :views="tournaments.views.value"
-      :leaders="tournaments.leaders.value"
       :me="tournamentMe()?.pub ?? null"
       :time-controls="timeControls"
       @close="showTournaments = false"
+      @open="openTournamentPage"
       @login="showTournaments = false; loginMode = 'login'; loginError = ''; showLoginModal = true"
+    />
+
+    <TournamentsView
+      v-if="tournamentPage && !showTournaments"
+      :client="tournaments.client"
+      :views="tournaments.views.value"
+      :me="tournamentMe()?.pub ?? null"
+      :time-controls="timeControls"
+      :page-id="tournamentPage"
+      @list="closeTournamentPage(); showTournaments = true; void tournaments.refresh()"
+      @login="loginMode = 'login'; loginError = ''; showLoginModal = true"
     />
 
     <GameHistory
@@ -671,6 +682,24 @@ const notify = useNotify(settings)
 const notifyTestResult = ref('')
 const showHistory = ref(false)
 const showTournaments = ref(false)
+// A tournament's own page: its id, in the address as ?tournament=<id> (a link to share, and Back works).
+const tournamentInUrl = () => new URLSearchParams(location.search).get('tournament')
+const tournamentPage = ref<string | null>(tournamentInUrl())
+const openTournamentPage = (id: string) => {
+  const url = new URL(location.href)
+  url.searchParams.set('tournament', id)
+  if (url.toString() !== location.href) history.pushState(history.state, '', url.toString())
+  tournamentPage.value = id
+  showTournaments.value = false
+}
+const closeTournamentPage = () => {
+  tournamentPage.value = null
+  const url = new URL(location.href)
+  if (!url.searchParams.has('tournament')) return
+  url.searchParams.delete('tournament')
+  history.replaceState(history.state, '', url.toString())
+}
+window.addEventListener('popstate', () => { tournamentPage.value = tournamentInUrl() })
 const showMenu = ref(false)
 
 // Watch showHistory to debug
@@ -803,6 +832,7 @@ const tournaments = useTournaments({
     // A tournament game: whatever else was going on in the lobby stops, and the game starts as a match does.
     if (seek.isSearching.value) seek.stop()
     showTournaments.value = false
+    closeTournamentPage()
     startMatchedGame({ gameId: match.gameId, opponent: match.opponent, myColor: match.myColor, timeControl: match.timeControl, theirSeat: match.theirSeat })
     // Their name as they signed up for the tournament (a bot's has no account to prove one): until their
     // own signed claim names them.

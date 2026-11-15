@@ -1,13 +1,14 @@
 <template>
-  <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal tournaments" role="dialog" aria-modal="true" aria-labelledby="tournaments-title">
+  <div :class="pageId ? 'tpage' : 'modal-overlay'" @click.self="!pageId && $emit('close')">
+    <div :class="pageId ? 'tpage-inner' : 'modal tournaments'" :role="pageId ? 'main' : 'dialog'" :aria-modal="pageId ? undefined : 'true'" aria-labelledby="tournaments-title">
       <div class="head">
-        <h2 id="tournaments-title">{{ open ? open.tournament.name : 'Tournaments' }}</h2>
-        <button class="secondary" @click="open ? (openId = null) : $emit('close')">{{ open ? 'Back' : 'Close' }}</button>
+        <h2 id="tournaments-title">{{ pageId ? (open ? open.tournament.name : 'Tournament') : 'Tournaments' }}</h2>
+        <button class="secondary" @click="pageId ? $emit('list') : $emit('close')">{{ pageId ? 'All tournaments' : 'Close' }}</button>
       </div>
 
-      <!-- One tournament -->
-      <template v-if="open">
+      <!-- One tournament: its own page (?tournament=<id>) -->
+      <p v-if="pageId && !open" class="empty">Finding this tournament…</p>
+      <template v-if="pageId && open">
         <p class="meta">
           {{ formatLabel(open) }} · {{ tcLabel(open.tournament.timeControl) }} · by {{ open.tournament.creatorName }} · {{ statusLine(open) }}
         </p>
@@ -35,7 +36,7 @@
         <template v-else-if="open.status !== 'cancelled'">
           <h3>Standings</h3>
           <table class="table standings">
-            <thead><tr><th>#</th><th class="name">Player</th><th title="Games played">P</th><th>W</th><th>D</th><th>L</th><th title="Points">Pts</th></tr></thead>
+            <thead><tr><th>#</th><th class="name">Player</th><th title="Games played">Games</th><th title="Wins">W</th><th title="Draws">D</th><th title="Losses">L</th><th title="Points">Pts</th></tr></thead>
             <tbody>
               <tr v-for="(row, i) in open.table" :key="row.player" :class="{ mine: row.player === me }">
                 <td>{{ i + 1 }}</td>
@@ -57,8 +58,8 @@
         </template>
       </template>
 
-      <!-- The list, and the leaderboard -->
-      <template v-else>
+      <!-- The list, and each tournament's standings -->
+      <template v-if="!pageId">
         <div class="tabs" role="tablist">
           <button role="tab" :aria-selected="tab === 'list'" :class="{ on: tab === 'list' }" @click="tab = 'list'">Tournaments</button>
           <button role="tab" :aria-selected="tab === 'leaders'" :class="{ on: tab === 'leaders' }" @click="tab = 'leaders'">Standings</button>
@@ -106,7 +107,7 @@
             <h3 v-if="group.items.length">{{ group.title }}</h3>
             <ol v-if="group.items.length" class="list">
               <li v-for="v in group.items" :key="v.tournament.id">
-                <button class="item" @click="openId = v.tournament.id">
+                <button class="item" @click="$emit('open', v.tournament.id)">
                   <span class="t-name">{{ v.tournament.name }}<span v-if="me && (v.players.includes(me) || joined(v))" class="you">you're in</span></span>
                   <span class="t-meta">{{ tcLabel(v.tournament.timeControl) }} · {{ statusLine(v) }}</span>
                 </button>
@@ -116,17 +117,28 @@
         </template>
 
         <template v-else>
-          <p v-if="!leaders.leaders.length" class="empty">Standings appear once a tournament starts.</p>
-          <table v-else class="table">
-            <thead><tr><th>#</th><th class="name">Player</th><th title="Tournaments won">Won</th><th title="Points">Pts</th><th title="Games played">Games</th><th title="Tournaments played">Played</th></tr></thead>
-            <tbody>
-              <tr v-for="(row, i) in leaders.leaders" :key="row.player" :class="{ mine: row.player === me }">
-                <td>{{ i + 1 }}</td>
-                <td class="name">{{ leaders.names.get(row.player) ?? short(row.player) }}<span v-if="leaders.bots.has(row.player)" class="badge">bot</span></td>
-                <td>{{ row.won }}</td><td class="pts">{{ points(row.points) }}</td><td>{{ row.games }}</td><td>{{ row.tournaments }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <p v-if="!started.length" class="empty">Standings appear once a tournament starts.</p>
+          <template v-else>
+            <label class="field pick">Tournament
+              <select v-model="standingsId">
+                <option v-for="v in started" :key="v.tournament.id" :value="v.tournament.id">{{ v.tournament.name }} ({{ v.status === 'running' ? 'playing now' : 'finished' }})</option>
+              </select>
+            </label>
+            <template v-if="shown">
+              <p class="meta">{{ formatLabel(shown) }} · {{ tcLabel(shown.tournament.timeControl) }} · {{ statusLine(shown) }} · <a href="#" @click.prevent="$emit('open', shown.tournament.id)">its page</a></p>
+              <table class="table standings">
+                <thead><tr><th>#</th><th class="name">Player</th><th title="Games played">Games</th><th title="Wins">W</th><th title="Draws">D</th><th title="Losses">L</th><th title="Points">Pts</th></tr></thead>
+                <tbody>
+                  <tr v-for="(row, i) in shown.table" :key="row.player" :class="{ mine: row.player === me }">
+                    <td>{{ i + 1 }}</td>
+                    <td class="name">{{ nameOf(shown, row.player) }}<span v-if="shown.bots.has(row.player)" class="badge">bot</span></td>
+                    <td>{{ row.played }}</td><td>{{ row.wins }}</td><td>{{ row.draws }}</td><td>{{ row.losses }}</td>
+                    <td class="pts">{{ points(row.points) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
+          </template>
         </template>
       </template>
     </div>
@@ -142,16 +154,21 @@ import type { Leader } from '../utils/tournament'
 const props = defineProps<{
   client: TournamentClient
   views: TournamentView[]
-  leaders: { leaders: Leader[]; names: Map<string, string>; bots: Set<string> }
+  leaders?: { leaders: Leader[]; names: Map<string, string>; bots: Set<string> }
+  /** A tournament's own page: its id. Unset: the list (a modal). */
+  pageId?: string | null
   /** The signed-in player's key; null: not signed in. */
   me: string | null
   timeControls: { id: string; name: string; display: string; minutes: number; increment: number }[]
 }>()
-defineEmits<{ close: []; login: [] }>()
+const emit = defineEmits<{ close: []; login: []; open: [id: string]; list: [] }>()
 
 const tab = ref<'list' | 'leaders'>('list')
-const openId = ref<string | null>(null)
-const open = computed(() => props.views.find((v) => v.tournament.id === openId.value) ?? null)
+const open = computed(() => (props.pageId ? props.views.find((v) => v.tournament.id === props.pageId) ?? null : null))
+/** Standings tab: the tournaments started, and the one shown (the latest unless picked). */
+const started = computed(() => props.views.filter((v) => v.status === 'running' || v.status === 'finished'))
+const standingsId = ref<string | null>(null)
+const shown = computed(() => started.value.find((v) => v.tournament.id === standingsId.value) ?? started.value[0] ?? null)
 const creating = ref(false)
 const busy = ref(false)
 const error = ref('')
@@ -180,7 +197,7 @@ const create = () => act(async () => {
   const id = await props.client.create({ name: form.name, format: form.format, rounds: form.rounds, minutes: form.minutes, timeControl: { minutes: tc.minutes, increment: tc.increment }, start, maxPlayers: max, play: form.play })
   creating.value = false
   form.name = ''
-  openId.value = id
+  emit('open', id)
 })
 
 const groups = computed(() => [
@@ -254,6 +271,11 @@ const gameClass = (v: TournamentView, p: Pairing) => gameState(p, v.reports).sta
 
 <style scoped>
 .tournaments { width: min(100%, 680px); }
+/* A tournament's own page: the whole window, scrolling, over the lobby. */
+.tpage { position: fixed; inset: 0; z-index: 900; overflow-y: auto; background: var(--paper); padding: 16px; }
+.tpage-inner { width: min(100%, 760px); margin: 0 auto; padding: 0.5rem 0 3rem; }
+.pick { margin-bottom: 0.4rem; }
+.pick select { max-width: 100%; }
 .head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.75rem; }
 .head h2 { margin: 0; overflow-wrap: anywhere; }
 h3 { margin: 1.1rem 0 0.4rem; font-size: 0.95rem; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.04em; }
@@ -291,6 +313,6 @@ fieldset.field { border: 0; padding: 0; margin: 0; }
 .res.unplayed { color: var(--ink-2); }
 .res.disputed { color: var(--stop); }
 @media (max-width: 520px) {
-  .standings th:nth-child(4), .standings td:nth-child(4), .standings th:nth-child(5), .standings td:nth-child(5), .standings th:nth-child(6), .standings td:nth-child(6) { display: none; }
+  .table th, .table td { padding: 0.4rem 0.25rem; }
 }
 </style>
