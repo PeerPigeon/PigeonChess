@@ -3,6 +3,7 @@
 ## Overview
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false, "wrappingWidth": 600}, "markdownAutoWrap": false}}%%
 flowchart TB
   pages["`**Player pages on chess.peer.ooo**
     Each page runs a game node and a PigeonAI node (PeerPigeon)
@@ -46,6 +47,7 @@ Relays only introduce peers; moves, chat and model passes go peer to peer, and r
 ## Inside a page
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false, "wrappingWidth": 600}, "markdownAutoWrap": false}}%%
 flowchart TB
   settings["`**Settings (applied on Done)**
     Network · PigeonAI: Room, Model, Hold a share, Serve whole`"]
@@ -74,6 +76,7 @@ The two meshes never share peers: the chess network name only decides which Pige
 ## Regular play
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false, "wrappingWidth": 600}, "markdownAutoWrap": false}}%%
 flowchart LR
   lobby["`**Join the lobby**
     Presence broadcast
@@ -103,6 +106,7 @@ Everything here runs in the game mesh of the network named in Settings; no serve
 ## PigeonAI: network, room and model
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false, "wrappingWidth": 600}, "markdownAutoWrap": false}}%%
 flowchart TB
   qnet{"Chess network = global?"}
   def["`**Network pigeonchess-ai**
@@ -155,6 +159,7 @@ On global nobody but the server changes the model; on a network of your own, the
 ## Playing the computer
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false, "wrappingWidth": 600}, "markdownAutoWrap": false}}%%
 flowchart TB
   start["`**Play → Computer**`"]
   qeng{"Standard or PigeonAI?"}
@@ -191,6 +196,7 @@ A PigeonAI game never stalls: when the mesh can't answer in time, Stockfish move
 ## A PigeonAI server
 
 ```mermaid
+%%{init: {"flowchart": {"htmlLabels": false, "wrappingWidth": 600}, "markdownAutoWrap": false}}%%
 flowchart TB
   subgraph box["`Any always-on computer with a GPU (optional)`"]
     spage["`**Server page :5174**
