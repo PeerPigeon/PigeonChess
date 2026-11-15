@@ -296,7 +296,7 @@ export class TournamentClient {
     const views = this.view()
     for (const v of views) { await this.maybeStart(v, me, now); await this.maybeRound(v, me, now) }
     if (this.offer && now - this.offer.sentAt > OFFER_MS) this.offer = null
-    if (this.o.isPlaying()) { this.freeSince = 0; return }
+    if (this.busy()) { this.freeSince = 0; return }
     if (!this.freeSince) this.freeSince = now
     for (const v of this.view()) {
       if (v.status !== 'running' || !v.players.includes(me.pub)) continue
@@ -311,7 +311,8 @@ export class TournamentClient {
         this.lastReady.set(v.tournament.id, now)
         void this.o.broadcast(JSON.stringify({ type: 't_ready', tournament: v.tournament.id, player: me.pub, peerId, at: now, since: this.freeSince, sig })).catch(() => {})
       }
-      if (this.offer) continue
+      // (Checked again: signing took a moment, and a game may have been taken meanwhile.)
+      if (this.offer || this.busy()) continue
       const gone = every * 3.5
       if (arena) { this.offerArena(v, me, now, gone); continue }
       // Not every time: of three players each offering the next a game, all would decline for ever.
@@ -398,6 +399,11 @@ export class TournamentClient {
     await this.write(`p:${v.tournament.id}:${due.round}:${me.pub}`, round).catch(() => this.wroteRound.delete(key))
   }
 
+  /** An accept on its way (see onMessage): this player is taken already. */
+  private matching = false
+  /** Playing, or about to: offers nobody a game, takes none. */
+  private busy(): boolean { return this.matching || this.o.isPlaying() }
+
   /** Arena: a game started here, so nobody offers this player another meanwhile. */
   private sayBusy(tournament: string, me: Me): void {
     this.freeSince = 0
@@ -461,21 +467,28 @@ export class TournamentClient {
       // Arena, both offering each other at once: the lower key's offer stands, the other is dropped.
       if (arena && this.offer && this.offer.to === fromPeer && theirs < me.pub) this.offer = null
       // Not now (busy, not sure it is them yet, or the game is done): said at once, so they don't wait on it.
-      if (!there || there.peerId !== fromPeer || !owed || late || v.status !== 'running' || this.o.isPlaying() || this.offer) {
+      if (!there || there.peerId !== fromPeer || !owed || late || v.status !== 'running' || this.busy() || this.offer) {
         void this.o.send(fromPeer, JSON.stringify({ type: 't_decline', tournament: m.tournament, gameId: p.gameId })).catch(() => {})
         return
       }
-      const seat = this.o.seat?.() ?? undefined
-      await this.o.send(fromPeer, JSON.stringify({ type: 't_accept', tournament: m.tournament, gameId: p.gameId, player: me.pub, seat })).catch(() => {})
-      if (arena) { this.arenaGames.set(p.gameId, { tournament: m.tournament, white: p.white, black: p.black }); this.keepArena(); this.sayBusy(m.tournament, me) }
-      this.o.onMatched({ tournament: m.tournament, gameId: p.gameId, opponent: fromPeer, opponentKey: theirs, myColor: p.white === me.pub ? 'white' : 'black', timeControl: v.tournament.timeControl, theirSeat: typeof m.seat === 'string' ? m.seat : undefined })
+      // Taken from here on: while the accept is on its way, this player offers nobody else a game and takes
+      // no other (two at once: one of them was never played, and both players waited on it for ever).
+      this.matching = true
+      try {
+        const seat = this.o.seat?.() ?? undefined
+        await this.o.send(fromPeer, JSON.stringify({ type: 't_accept', tournament: m.tournament, gameId: p.gameId, player: me.pub, seat })).catch(() => {})
+        if (arena) { this.arenaGames.set(p.gameId, { tournament: m.tournament, white: p.white, black: p.black }); this.keepArena(); this.sayBusy(m.tournament, me) }
+        this.o.onMatched({ tournament: m.tournament, gameId: p.gameId, opponent: fromPeer, opponentKey: theirs, myColor: p.white === me.pub ? 'white' : 'black', timeControl: v.tournament.timeControl, theirSeat: typeof m.seat === 'string' ? m.seat : undefined })
+      } finally {
+        this.matching = false
+      }
       return
     }
     if (m.type === 't_accept') {
       const o = this.offer
       if (!o || o.gameId !== m.gameId || o.to !== fromPeer || m.player !== o.match.opponentKey) return
       this.offer = null
-      if (this.o.isPlaying()) return
+      if (this.busy()) return
       if (v.format === 'arena') { this.arenaGames.set(o.gameId, { tournament: v.tournament.id, white: p.white, black: p.black }); this.keepArena(); this.sayBusy(v.tournament.id, me) }
       this.o.onMatched({ ...o.match, theirSeat: typeof m.seat === 'string' ? m.seat : undefined })
       return

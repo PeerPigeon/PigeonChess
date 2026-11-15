@@ -161,3 +161,42 @@ test('arena, nine bots and a late joiner with the lowest key: the late joiner ge
   assert.ok(games("0") >= typical * 0.75, `the late joiner played ${games('0')} games; a bot typically ${typical}`)
   h.stop()
 })
+
+test('arena: while its accept of one offer is on the way, a player offers nobody else a game (never two games at once)', async () => {
+  const h = harness(['a', 'b', 'c', 'd'])
+  const [a, b, c, d] = h.all
+  const id = await a.create({ name: 'Arena', format: 'arena', minutes: 30, timeControl: { minutes: 1, increment: 0 }, start: { kind: 'players', players: 4 }, maxPlayers: 100 })
+  for (const x of [b, c, d]) { await x.refresh(); await x.join(id) }
+  await h.refresh()
+  await (a as any).tick()
+  await h.refresh()
+  assert.equal(c.view()[0].status, 'running')
+  const now = h.clock.now
+  // c knows a, b and d are free, all waiting longer than c: c and d are a pair, and c (waited less) offers.
+  const ready = (c as any).ready as Map<string, any>
+  ready.set(`${id}:a`, { peerId: 'peer-a', seenAt: now, since: now - 30_000 })
+  ready.set(`${id}:b`, { peerId: 'peer-b', seenAt: now, since: now - 20_000 })
+  ready.set(`${id}:d`, { peerId: 'peer-d', seenAt: now, since: now - 10_000 })
+  ;(c as any).freeSince = now
+  // c's messages, its accept held up on the way.
+  const sent: any[] = []
+  let release!: () => void
+  const held = new Promise<void>((r) => { release = r })
+  const o = (c as any).o
+  o.send = async (_to: string, msg: string) => { const m = JSON.parse(msg); sent.push(m); if (m.type === 't_accept') await held }
+  o.broadcast = async () => {}
+  const matched: string[] = []
+  o.onMatched = (m: TournamentMatch) => matched.push(m.gameId)
+  // b offers c a game; c accepts, and before the accept has gone, c's next tick comes.
+  const { arenaGameId } = await import('../src/utils/tournament.ts')
+  const gameId = arenaGameId(id, 'b', 'c', 0)
+  c.handle({ type: 't_offer', tournament: id, gameId, player: 'b', white: 'b', black: 'c', seat: 'seat-b' }, 'peer-b')
+  await new Promise((r) => setTimeout(r, 5))
+  assert.ok(sent.some((m) => m.type === 't_accept'), 'c accepts b')
+  await (c as any).tick()
+  assert.ok(!sent.some((m) => m.type === 't_offer'), 'no offer to anyone else meanwhile')
+  release()
+  await new Promise((r) => setTimeout(r, 5))
+  assert.deepEqual(matched, [gameId], 'one game: the one taken')
+  h.stop()
+})
