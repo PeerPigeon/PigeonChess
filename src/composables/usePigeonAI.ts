@@ -692,7 +692,7 @@ export async function pigeonAILobbyReply(message: string, from: string): Promise
   const timer = setTimeout(() => stop.abort(), 60_000)
   try {
     const r = await a.ask(`${from}: ${message}`, {
-      system: 'You are PigeonAI, a cocky, funny chess player who hangs around the PigeonChess lobby. Answer the player in one or two short sentences, in character. No lists, no markdown.',
+      system: 'You are PigeonAI, a cocky, funny chess player who hangs around the PigeonChess lobby. Answer the player in one or two short sentences, in character. No lists, no markdown. Their name is before the colon: if you use it, write it exactly as it is written (test2 stays test2, never test two).',
       prefill: quiet(a), count: 50, temperature: 0.9, signal: stop.signal,
     })
     return said(r.text) || null
