@@ -680,3 +680,25 @@ export function said(text: string): string {
 export function usePigeonAI() {
   return { here: PIGEONAI_HERE, status, ready, progress, paused, modelName, networkName, ownNetwork, mode, shareRule, earned }
 }
+
+/**
+ * PigeonAI answering someone in the lobby's chat who mentioned it: asked of whatever runs here (PigeonAI's
+ * mesh, or Local AI), in character, short. Null when it isn't ready (nothing is said then).
+ */
+export async function pigeonAILobbyReply(message: string, from: string): Promise<string | null> {
+  const a = ai
+  if (!a || !a.ready()) return null
+  const stop = new AbortController()
+  const timer = setTimeout(() => stop.abort(), 60_000)
+  try {
+    const r = await a.ask(`${from}: ${message}`, {
+      system: 'You are PigeonAI, a cocky, funny chess player who hangs around the PigeonChess lobby. Answer the player in one or two short sentences, in character. No lists, no markdown.',
+      prefill: quiet(a), count: 50, temperature: 0.9, signal: stop.signal,
+    })
+    return said(r.text) || null
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}

@@ -326,6 +326,8 @@
 
           <p class="you">You are <code :title="myPeerId">{{ formatPeerId(myPeerId) }}</code> on the {{ settings.networkName || 'global' }} network.</p>
 
+          <LobbyChat :room="settings.networkName || 'global'" :name="chatName" @sent="onLobbyChatSent" />
+
           <p v-if="error" class="alert">{{ error }}</p>
         </div>
       </section>
@@ -651,7 +653,7 @@ import { usePeerPigeon, migrateSignalingUrls } from './composables/usePeerPigeon
 /** What's new (public/notes/index.html), opened from the build in the footer. */
 const FEATURE_NOTES = '/notes/'
 import { forgetSharedGameInUrl, movesPlay, offerLink, sharedGameInUrl, shareUrl, unpackGame } from '@/utils/shareGame'
-import { usePigeonAI, startPigeonAIPeer, restartPigeonAIPeer, startLocalAI, stopLocalAI, pigeonAINetwork, type LocalAIPrefs, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, SPEAK_UP, tookCue, type ChatGame } from './composables/usePigeonAI'
+import { usePigeonAI, startPigeonAIPeer, restartPigeonAIPeer, startLocalAI, stopLocalAI, pigeonAINetwork, pigeonAILobbyReply, type LocalAIPrefs, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, SPEAK_UP, tookCue, type ChatGame } from './composables/usePigeonAI'
 import { useSeek } from './composables/useSeek'
 import { loadSeat, makeSeatKeys, open, saveSeat, seal, type Seat, type SeatKeys } from './composables/useSeat'
 import { useNotify } from './composables/useNotify'
@@ -660,6 +662,8 @@ import SettingsModal from './components/SettingsModal.vue'
 import PigeonAIStatus from './components/PigeonAIStatus.vue'
 import PigeonAIJoin from './components/PigeonAIJoin.vue'
 import LocalAIPanel from './components/LocalAIPanel.vue'
+import LobbyChat from './components/LobbyChat.vue'
+import { startLobbyChat, sendLobbyChat } from './composables/useLobbyChat'
 import TournamentsView from './components/TournamentsView.vue'
 import { engineLevel } from './utils/engineLevels'
 import { useTournaments } from './composables/useTournaments'
@@ -756,6 +760,7 @@ const {
   dhtGet,
   relayRequest,
   storageSigner,
+  readyStorage,
   tournamentRoom,
   loadSharedGame,
   signStorageAs,
@@ -1245,6 +1250,14 @@ const choosePigeonAIShare = (how: 'lend' | 'pay') => {
 const localAIPrefs = computed<LocalAIPrefs>(() => settings.value.pigeonAILocal ?? { source: 'file' })
 const setLocalAIPrefs = (p: LocalAIPrefs) => { settings.value.pigeonAILocal = { ...p } }
 const loadLocalAI = (file?: File) => startLocalAI(localAIPrefs.value, file)
+/** Who you are in the lobby's chat: your account's name, else a guest by this page's id. */
+const chatName = computed(() => identityUsername.value || `Guest ${(myPeerId.value || '').slice(0, 4)}`)
+/** A message that mentions PigeonAI: answered by it, if it runs here (said in the chat as PigeonAI, via you). */
+const onLobbyChatSent = async (text: string) => {
+  if (!/pigeon\s*ai/i.test(text)) return
+  const reply = await pigeonAILobbyReply(text, chatName.value)
+  if (reply) await sendLobbyChat(reply, chatName.value, 'PigeonAI').catch(() => {})
+}
 /** The language model of the game in progress, in words. */
 const lmName = computed(() => (gameEngine.value === 'local' ? 'Local AI' : 'PigeonAI'))
 // PigeonAI starts again when Settings close with its network, model or way of holding it changed.
@@ -3802,6 +3815,8 @@ const initializeAndConnect = async () => {
     
     // Start broadcasting presence regardless of signaling server status
     startPresenceBroadcast()
+    // The lobby's chat, for this room.
+    void readyStorage().then((s: any) => startLobbyChat(s)).catch(() => {})
     
   } catch (err) {
     console.error('Failed to initialize PeerPigeon:', err)

@@ -1,4 +1,5 @@
 import { KEYS as TOURNAMENT_KEYS } from '../utils/tournament'
+import { CHAT_KEYS } from './useLobbyChat'
 import { ref, shallowRef, triggerRef, onUnmounted } from 'vue'
 import { PeerPigeonNode } from 'peerpigeon'
 import { noteWork, startStallRecorder, timed } from './stallRecorder'
@@ -257,8 +258,9 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
       minPeers: options.minPeers ?? 2,
       maxPeers: options.maxPeers ?? 10,
       crypto: options.enableCrypto === false ? false : {},
-      // Every tournament record (utils/tournament.ts): kept by every peer in that room, not only the servers.
-      storage: { replicate: [TOURNAMENT_KEYS] },
+      // Every tournament record (utils/tournament.ts) and the lobby's chat (useLobbyChat.ts): kept by
+      // every peer in that room, not only the servers.
+      storage: { replicate: [TOURNAMENT_KEYS, CHAT_KEYS] },
     })
     compat.node = node
     // For looking at a running page from the console; read-only by intent.
@@ -448,6 +450,7 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
   }
 
   return {
+    readyStorage,
     storageSigner,
     tournamentRoom,
     loadSharedGame,
