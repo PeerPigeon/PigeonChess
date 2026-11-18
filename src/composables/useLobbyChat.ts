@@ -15,7 +15,7 @@ const RATE = 5
 const RATE_MS = 10_000
 const MAX_TEXT = 300
 
-export interface ChatMessage { key: string; signer: string; name: string; text: string; at: number; bot?: string }
+export interface ChatMessage { key: string; signer: string; name: string; text: string; at: number; bot?: string; /** A bot's answer: the message it answers. */ re?: string }
 
 type Storage = {
   list(space: 'user'): Promise<any[]>
@@ -47,6 +47,7 @@ function fromRecord(r: any): ChatMessage | null {
     name: String(v.name || 'Guest').slice(0, 40),
     text: v.text.slice(0, MAX_TEXT),
     ...(typeof v.bot === 'string' ? { bot: v.bot.slice(0, 40) } : {}),
+    ...(typeof v.re === 'string' ? { re: v.re.slice(0, 80) } : {}),
   }
 }
 
@@ -94,12 +95,20 @@ export async function startLobbyChat(s: Storage | null): Promise<void> {
       all = [...all.filter((x) => x.key !== m.key), m]
       if (isNew && !open.value && m.signer !== s.signer?.()) unread.value++
       show()
+      // A new message that mentions PigeonAI (said in the last minute): whoever can answer it is told.
+      if (isNew && !m.bot && Date.now() - m.at < 60_000 && /pigeon\s*ai/i.test(m.text)) onMention?.(m)
     })()
   }) ?? null
 }
 
-/** Send a message as `name` (and, from PigeonAI's answer, `bot`). Returns why not, or null when sent. */
-export async function sendLobbyChat(text: string, name: string, bot?: string): Promise<string | null> {
+let onMention: ((m: ChatMessage) => void) | null = null
+/** Who is told of each new message that mentions PigeonAI (the page, which answers if it can). */
+export function onLobbyMention(handler: (m: ChatMessage) => void): void { onMention = handler }
+/** Whether a message has been answered (by PigeonAI, from any device). */
+export const answered = (key: string) => all.some((m) => m.re === key)
+
+/** Send a message as `name` (and, from PigeonAI's answer, `bot`, answering `re`). Returns why not, or null when sent. */
+export async function sendLobbyChat(text: string, name: string, bot?: string, re?: string): Promise<string | null> {
   const t = text.trim().slice(0, MAX_TEXT)
   if (!t) return 'nothing to send'
   if (!storage) return 'not connected yet'
@@ -108,7 +117,7 @@ export async function sendLobbyChat(text: string, name: string, bot?: string): P
   if (!bot && sentAt.length >= RATE) return 'a few seconds, please: at most 5 messages in 10 seconds'
   if (!bot) sentAt.push(now)
   const key = `${CHAT_KEYS}${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-  await storage.put('user', key, { text: t, at: now, name, ...(bot ? { bot } : {}) })
+  await storage.put('user', key, { text: t, at: now, name, ...(bot ? { bot } : {}), ...(re ? { re } : {}) })
   // Only this writer's last OWN messages stay in the room.
   const me = storage.signer?.()
   const mine = all.filter((m) => m.signer === me).sort((a, b) => a.at - b.at)

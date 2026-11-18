@@ -20,7 +20,7 @@
         <input v-model="draft" type="text" maxlength="300" :placeholder="`Message ${room}`" aria-label="Message" autocomplete="off" />
         <button class="send" type="submit" :disabled="!draft.trim()">Send</button>
       </form>
-      <p v-if="note" class="note">{{ note }}</p>
+      <p v-if="note || props.note" class="note">{{ note || props.note }}</p>
     </div>
   </section>
 </template>
@@ -29,7 +29,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { useLobbyChat, sendLobbyChat, muteInChat, setChatOpen } from '@/composables/useLobbyChat'
 
-const props = defineProps<{ room: string; name: string }>()
+const props = defineProps<{ room: string; name: string; note?: string }>()
 const emit = defineEmits<{ sent: [text: string] }>()
 const chat = useLobbyChat()
 const me = computed(() => chat.signer())
