@@ -1251,7 +1251,9 @@ const localAIPrefs = computed<LocalAIPrefs>(() => settings.value.pigeonAILocal ?
 const setLocalAIPrefs = (p: LocalAIPrefs) => { settings.value.pigeonAILocal = { ...p } }
 const loadLocalAI = (file?: File) => startLocalAI(localAIPrefs.value, file)
 /** Who you are in the lobby's chat: your account's name, else a guest by this page's id. */
-const chatName = computed(() => identityUsername.value || `Guest ${(myPeerId.value || '').slice(0, 4)}`)
+// (A guest's: from this browser's key, which stays across reloads, unlike the page's peer id.)
+const chatGuestKey = ref('')
+const chatName = computed(() => identityUsername.value || `Guest ${(chatGuestKey.value || myPeerId.value || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 4)}`)
 /** A message that mentions PigeonAI: answered by it, if it runs here (said in the chat as PigeonAI, via you). */
 const onLobbyChatSent = async (text: string) => {
   if (!/pigeon\s*ai/i.test(text)) return
@@ -3816,7 +3818,7 @@ const initializeAndConnect = async () => {
     // Start broadcasting presence regardless of signaling server status
     startPresenceBroadcast()
     // The lobby's chat, for this room.
-    void readyStorage().then((s: any) => startLobbyChat(s)).catch(() => {})
+    void readyStorage().then((s: any) => { chatGuestKey.value = s?.signer?.() ?? ''; return startLobbyChat(s) }).catch(() => {})
     
   } catch (err) {
     console.error('Failed to initialize PeerPigeon:', err)
