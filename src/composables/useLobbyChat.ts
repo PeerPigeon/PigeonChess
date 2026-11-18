@@ -19,6 +19,7 @@ export interface ChatMessage { key: string; signer: string; name: string; text: 
 
 type Storage = {
   list(space: 'user'): Promise<any[]>
+  get?(space: 'user', key: string): Promise<any>
   put(space: 'user', key: string, value: unknown): Promise<unknown>
   delete?(space: 'user', key: string): Promise<unknown>
   subscribe?(listener: (e: { op: 'upsert' | 'delete'; record: any; space: string; key: string }) => void): () => void
@@ -83,15 +84,17 @@ export async function startLobbyChat(s: Storage | null): Promise<void> {
   show()
   unsubscribe = s.subscribe?.((e) => {
     if (e.space !== 'user' || !e.key.startsWith(CHAT_KEYS)) return
-    all = all.filter((m) => m.key !== e.key)
-    if (e.op === 'upsert') {
-      const m = fromRecord(e.record)
-      if (m) {
-        all.push(m)
-        if (!open.value && m.signer !== s.signer?.()) unread.value++
-      }
-    }
-    show()
+    if (e.op === 'delete') { all = all.filter((m) => m.key !== e.key); show(); return }
+    // A change says who signed the record only sometimes (not for a write here): read it back for that.
+    void (async () => {
+      const rec = typeof e.record?.signer === 'string' ? e.record : await s.get?.('user', e.key).catch(() => null)
+      const m = fromRecord(rec)
+      if (!m || storage !== s) return
+      const isNew = !all.some((x) => x.key === m.key)
+      all = [...all.filter((x) => x.key !== m.key), m]
+      if (isNew && !open.value && m.signer !== s.signer?.()) unread.value++
+      show()
+    })()
   }) ?? null
 }
 

@@ -9,7 +9,9 @@ function room() {
   const emit = (op: 'upsert' | 'delete', key: string) => { for (const l of listeners) l({ op, key, space: 'user', record: recs.get(key) ?? null }) }
   const as = (signer: string) => ({
     list: async () => [...recs.values()],
-    put: async (_s: string, key: string, value: unknown) => { recs.set(key, { key, value, signer }); emit('upsert', key) },
+    get: async (_s: string, key: string) => recs.get(key) ?? null,
+    // A write here: its change doesn't say who signed it (as PeerPigeon's).
+    put: async (_s: string, key: string, value: unknown) => { recs.set(key, { key, value, signer }); for (const l of listeners) l({ op: 'upsert', key, space: 'user', record: { key, value } }) },
     delete: async (_s: string, key: string) => { if (recs.get(key)?.signer !== signer) return false; recs.delete(key); emit('delete', key); return true },
     subscribe: (l: (e: any) => void) => { listeners.add(l); return () => listeners.delete(l) },
     signer: () => signer,
@@ -27,13 +29,15 @@ test('the lobby chat: what is in the room shows, in order; new messages arrive; 
   assert.deepEqual(chat.messages.value.map((m) => m.text), ['first', 'second'])
   setChatOpen(false)
   r.arrive('bob', `${CHAT_KEYS}c`, { text: 'anyone for 5+0?', at: 3000, name: 'Bob' })
+  await new Promise((r) => setTimeout(r, 5))
   assert.equal(chat.messages.value.at(-1)?.text, 'anyone for 5+0?')
   assert.equal(chat.unread.value, 1, 'counted while closed')
   setChatOpen(true)
   assert.equal(chat.unread.value, 0)
   assert.equal(await sendLobbyChat('   ', 'Me'), 'nothing to send')
   assert.equal(await sendLobbyChat('hello', 'Me'), null)
-  assert.equal(chat.messages.value.at(-1)?.name, 'Me')
+  await new Promise((r) => setTimeout(r, 5))
+  assert.equal(chat.messages.value.at(-1)?.name, 'Me', 'its own message shows (read back for its signer)')
   muteInChat('bob')
   assert.ok(!chat.messages.value.some((m) => m.signer === 'bob'), 'muted: hidden')
 })
@@ -48,7 +52,9 @@ test('the lobby chat: at most 5 messages in 10 s from one writer, sent or shown;
   assert.match(String(sent[5]), /at most 5/)
   const t = Date.now()
   for (let i = 0; i < 8; i++) r.arrive('spam', `${CHAT_KEYS}s${i}`, { text: `s${i}`, at: t + i, name: 'Spam' })
+  await new Promise((r) => setTimeout(r, 5))
   assert.equal(chat.messages.value.filter((m) => m.signer === 'spam').length, 5)
   assert.equal(await sendLobbyChat('I am PigeonAI', 'Me', 'PigeonAI'), null, 'an answer is not held back by the limit')
+  await new Promise((r) => setTimeout(r, 5))
   assert.ok(chat.messages.value.some((m) => m.bot === 'PigeonAI' && m.text === 'I am PigeonAI'), 'shown, named PigeonAI')
 })
