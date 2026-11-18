@@ -106,6 +106,8 @@ let onMention: ((m: ChatMessage) => void) | null = null
 export function onLobbyMention(handler: (m: ChatMessage) => void): void { onMention = handler }
 /** Whether a message has been answered (by PigeonAI, from any device). */
 export const answered = (key: string) => all.some((m) => m.re === key)
+/** Whether PigeonAI has said anything since `at`. */
+export const botSaidSince = (at: number) => all.some((m) => m.bot && m.at >= at)
 
 /** Send a message as `name` (and, from PigeonAI's answer, `bot`, answering `re`). Returns why not, or null when sent. */
 export async function sendLobbyChat(text: string, name: string, bot?: string, re?: string): Promise<string | null> {

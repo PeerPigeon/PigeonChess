@@ -663,7 +663,7 @@ import PigeonAIStatus from './components/PigeonAIStatus.vue'
 import PigeonAIJoin from './components/PigeonAIJoin.vue'
 import LocalAIPanel from './components/LocalAIPanel.vue'
 import LobbyChat from './components/LobbyChat.vue'
-import { startLobbyChat, sendLobbyChat, onLobbyMention, answered } from './composables/useLobbyChat'
+import { startLobbyChat, sendLobbyChat, onLobbyMention, answered, botSaidSince } from './composables/useLobbyChat'
 import TournamentsView from './components/TournamentsView.vue'
 import { engineLevel } from './utils/engineLevels'
 import { useTournaments } from './composables/useTournaments'
@@ -1255,24 +1255,28 @@ const loadLocalAI = (file?: File) => startLocalAI(localAIPrefs.value, file)
 const chatGuestKey = ref('')
 const chatName = computed(() => identityUsername.value || `Guest ${(chatGuestKey.value || myPeerId.value || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 4)}`)
 /**
- * A message in the lobby that mentions PigeonAI: answered by any device in the room where PigeonAI (or
- * Local AI) is ready, once. The writer's own device first; another after a moment, unless an answer has
- * come by then. Said in the chat as PigeonAI, via that device's player.
+ * A message in the lobby that mentions PigeonAI: the PigeonAI server answers it (it is in the global
+ * room's chat). A device in the room where PigeonAI (or Local AI) is ready answers it after a few
+ * seconds if nothing has by then: once, said in the chat as PigeonAI, via that device's player.
  */
 const answering = new Set<string>()
 onLobbyMention((m) => {
   if (!pigeonAI.ready.value || answering.has(m.key)) return
   answering.add(m.key)
-  const mine = m.name === chatName.value
   setTimeout(async () => {
     if (answered(m.key)) return
     const reply = await pigeonAILobbyReply(m.text, m.name)
     if (reply && !answered(m.key)) await sendLobbyChat(reply, chatName.value, 'PigeonAI', m.key).catch(() => {})
-  }, mine ? 0 : 1500 + Math.random() * 3000)
+  }, 6000 + Math.random() * 4000)
 })
-/** Your message mentioned PigeonAI, and it isn't running on this device: say who can answer. */
+/** Your message mentioned PigeonAI and nothing answered in 30 s: say who can. */
 const onLobbyChatSent = (text: string) => {
-  if (/pigeon\s*ai/i.test(text) && !pigeonAI.ready.value) lobbyChatNote.value = 'PigeonAI answers from a device in this room where it runs. It isn\'t running on this one: join it under Play → Computer → PigeonAI.'
+  if (!/pigeon\s*ai/i.test(text)) return
+  const at = Date.now()
+  lobbyChatNote.value = ''
+  setTimeout(() => {
+    if (!botSaidSince(at)) lobbyChatNote.value = 'PigeonAI didn\'t answer: it isn\'t running in this room right now. You can run it under Play → Computer → PigeonAI.'
+  }, 30_000)
 }
 const lobbyChatNote = ref('')
 /** The language model of the game in progress, in words. */
