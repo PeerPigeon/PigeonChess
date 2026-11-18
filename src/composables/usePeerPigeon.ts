@@ -157,7 +157,8 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     }
     const self = String(node.getClientId?.() ?? '')
     const members: string[] = node.mesh?.getGlobalPeers?.() ?? node.getGlobalPeers?.() ?? []
-    const ids = [...new Set([...members, ...compat.getConnectedPeerIds()])].filter((id) => id && id !== self).sort()
+    // Not players: peers a relay lists with the role 'bot' (the PigeonAI server in the lobby chat).
+    const ids = [...new Set([...members, ...compat.getConnectedPeerIds()])].filter((id) => id && id !== self && node.getPeerRole?.(id) !== 'bot').sort()
     if (ids.join() !== onlinePeerIds.value.join()) onlinePeerIds.value = ids
   }
   const onlineTimer = setInterval(refreshOnline, 2000)
