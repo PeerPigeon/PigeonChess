@@ -269,15 +269,33 @@
 
           <template v-else>
           <div v-if="pigeonAIOffered" class="mode-toggle engine-pick" role="radiogroup" aria-label="Computer">
-            <button type="button" role="radio" class="mode-option" :class="{ picked: aiEngine === 'standard' }" :aria-checked="aiEngine === 'standard'" @click="setAIEngine('standard')">Standard</button>
+            <button type="button" role="radio" class="mode-option" :class="{ picked: aiEngine === 'standard' }" :aria-checked="aiEngine === 'standard'" @click="setAIEngine('standard')">Chess engine</button>
+            <button type="button" role="radio" class="mode-option" :class="{ picked: aiEngine === 'local' }" :aria-checked="aiEngine === 'local'" @click="setAIEngine('local')">Local AI</button>
             <button type="button" role="radio" class="mode-option" :class="{ picked: aiEngine === 'pigeonai' }" :aria-checked="aiEngine === 'pigeonai'" @click="setAIEngine('pigeonai')">PigeonAI</button>
           </div>
-          <template v-if="pigeonAIOffered && aiEngine === 'pigeonai'">
-          <p class="engine-note">PigeonAI is a language model<template v-if="pigeonAI.modelName.value"> ({{ pigeonAI.modelName.value }})</template> run by everyone on PigeonChess together: each device with a GPU holds a share of it. It is asked for every move, and plays a legal one.</p>
+          <template v-if="pigeonAIOffered && aiEngine === 'local'">
+          <LocalAIPanel :prefs="localAIPrefs" @update="setLocalAIPrefs" @load="loadLocalAI" @start="startAIGame" />
+          </template>
+          <template v-else-if="pigeonAIOffered && aiEngine === 'pigeonai'">
+          <p class="engine-note">PigeonAI is a language model<template v-if="pigeonAI.modelName.value"> ({{ pigeonAI.modelName.value }})</template> run by the players here together: each device that lends a share holds part of it. It is asked for every move, and plays a legal one.</p>
+          <template v-if="!pigeonAIShare">
+          <p class="engine-note">Nothing runs on this device until you choose how to take part.</p>
+          <div class="row">
+            <button class="btn btn-go btn-wide" @click="showPigeonAIJoin = true">Join PigeonAI</button>
+          </div>
+          </template>
+          <template v-else-if="pigeonAIShare === 'pay' && pigeonAI.shareRule.value === 'required'">
+          <p class="engine-note">{{ pigeonAI.networkName.value }} asks every player to lend a share of their device to play PigeonAI. Lend a share, or play Local AI.</p>
+          <div class="row">
+            <button class="btn btn-go btn-wide" @click="choosePigeonAIShare('lend')">Lend a share</button>
+          </div>
+          </template>
+          <template v-else>
           <p class="engine-status" :class="{ ready: pigeonAI.ready.value }"><PigeonAIStatus :text="pigeonAI.status.value" :progress="pigeonAI.progress.value" :ready="pigeonAI.ready.value" :paused="pigeonAI.paused.value" /></p>
           <div class="row">
             <button class="btn btn-go btn-wide" @click="startAIGame">Start against PigeonAI</button>
           </div>
+          </template>
           </template>
           <template v-else>
           <div class="difficulty">
@@ -345,12 +363,12 @@
               <title>{{ connectionLabel }}</title>
               <rect v-for="n in 4" :key="n" :x="(n - 1) * 4" :y="12 - n * 3" width="3" :height="n * 3" rx="0.5" :class="{ lit: n <= connectionStrength }" />
             </svg>
-            <small v-if="aiThinking">{{ pigeonAsking ? 'asking PigeonAI' : 'thinking' }}</small>
+            <small v-if="aiThinking">{{ pigeonAsking ? `asking ${lmName}` : 'thinking' }}</small>
           </span>
-          <span v-if="isAIGame && gameEngine === 'pigeonai'" class="pigeon-note" :class="{ backup: pigeonNote.includes('backup') }">
+          <span v-if="isAIGame && isLanguageModel(gameEngine)" class="pigeon-note" :class="{ backup: pigeonNote.includes('backup') }">
             <template v-if="pigeonNote">{{ pigeonNote }}</template>
             <PigeonAIStatus v-else :text="pigeonAI.status.value" :progress="pigeonAI.progress.value" :ready="pigeonAI.ready.value" :paused="pigeonAI.paused.value" />
-            <template v-if="pigeonTally.pigeon + pigeonTally.backup">&nbsp;· PigeonAI {{ pigeonTally.pigeon }}, backup {{ pigeonTally.backup }}<template v-if="pigeonTally.backup"> (marked * in the moves)</template></template>
+            <template v-if="pigeonTally.pigeon + pigeonTally.backup">&nbsp;· {{ lmName }} {{ pigeonTally.pigeon }}, backup {{ pigeonTally.backup }}<template v-if="pigeonTally.backup"> (marked * in the moves)</template></template>
           </span>
           <span class="seat-captures">
             <img v-for="(piece, idx) in capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white']" :key="`go-${idx}`" :class="{ dup: idx > 0 && capturedPieces[myPlayer?.color === 'white' ? 'black' : 'white'][idx - 1] === piece }" :src="capturedSrc(myPlayer?.color === 'white' ? 'w' : 'b', piece)" :alt="piece" />
@@ -458,6 +476,14 @@
       :notifications-test-result="notifyTestResult"
       @toggle-notifications="(on: boolean) => { void notify.setEnabled(on) }"
       @test-notification="() => { notifyTestResult = 'Sending…'; void notify.test().then((r) => { notifyTestResult = r }) }"
+    />
+
+    <PigeonAIJoin
+      v-if="showPigeonAIJoin"
+      :network="pigeonAI.networkName.value"
+      :rule="pigeonAI.shareRule.value"
+      @choose="choosePigeonAIShare"
+      @close="showPigeonAIJoin = false"
     />
 
     <TournamentsView
@@ -625,13 +651,15 @@ import { usePeerPigeon, migrateSignalingUrls } from './composables/usePeerPigeon
 /** What's new (public/notes/index.html), opened from the build in the footer. */
 const FEATURE_NOTES = '/notes/'
 import { forgetSharedGameInUrl, movesPlay, offerLink, sharedGameInUrl, shareUrl, unpackGame } from '@/utils/shareGame'
-import { usePigeonAI, startPigeonAIPeer, restartPigeonAIPeer, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, SPEAK_UP, tookCue, type ChatGame } from './composables/usePigeonAI'
+import { usePigeonAI, startPigeonAIPeer, restartPigeonAIPeer, startLocalAI, stopLocalAI, pigeonAINetwork, type LocalAIPrefs, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, SPEAK_UP, tookCue, type ChatGame } from './composables/usePigeonAI'
 import { useSeek } from './composables/useSeek'
 import { loadSeat, makeSeatKeys, open, saveSeat, seal, type Seat, type SeatKeys } from './composables/useSeat'
 import { useNotify } from './composables/useNotify'
 import ChessBoard from './components/ChessBoard.vue'
 import SettingsModal from './components/SettingsModal.vue'
 import PigeonAIStatus from './components/PigeonAIStatus.vue'
+import PigeonAIJoin from './components/PigeonAIJoin.vue'
+import LocalAIPanel from './components/LocalAIPanel.vue'
 import TournamentsView from './components/TournamentsView.vue'
 import { engineLevel } from './utils/engineLevels'
 import { useTournaments } from './composables/useTournaments'
@@ -1111,7 +1139,7 @@ const restoreAIGame = () => {
   resetTimers()
   isAIGame.value = true
   aiDifficulty.value = g.difficulty
-  gameEngine.value = g.engine === 'pigeonai' && pigeonAIOffered ? 'pigeonai' : 'standard'
+  gameEngine.value = (g.engine === 'pigeonai' || g.engine === 'local') && pigeonAIOffered ? g.engine : 'standard'
   setAIOpponent(true, g.difficulty, gameEngine.value)
   opponentName.value = null
   // Replaying the saved moves: not new moves (who made each comes from the save, below).
@@ -1126,7 +1154,7 @@ const restoreAIGame = () => {
   for (const [k, w] of Object.entries(g.by ?? {})) if (Number(k) < g.moves.length && typeof w === 'string') by[Number(k)] = w
   pigeonBy.value = by
   const lastPly = Math.max(-1, ...Object.keys(by).map(Number))
-  if (lastPly >= 0) pigeonNote.value = !by[lastPly] ? `PigeonAI played ${g.moves[lastPly]}` : `PigeonAI ${by[lastPly]}: the backup engine played ${g.moves[lastPly]}`
+  if (lastPly >= 0) pigeonNote.value = !by[lastPly] ? `${lmName.value} played ${g.moves[lastPly]}` : `${lmName.value} ${by[lastPly]}: the backup engine played ${g.moves[lastPly]}`
   // After Vue has seen the replayed moves (queued above, so nextTick waits for them).
   void nextTick(() => { pigeonReplaying = false })
   const last = chess.value.history({ verbose: true }).slice(-1)[0] as any
@@ -1197,10 +1225,28 @@ const currentOpeningName = computed(() => {
 
 // The Computer: Stockfish at a chosen level (Standard), or PigeonAI, the model the peers here run
 // together (offered when this build has it, on the standard board). Remembered.
-type AIEngine = 'standard' | 'pigeonai'
+type AIEngine = 'standard' | 'pigeonai' | 'local'
+/** PigeonAI or Local AI: a language model, asked for each move (Stockfish backs it up). */
+const isLanguageModel = (e: AIEngine | undefined) => e === 'pigeonai' || e === 'local'
 const pigeonAI = usePigeonAI()
+/** How this device's player takes part in PigeonAI on its network and room ('lend' / 'pay'); unset: not chosen. */
+const pigeonAIShareKey = () => { const n = pigeonAINetwork(settings.value.networkName || 'global', settings.value.pigeonAIRoom || 'global'); return `${n.network}/${n.room}` }
+const pigeonAIShare = computed(() => settings.value.pigeonAIShare?.[pigeonAIShareKey()])
 /** This device's PigeonAI choices (Settings → PigeonAI). */
-const pigeonAIPrefs = () => ({ room: settings.value.pigeonAIRoom || 'global', model: settings.value.pigeonAIModel ?? '', serveWhole: settings.value.pigeonAIServeWhole === true, hold: settings.value.pigeonAIHold !== false })
+const pigeonAIPrefs = () => ({ room: settings.value.pigeonAIRoom || 'global', model: settings.value.pigeonAIModel ?? '', serveWhole: settings.value.pigeonAIServeWhole === true, share: settings.value.pigeonAIShare?.[pigeonAIShareKey()], shareRule: settings.value.pigeonAIShareRule })
+const showPigeonAIJoin = ref(false)
+/** The player's choice of how to take part: kept for this network and room, and PigeonAI starts (again) on it. */
+const choosePigeonAIShare = (how: 'lend' | 'pay') => {
+  settings.value.pigeonAIShare = { ...(settings.value.pigeonAIShare ?? {}), [pigeonAIShareKey()]: how }
+  showPigeonAIJoin.value = false
+  restartPigeonAIPeer(settings.value.networkName || 'global', pigeonAIPrefs())
+}
+/** Local AI's choices (where its model comes from, offered or not), kept. */
+const localAIPrefs = computed<LocalAIPrefs>(() => settings.value.pigeonAILocal ?? { source: 'file' })
+const setLocalAIPrefs = (p: LocalAIPrefs) => { settings.value.pigeonAILocal = { ...p } }
+const loadLocalAI = (file?: File) => startLocalAI(localAIPrefs.value, file)
+/** The language model of the game in progress, in words. */
+const lmName = computed(() => (gameEngine.value === 'local' ? 'Local AI' : 'PigeonAI'))
 // PigeonAI starts again when Settings close with its network, model or way of holding it changed.
 let pigeonAIKey = ''
 const pigeonAIKeyNow = () => JSON.stringify([settings.value.networkName || 'global', pigeonAIPrefs()])
@@ -1211,15 +1257,19 @@ watch(showSettings, (open) => {
 const pigeonAIOffered = pigeonAI.here && !isPigeonVariant
 const AI_ENGINE_KEY = 'pigeonchess:ai-engine'
 const aiEngine = ref<AIEngine>((() => {
-  try { return pigeonAIOffered && localStorage.getItem(AI_ENGINE_KEY) === 'pigeonai' ? 'pigeonai' : 'standard' } catch { return 'standard' }
+  try { const e = localStorage.getItem(AI_ENGINE_KEY); return pigeonAIOffered && (e === 'pigeonai' || e === 'local') ? e : 'standard' } catch { return 'standard' }
 })())
 const setAIEngine = (engine: AIEngine) => {
+  // Leaving Local AI: its model goes from the GPU, and PigeonAI's mesh comes back (if chosen).
+  if (aiEngine.value === 'local' && engine !== 'local') stopLocalAI()
+  // PigeonAI picked, how to take part not chosen yet: asked now.
+  if (engine === 'pigeonai' && !pigeonAIShare.value) showPigeonAIJoin.value = true
   aiEngine.value = engine
   try { localStorage.setItem(AI_ENGINE_KEY, engine) } catch { /* private mode: not remembered */ }
 }
 /** Who the Computer is, in words: "PigeonAI", or "Computer, medium". */
 const computerName = (engine: AIEngine | undefined, level: number | undefined) =>
-  engine === 'pigeonai' ? 'PigeonAI' : `Computer, ${(aiLevels[level || 0]?.name || 'Easy').toLowerCase()}`
+  engine === 'pigeonai' ? 'PigeonAI' : engine === 'local' ? 'Local AI' : `Computer, ${(aiLevels[level || 0]?.name || 'Easy').toLowerCase()}`
 /** The engine of the game against the computer in progress. */
 const gameEngine = ref<AIEngine>('standard')
 /** In a PigeonAI game: whether PigeonAI is being asked now, how the last computer move was made, and the tally. */
@@ -1743,7 +1793,7 @@ const makeAIMove = () => {
   
   // PigeonAI: the move is asked of the mesh (usePigeonAI.ts). No usable answer (not ready in time, none,
   // or no legal move named): this move is played without it, as when Stockfish fails.
-  if (gameEngine.value === 'pigeonai' && engineSkipFen !== currentFen) {
+  if (isLanguageModel(gameEngine.value) && engineSkipFen !== currentFen) {
     const started = Date.now()
     pigeonAsking.value = true
     void pigeonAIMove(currentFen, [...(currentGame.value?.moves ?? [])]).then((answer) => {
@@ -1755,7 +1805,7 @@ const makeAIMove = () => {
       const found = answer.move ? moves.find((m: any) => m.san === answer.move) : null
       pigeonOutcome = { fen: currentFen, why: found ? '' : answer.why }
       if (!found) {
-        console.warn(`⚠️ PigeonAI ${answer.why}: the backup engine plays this move`)
+        console.warn(`⚠️ ${lmName.value} ${answer.why}: the backup engine plays this move`)
         giveUpOnEngine()
         return
       }
@@ -1962,7 +2012,7 @@ const makeAIMove = () => {
   }
   
   // Fallback to old AI if Stockfish not available
-  console.log(gameEngine.value === 'pigeonai' ? '⚠️ Backup engine: PigeonAI gave no move' : '⚠️ FALLBACK AI - Stockfish not available. stockfish:', !!stockfish, 'stockfishReady:', stockfishReady)
+  console.log(isLanguageModel(gameEngine.value) ? `⚠️ Backup engine: ${lmName.value} gave no move` : '⚠️ FALLBACK AI - Stockfish not available. stockfish:', !!stockfish, 'stockfishReady:', stockfishReady)
   
   // Select move based on difficulty
   if (isPigeonVariant) {
@@ -2244,7 +2294,7 @@ watch(() => currentGame.value?.moves?.length ?? 0, (n, before) => {
   if (pigeonReplaying) return
   if (n === 0) { pigeonNote.value = ''; pigeonBy.value = {}; return }
   if (n < before) { pigeonNote.value = ''; pigeonBy.value = Object.fromEntries(Object.entries(pigeonBy.value).filter(([k]) => Number(k) < n)); return }
-  if (!isAIGame.value || gameEngine.value !== 'pigeonai') return
+  if (!isAIGame.value || !isLanguageModel(gameEngine.value)) return
   if (n !== before + 1) return
   // A move by the computer: the side that moved is not mine.
   const moved = n % 2 === 1 ? 'white' : 'black'
@@ -2253,7 +2303,7 @@ watch(() => currentGame.value?.moves?.length ?? 0, (n, before) => {
   const why = pigeonOutcome?.why ?? 'gave no move'
   pigeonOutcome = null
   pigeonBy.value = { ...pigeonBy.value, [n - 1]: why }
-  pigeonNote.value = !why ? `PigeonAI played ${san}` : `PigeonAI ${why}: the backup engine played ${san}`
+  pigeonNote.value = !why ? `${lmName.value} played ${san}` : `${lmName.value} ${why}: the backup engine played ${san}`
 })
 
 // Signed in: what this player writes (their games) is signed by their account, so it follows them to
@@ -3312,7 +3362,7 @@ watch(chatList, (el) => {
   void document.fonts?.ready.then(() => requestAnimationFrame(toChatBottom))
 }, { flush: 'post' })
 /** Chatting with PigeonAI: in a game against it, messages go to it (usePigeonAI.ts), and it answers. */
-const chatWithPigeonAI = computed(() => isAIGame.value && gameEngine.value === 'pigeonai' && Boolean(currentGame.value))
+const chatWithPigeonAI = computed(() => isAIGame.value && isLanguageModel(gameEngine.value) && Boolean(currentGame.value))
 const pigeonTyping = ref(false)
 /** "PigeonAI is writing…": only from just before its words come (its prompt read) until they show. */
 const pigeonShowWriting = ref(false)
@@ -5644,6 +5694,12 @@ a.btn {
 
 .engine-pick {
   margin-bottom: 0.25rem;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.engine-pick .mode-option {
+  padding: 0.55rem 0.3rem;
+  font-size: 0.9rem;
 }
 
 .engine-note {

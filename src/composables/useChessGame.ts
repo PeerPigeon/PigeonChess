@@ -26,7 +26,7 @@ export function useChessGame(options: ChessGameOptions = {}) {
   const gameHistory = ref<GameHistoryEntry[]>(loadFromLocalStorage('chess-game-history', []))
   const isAIOpponent = ref<boolean>(false)
   const aiDifficultyLevel = ref<number | undefined>(undefined)
-  const aiEngineUsed = ref<'standard' | 'pigeonai'>('standard')
+  const aiEngineUsed = ref<'standard' | 'pigeonai' | 'local'>('standard')
   
   console.log('useChessGame initialized, gameHistory length:', gameHistory.value.length)
   
@@ -301,7 +301,7 @@ export function useChessGame(options: ChessGameOptions = {}) {
     aiDifficultyLevel.value = undefined
   }
 
-  const setAIOpponent = (isAI: boolean, difficulty?: number, engine: 'standard' | 'pigeonai' = 'standard') => {
+  const setAIOpponent = (isAI: boolean, difficulty?: number, engine: 'standard' | 'pigeonai' | 'local' = 'standard') => {
     isAIOpponent.value = isAI
     aiDifficultyLevel.value = difficulty
     aiEngineUsed.value = engine

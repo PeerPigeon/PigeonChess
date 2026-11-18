@@ -131,17 +131,40 @@
             <option value="prism-ml/Bonsai-1.7B-gguf/Bonsai-1.7B-Q1_0.gguf">The 1-bit Bonsai (GGUF)</option>
           </datalist>
           <p class="description">A Hugging Face model (owner/name, or owner/name/file.gguf). Picking one makes it this network's model: other players on {{ settings.networkName }} switch to it. Empty: whatever the network runs.</p>
+          <label class="ai-model">
+            <span>Sharing</span>
+            <select :value="settings.pigeonAIShareRule ?? 'optional'" @change="(e) => { settings.pigeonAIShareRule = (e.target as HTMLSelectElement).value as 'required' | 'optional' | 'off' }">
+              <option value="optional">Optional: players may lend a share or pay</option>
+              <option value="required">Required: every player lends a share</option>
+              <option value="off">Off: no shares; only whole copies serve</option>
+            </select>
+          </label>
+          <p class="description">Set with the model above, for everyone on {{ settings.networkName }}.</p>
         </template>
-        <label class="check">
-          <input type="checkbox" :checked="settings.pigeonAIHold !== false" @change="(e) => { settings.pigeonAIHold = (e.target as HTMLInputElement).checked }" />
-          <span>Hold a share of the model on this device's GPU (the devices here split it between them)</span>
-        </label>
+        <div class="ai-share" role="radiogroup" aria-label="How you take part">
+          <span class="ai-share-head">How you take part in {{ aiNet.network }} / {{ aiNet.room }}</span>
+          <label class="check">
+            <input type="radio" name="pigeonai-share" :checked="shareNow === 'lend'" @change="setShare('lend')" />
+            <span>Lend a share of this device: it holds part of the model on its GPU and earns PigeonSeed for the work it does for others (coming soon)</span>
+          </label>
+          <label class="check">
+            <input type="radio" name="pigeonai-share" :checked="shareNow === 'pay'" :disabled="!payAllowed" @change="setShare('pay')" />
+            <span>Pay to play: nothing runs on this device; you pay the players who lend in PigeonSeed (coming soon)<template v-if="!payAllowed">. Not on {{ aiNet.network }}: every player lends a share.</template></span>
+          </label>
+          <label class="check">
+            <input type="radio" name="pigeonai-share" :checked="!shareNow" @change="setShare(null)" />
+            <span>Not taking part: PigeonAI doesn't run on this device (Local AI still can)</span>
+          </label>
+        </div>
+        <p class="description earned">PigeonSeed earned (not live yet): {{ pigeonAI.earned.value.passes.toLocaleString() }} stage passes run for other players, {{ (pigeonAI.earned.value.bytes / 1e6).toFixed(0) }} MB of models sent to them.</p>
+        <template v-if="aiNet.own">
         <label class="check">
           <input type="checkbox" :disabled="!aiNet.own" :checked="aiNet.own && settings.pigeonAIServeWhole === true" @change="(e) => { settings.pigeonAIServeWhole = (e.target as HTMLInputElement).checked }" />
           <span>Keep the whole model on this device and serve it to the others</span>
         </label>
         <p class="description" v-if="!aiNet.own">Serving the whole model is for networks of your own; on global the PigeonAI server does it.</p>
         <p class="description" v-else>The others then load it all from here, as well as from each other. It takes the model's whole download and its room on this device.</p>
+        </template>
         <p class="description">Applied when you press Done.</p>
       </div>
       
@@ -358,6 +381,16 @@ const props = defineProps<Props>()
 const pigeonAI = usePigeonAI()
 /** PigeonAI's network for the chess network typed above. */
 const aiNet = computed(() => pigeonAINetwork(props.settings.networkName || 'global', props.settings.pigeonAIRoom || 'global'))
+/** How this device's player takes part on that network and room. */
+const shareKey = computed(() => `${aiNet.value.network}/${aiNet.value.room}`)
+const shareNow = computed(() => props.settings.pigeonAIShare?.[shareKey.value])
+/** Paying instead of lending: not on a network that asks every player to share (global's, or one whose rule says so). */
+const payAllowed = computed(() => aiNet.value.own && (pigeonAI.networkName.value === aiNet.value.network ? pigeonAI.shareRule.value : props.settings.pigeonAIShareRule ?? 'optional') !== 'required')
+const setShare = (how: 'lend' | 'pay' | null) => {
+  const next = { ...(props.settings.pigeonAIShare ?? {}) }
+  if (how) next[shareKey.value] = how; else delete next[shareKey.value]
+  props.settings.pigeonAIShare = next
+}
 const anyChoices = computed(() => (props.timeControls ?? []).filter((tc) => tc.id !== 'any'))
 const emit = defineEmits<{
   close: []
@@ -470,8 +503,11 @@ const toggleMuteUrl = (url: string) => {
   border-top: 1px solid var(--line);
 }
 
+.ai-share { display: flex; flex-direction: column; gap: 0.2rem; margin: 0.8rem 0 0.3rem; }
+.ai-share-head { font-weight: 600; font-size: 0.9rem; }
+.earned { font-variant-numeric: tabular-nums; }
 .ai-model { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
-.ai-model input { flex: 1; min-width: 0; }
+.ai-model input, .ai-model select { flex: 1; min-width: 0; }
 .settings-section h3 {
   font-size: 1rem;
   font-weight: 700;

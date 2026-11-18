@@ -13,7 +13,7 @@ import { createChess } from '@/utils/variant'
 
 type Packed = {
   g: string; c: 'white' | 'black'; r: GameHistoryEntry['result']; d: number; m: string
-  w?: string; b?: string; u?: string; o?: string; op?: string; ai?: 1; ad?: number; ae?: 'standard' | 'pigeonai'; p?: string
+  w?: string; b?: string; u?: string; o?: string; op?: string; ai?: 1; ad?: number; ae?: 'standard' | 'pigeonai' | 'local'; p?: string
 }
 
 const toB64 = (bytes: Uint8Array): string => {

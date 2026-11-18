@@ -60,7 +60,7 @@ export interface GameHistoryEntry {
   date: number
   isAI?: boolean        // Optional - indicates if opponent was AI
   aiDifficulty?: number // Optional - AI difficulty level (0=Easy, 1=Medium, 2=Hard, 3=Very Hard)
-  aiEngine?: 'standard' | 'pigeonai' // Optional - which computer: Stockfish (standard) or PigeonAI
+  aiEngine?: 'standard' | 'pigeonai' | 'local' // Optional - which computer: Stockfish (standard), PigeonAI, or Local AI
   myUsername?: string   // Optional - logged in username
   opponentUsername?: string // Optional - opponent's username (from DHT lookup)
   opening?: string      // Optional - detected opening name
@@ -93,8 +93,14 @@ export interface Settings {
   pigeonAIRoom?: string
   /** Keep PigeonAI's whole model on this device and serve it to the others (not on global). */
   pigeonAIServeWhole?: boolean
-  /** Hold a share of PigeonAI's model on this device's GPU (unset: yes). */
+  /** Hold a share of PigeonAI's model on this device's GPU: replaced by pigeonAIShare (no longer read). */
   pigeonAIHold?: boolean
+  /** How this device's player takes part in PigeonAI, by its network and room ("network/room"): lend a share of this device, or pay to play. Unset: not chosen, and PigeonAI doesn't run here. */
+  pigeonAIShare?: Record<string, 'lend' | 'pay'>
+  /** On a network of your own, set with its model: whether its players must lend a share to play (unset: optional). */
+  pigeonAIShareRule?: 'required' | 'optional' | 'off'
+  /** Local AI: where its model comes from, its name, and whether it is offered (and kept on PigeonFS). */
+  pigeonAILocal?: { source: 'file' | 'hf' | 'mesh'; model?: string; name?: string; offer?: boolean; keepOnPigeonFS?: boolean }
 }
 
 export interface BoardTheme {

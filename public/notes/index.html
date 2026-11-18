@@ -46,7 +46,7 @@
   <header><a href="/"><img src="/pigeonlogo.svg" alt="" />PigeonChess</a></header>
   <main>
     <h1>What's new: November 2026</h1>
-    <p class="when">Updated November 15</p>
+    <p class="when">Updated November 17</p>
     <p>November brought tournaments, a computer opponent that talks back, pre-moves and post-quantum accounts.</p>
 
     <h2>Highlights</h2>
@@ -92,11 +92,14 @@
     </ul>
 
     <h2>PigeonAI</h2>
-    <p>PigeonAI is a new choice under <b>Play → Computer</b>, next to Standard (Stockfish): a language model run by the players' own devices together, and a bit of a jerk.</p>
+    <p><b>Play → Computer</b> now has three opponents: the <b>Chess engine</b> (Stockfish), <b>Local AI</b> (a language model on your device alone), and <b>PigeonAI</b> (one model run by the players' own devices together, and a bit of a jerk).</p>
     <ul>
+      <li><b>Your choice to take part:</b> nothing of PigeonAI runs on your device until you join. Lend a share of your device (it holds part of the model, and you earn PigeonSeed for the work it does for other players), or pay to play on others' shares. PigeonSeed is coming soon; the work your device does for others is counted already, in Settings → PigeonAI. On PigeonChess's own network every player lends a share.</li>
+      <li><b>Local AI:</b> load a GGUF file from your drive, a Hugging Face model, or one the mesh keeps. It stays in this browser only. You can offer it to other players from your device (free, and earns PigeonSeed when they download it), and also keep it on PigeonFS so they can get it while you're away (that will cost PigeonSeed).</li>
+      <li><b>Your network's rule:</b> on a network of your own, Settings → PigeonAI sets whether its players must lend a share, may choose, or don't share at all.</li>
       <li><b>Now Liquid AI's LFM3:</b> PigeonAI runs Liquid AI's LFM3 model, and the Play panel names the model it's using.</li>
-      <li><b>Pick its model:</b> on a network of your own (Settings → Network), choose PigeonAI's model and room in Settings → PigeonAI, hold a share of it on your device, or keep the whole model on your device to serve the others.</li>
-      <li><b>Run by everyone:</b> each device with a GPU holds a share of the model (up to 2.5 GB on a computer, 250 MB on a phone or tablet), fetched from other players and PigeonFS. A progress bar shows how much of the whole model is ready on the devices here, with what it is waiting on written under it.</li>
+      <li><b>Pick its model:</b> on a network of your own (Settings → Network), choose PigeonAI's model and room in Settings → PigeonAI, or keep the whole model on your device to serve the others.</li>
+      <li><b>Run by the players who lend:</b> each device that lends a share holds part of the model (up to 2.5 GB on a computer, 250 MB on a phone or tablet), fetched from other players and PigeonFS. A progress bar shows how much of the whole model is ready on the devices here, with what it is waiting on written under it.</li>
       <li><b>Faster answers:</b> a move now goes through one device that holds the whole model when that is quicker than passing it between several, and PigeonAI times each way it tries and keeps to the fastest.</li>
       <li><b>Always a legal move:</b> the model picks among the legal moves, and never shuffles a piece back and forth.</li>
       <li><b>Chat:</b> talk to it during the game. It answers as a cocky top player, knows the game (who is ahead, the last moves, chess slang), and streams its reply as it writes.</li>

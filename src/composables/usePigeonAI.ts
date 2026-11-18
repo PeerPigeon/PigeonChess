@@ -1,9 +1,14 @@
 /**
- * PigeonAI in PigeonChess: every page that joins PigeonChess is a PigeonAI peer.
- * It joins PigeonAI's mesh for chess (on the same relays as the game), holds its
- * share of the model on its GPU when it has one, and the Computer can play as
- * PigeonAI: a move is asked of the whole mesh. The model is the one the network
- * runs (set on the PigeonAI server's page); when it changes, PigeonAI starts again on it.
+ * PigeonAI in PigeonChess. A page joins PigeonAI's mesh for chess (on the same relays as the game)
+ * only once its player has chosen how: lend a share of this device (it then holds part of the model on
+ * its GPU, and earns PigeonSeed for the work it does for others, once that is live), or pay to play
+ * (PigeonSeed, coming soon). Nothing is loaded on anyone's device before that. The Computer can then play
+ * as PigeonAI: a move is asked of the whole mesh. The model is the one the network runs (set on the
+ * PigeonAI server's page); when it changes, PigeonAI starts again on it.
+ *
+ * Or Local AI: a model on this device alone (a GGUF from the player's drive, from Hugging Face, or from
+ * the mesh), kept in this browser only; offered to other peers from here if the player wants, and kept
+ * on PigeonFS too only if they also tick that (which will cost PigeonSeed).
  *
  * PigeonAI is an optional dependency (a private repository): a build without it
  * offers no PigeonAI (PIGEONAI_HERE false; see vite.config.ts).
@@ -58,6 +63,25 @@ const loading = (on: boolean) => {
 
 /** What PigeonAI is doing here, in words (for the Computer panel). */
 const status = ref('')
+/** What runs here: PigeonAI's mesh, Local AI (a model on this device alone), or nothing yet. */
+const mode = ref<'mesh' | 'local' | null>(null)
+/** Whether players on this PigeonAI network must lend a share to play (its record's rule, else its default). */
+const shareRule = ref<'required' | 'optional' | 'off'>('required')
+/** What this device has done for others, kept across visits: stage passes run, and bytes of models sent. */
+const EARNED_KEY = 'pigeonai:earned'
+const earned = ref<{ passes: number; bytes: number }>((() => {
+  try { const e = JSON.parse(localStorage.getItem(EARNED_KEY) || 'null'); if (e && e.passes >= 0 && e.bytes >= 0) return e } catch { /* none yet */ }
+  return { passes: 0, bytes: 0 }
+})())
+let earnedSeen = { passes: 0, bytes: 0 }
+const noteEarned = (a: PigeonAI) => {
+  const now = a.earned?.() ?? { passes: 0, bytes: 0 }
+  const dp = Math.max(0, now.passes - earnedSeen.passes), db = Math.max(0, now.bytes - earnedSeen.bytes)
+  earnedSeen = now
+  if (!dp && !db) return
+  earned.value = { passes: earned.value.passes + dp, bytes: earned.value.bytes + db }
+  try { localStorage.setItem(EARNED_KEY, JSON.stringify(earned.value)) } catch { /* not kept */ }
+}
 /** Whether a move can be asked now (every stage of the model held and loaded, somewhere). */
 const ready = ref(false)
 /** How much of this device's share of the model is loaded (0 to 1), while it loads; null otherwise. */
@@ -82,7 +106,7 @@ function nameOf(a: PigeonAI): string {
 const quiet = (a: PigeonAI) => (a.hf?.raw?.model_type === 'qwen3' ? '<think>\n\n</think>\n\n' : '')
 
 const describe = (a: PigeonAI): string => {
-  if (a.ready()) return 'Ready: the model is held by the peers here.'
+  if (a.ready()) return mode.value === 'local' ? 'Ready: the model is on this device.' : 'Ready: the model is held by the peers here.'
   let done = 0, total = 0, servers = 0, cached = 0
   for (const p of a.loading.values()) { done += p.done; total += p.total; servers += p.servers ?? 0; cached += p.cached ?? 0 }
   // Where it is coming from: the storage servers (PigeonFS), or Hugging Face for what they don't have yet.
@@ -101,8 +125,25 @@ const describe = (a: PigeonAI): string => {
 /** Join PigeonAI's mesh for chess (once): on the game's own relays, in the game's network. */
 let ticker: ReturnType<typeof setInterval> | null = null
 
-/** This device's PigeonAI choices (Settings → PigeonAI). */
-export interface PigeonAIPrefs { model?: string; serveWhole?: boolean; hold?: boolean; room?: string }
+/**
+ * This device's PigeonAI choices (Settings → PigeonAI). `share`: how its player takes part on this
+ * network and room: 'lend' a share of this device, or 'pay' to play; none: not yet chosen, and PigeonAI
+ * doesn't start. `shareRule`: on a network of their own, whether its players must lend a share.
+ */
+export interface PigeonAIPrefs { model?: string; serveWhole?: boolean; room?: string; share?: 'lend' | 'pay'; shareRule?: 'required' | 'optional' | 'off' }
+
+/** Local AI's choices: where its model comes from, and whether it is offered to others. */
+export interface LocalAIPrefs {
+  source: 'file' | 'hf' | 'mesh'
+  /** The model (a Hugging Face or mesh name; a file's local name, from localModelRef). */
+  model?: string
+  /** A file's name, as chosen. */
+  name?: string
+  /** Send it to peers that ask, from this device (free; earns PigeonSeed once live). */
+  offer?: boolean
+  /** Keep it on PigeonFS too (costs PigeonSeed once live). */
+  keepOnPigeonFS?: boolean
+}
 
 /**
  * PigeonAI's network for a chess network: global plays on pigeonchess-ai, whose model its server sets
@@ -121,17 +162,25 @@ const networkName = ref('pigeonchess-ai')
 const ownNetwork = ref(false)
 
 let lastStart: { signaling: Signaling; chessNetwork: string; prefs: PigeonAIPrefs } | null = null
-/** Start again with new choices (a new network, model, or way of holding it). */
-export function restartPigeonAIPeer(chessNetwork: string, prefs: PigeonAIPrefs): void {
-  if (!PIGEONAI_HERE || !lastStart) return
+/** Whatever runs here, stopped (PigeonAI's mesh or Local AI). */
+async function stopRunning(): Promise<void> {
   const old = ai
   ai = null
   ready.value = false
   modelName.value = null
+  progress.value = null
   if (ticker) { clearInterval(ticker); ticker = null }
-  status.value = 'Starting again…'
+  await (starting ?? Promise.resolve()).catch(() => {})
+  starting = null
+  await (old?.close() ?? Promise.resolve()).catch(() => {})
+}
+/** Start again with new choices (a new network, model, way of taking part); none chosen: stopped. */
+export function restartPigeonAIPeer(chessNetwork: string, prefs: PigeonAIPrefs): void {
+  if (!PIGEONAI_HERE || !lastStart) return
   const signaling = lastStart.signaling
-  void (old?.close() ?? Promise.resolve()).catch(() => {}).then(() => { starting = null; startPigeonAIPeer(signaling, chessNetwork, prefs) })
+  if (mode.value === 'local') { lastStart = { signaling, chessNetwork, prefs }; return }
+  status.value = 'Starting again…'
+  void stopRunning().then(() => startPigeonAIPeer(signaling, chessNetwork, prefs))
 }
 
 export function startPigeonAIPeer(signaling: Signaling, chessNetwork: string, prefs: PigeonAIPrefs = {}): void {
@@ -140,6 +189,10 @@ export function startPigeonAIPeer(signaling: Signaling, chessNetwork: string, pr
   const { network, room, own } = pigeonAINetwork(chessNetwork, prefs.room)
   networkName.value = network
   ownNetwork.value = own
+  shareRule.value = own ? prefs.shareRule ?? 'optional' : 'required'
+  // Nothing runs on this device until its player has chosen how to take part (the Computer panel asks).
+  if (!prefs.share) { mode.value = null; status.value = ''; return }
+  mode.value = 'mesh'
   // On a network of its own: the model picked here (and, set, it becomes the network's), kept whole and
   // served if asked. Elsewhere: the network's.
   const picked = own && prefs.model?.trim() ? prefs.model.trim() : null
@@ -148,7 +201,8 @@ export function startPigeonAIPeer(signaling: Signaling, chessNetwork: string, pr
     try {
       const { startPigeonAI } = await import('pigeonai')
       const hold = holdAtMost()
-      const holding = prefs.hold !== false && hold >= 100e6
+      // Lending a share: it holds part of the model (as much as this browser can take). Paying: it holds none.
+      const holding = prefs.share === 'lend' && hold >= 100e6
       ai = await startPigeonAI({
         signaling,
         network,
@@ -156,17 +210,15 @@ export function startPigeonAIPeer(signaling: Signaling, chessNetwork: string, pr
         // The model picked here, which then becomes the network's; else the one the network runs (its
         // server, or another player, sets it); on a change, start again on the new one.
         model: picked ?? 'network',
-        ...(picked ? { setModel: true as const } : {}),
+        ...(picked ? { setModel: true as const, ...(prefs.shareRule ? { share: prefs.shareRule } : {}) } : {}),
+        // What it reads from Hugging Face stays here: keeping the model on PigeonFS is the server's (or a paid choice).
+        keepOnServers: false,
         ...(own && prefs.serveWhole ? { serveWholeModel: true } : {}),
         onModelChange: () => {
-          const old = ai
-          ai = null
-          ready.value = false
-          modelName.value = null
-          progress.value = 0
-          if (ticker) { clearInterval(ticker); ticker = null }
           status.value = 'Switching to the new model…'
-          void (old?.close() ?? Promise.resolve()).catch(() => {}).then(() => { starting = null; startPigeonAIPeer(signaling, chessNetwork, prefs) })
+          const before = starting
+          starting = null
+          void before?.then(() => stopRunning()).then(() => { progress.value = 0; startPigeonAIPeer(signaling, chessNetwork, prefs) })
         },
         // No draft model: a move is a few tokens, not worth a second download.
         draftModel: null,
@@ -179,40 +231,121 @@ export function startPigeonAIPeer(signaling: Signaling, chessNetwork: string, pr
       })
       ;(globalThis as Record<string, unknown>).__pigeonai = ai
       modelName.value = nameOf(ai)
-      // Loading its share: marked, so a reload for memory before it is done is noticed (holdAtMost).
-      const tick = () => {
-        if (!ai) return
-        ready.value = ai.ready()
-        let pending = 0
-        for (const p of ai.loading.values()) if (p.done < p.total) pending++
-        // The bar: how much of the whole model is loaded and ready on the devices here (this one and the
-        // others), a part loading here counted as far as it has got. It only goes forward.
-        const parts = ai.pipeline.stages
-        const built = new Set<number>(ai.pipeline.runners.keys())
-        for (const id of ai.members.ids()) for (const k of Object.keys((ai.members.advertOf(id)?.sv as Record<string, number> | undefined) ?? {})) built.add(Number(k))
-        let have = built.size
-        for (const [s, p] of ai.loading) if (!built.has(s) && p.total > 0) have += Math.min(1, p.done / p.total)
-        const whole = parts > 0 ? Math.min(1, have / parts) : 0
-        paused.value = !ready.value && pending === 0 && whole < 1
-        if (ready.value) progress.value = null
-        else progress.value = Math.max(progress.value ?? 0, whole)
-        // And in words, what it is waiting on.
-        status.value = ready.value || pending > 0 ? describe(ai)
-          : built.size < parts ? `The model is loading on the devices here: ${built.size} of ${parts} parts ready.`
-          : !ai.settled() ? "Checking which model this network runs…"
-          : 'Linking to the devices that hold the model…'
-        // Kept for a reload of this tab: the bar starts again where it was (the pieces loaded are kept
-        // here too, so the loading itself goes on from there, reading them back first).
-        try { if (progress.value === null) sessionStorage.removeItem(PROGRESS_KEY); else sessionStorage.setItem(PROGRESS_KEY, String(progress.value)) } catch { /* no storage */ }
-        loading(pending > 0)
-      }
-      tick()
-      ticker = setInterval(tick, 1000)
+      earnedSeen = { passes: 0, bytes: 0 }
+      watchProgress()
     } catch (error) {
       status.value = `PigeonAI could not start here: ${(error as Error).message}`
       starting = null
     }
   })()
+}
+
+/** Keeps ready, the bar and its words up to date (each second), and what this device earns. */
+function watchProgress(): void {
+  // Loading its share: marked, so a reload for memory before it is done is noticed (holdAtMost).
+  const tick = () => {
+    if (!ai) return
+    ready.value = ai.ready()
+    shareRule.value = ai.shareRule?.() ?? shareRule.value
+    noteEarned(ai)
+    let pending = 0
+    for (const p of ai.loading.values()) if (p.done < p.total) pending++
+    // The bar: how much of the whole model is loaded and ready on the devices here (this one and the
+    // others), a part loading here counted as far as it has got. It only goes forward.
+    const parts = ai.pipeline.stages
+    const built = new Set<number>(ai.pipeline.runners.keys())
+    for (const id of ai.members.ids()) for (const k of Object.keys((ai.members.advertOf(id)?.sv as Record<string, number> | undefined) ?? {})) built.add(Number(k))
+    let have = built.size
+    for (const [s, p] of ai.loading) if (!built.has(s) && p.total > 0) have += Math.min(1, p.done / p.total)
+    const whole = parts > 0 ? Math.min(1, have / parts) : 0
+    paused.value = !ready.value && pending === 0 && whole < 1
+    if (ready.value) progress.value = null
+    else progress.value = Math.max(progress.value ?? 0, whole)
+    // And in words, what it is waiting on.
+    status.value = ready.value || pending > 0 ? describe(ai)
+      : built.size < parts ? `The model is loading on the devices here: ${built.size} of ${parts} parts ready.`
+      : !ai.settled() ? "Checking which model this network runs…"
+      : 'Linking to the devices that hold the model…'
+    // Kept for a reload of this tab: the bar starts again where it was (the pieces loaded are kept
+    // here too, so the loading itself goes on from there, reading them back first).
+    try { if (progress.value === null) sessionStorage.removeItem(PROGRESS_KEY); else sessionStorage.setItem(PROGRESS_KEY, String(progress.value)) } catch { /* no storage */ }
+    loading(pending > 0)
+  }
+  tick()
+  if (ticker) clearInterval(ticker)
+  ticker = setInterval(tick, 1000)
+}
+
+/** The relays PigeonAI uses (the game's), known before anything starts. */
+export function setPigeonAISignaling(signaling: Signaling, chessNetwork: string, prefs: PigeonAIPrefs): void {
+  if (!lastStart) lastStart = { signaling, chessNetwork, prefs }
+}
+
+/** A stable id for this device's own Local AI room (nobody else joins it). */
+const ownRoom = () => {
+  const KEY = 'pigeonai:local-room'
+  try {
+    let id = localStorage.getItem(KEY)
+    if (!id) { id = `me-${Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('')}`; localStorage.setItem(KEY, id) }
+    return id
+  } catch { return `me-${Math.random().toString(16).slice(2)}` }
+}
+
+/** A GGUF file's name for Local AI (by its size and first megabyte), as PigeonAI reads it from the file. */
+export async function localModelName(file: File): Promise<string> {
+  const { localModelRef } = await import('pigeonai')
+  return localModelRef(file)
+}
+
+/**
+ * Local AI: the model on this device alone (PigeonAI's mesh, if it ran, stops: one model at a time
+ * on the GPU). In a room of its own, unless it is offered: then in the room where peers find offered
+ * models, still answering its own moves itself. Read from the file when there is one; kept in this browser.
+ */
+export function startLocalAI(local: LocalAIPrefs, file?: File): void {
+  if (!PIGEONAI_HERE || !lastStart || !local.model) return
+  const signaling = lastStart.signaling
+  mode.value = 'local'
+  status.value = 'Starting Local AI…'
+  void stopRunning().then(() => {
+    starting = (async () => {
+      try {
+        const { startPigeonAI } = await import('pigeonai')
+        ai = await startPigeonAI({
+          signaling,
+          network: 'local-ai',
+          room: local.offer ? 'offers' : ownRoom(),
+          model: local.model!,
+          ...(file ? { localFile: file } : {}),
+          // All of it here: kept whole, held whole (no cap but the browser's), ahead of anyone else.
+          server: true,
+          serveWholeModel: true,
+          serveChunks: local.offer === true,
+          keepOnServers: local.keepOnPigeonFS === true,
+          // From the mesh: read from peers and PigeonFS when they have it; a file or Hugging Face: so too, then the source.
+          shareWeights: true,
+          draftModel: null,
+          onStatus: (text) => { status.value = text },
+        })
+        ;(globalThis as Record<string, unknown>).__pigeonai = ai
+        modelName.value = nameOf(ai)
+        earnedSeen = { passes: 0, bytes: 0 }
+        watchProgress()
+      } catch (error) {
+        status.value = `Local AI could not start: ${(error as Error).message}`
+        starting = null
+      }
+    })()
+  })
+}
+
+/** Back from Local AI to PigeonAI's mesh (if its player has chosen how to take part). */
+export function stopLocalAI(): void {
+  if (mode.value !== 'local' || !lastStart) return
+  const { signaling, chessNetwork, prefs } = lastStart
+  mode.value = null
+  status.value = ''
+  void stopRunning().then(() => startPigeonAIPeer(signaling, chessNetwork, prefs))
 }
 
 /** The first legal move named in `text` (SAN, with or without + # ! ?, or from-to squares). */
@@ -545,5 +678,5 @@ export function said(text: string): string {
 }
 
 export function usePigeonAI() {
-  return { here: PIGEONAI_HERE, status, ready, progress, paused, modelName, networkName, ownNetwork }
+  return { here: PIGEONAI_HERE, status, ready, progress, paused, modelName, networkName, ownNetwork, mode, shareRule, earned }
 }
