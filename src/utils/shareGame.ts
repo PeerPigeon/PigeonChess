@@ -80,6 +80,18 @@ export async function shareUrl(game: GameHistoryEntry, signer: string | null): P
   return url.toString()
 }
 
+/** A short link: chess.peer.ooo/?g=<id>, the id of a record naming a kept game. */
+export function shortShareUrl(id: string): string {
+  const url = new URL(location.origin + location.pathname)
+  url.searchParams.set('g', id)
+  return url.toString()
+}
+/** The short link's id on this page, if it was opened from one. */
+export function shortLinkInUrl(): string | null {
+  const g = new URLSearchParams(location.search).get('g')
+  return g && /^[A-Za-z0-9]{6,16}$/.test(g) ? g : null
+}
+
 /** The game a link on this page names: its id, the player's key, and the game it carries (if any). */
 export function sharedGameInUrl(): { gameId: string; signer: string; packed: string | null } | null {
   const q = new URLSearchParams(location.search)
@@ -93,7 +105,8 @@ export function sharedGameInUrl(): { gameId: string; signer: string; packed: str
 /** Take the shared game out of the page's address (when leaving it). */
 export function forgetSharedGameInUrl(): void {
   const url = new URL(location.href)
-  if (!url.searchParams.has('game') && !url.hash.includes('m=')) return
+  if (!url.searchParams.has('game') && !url.searchParams.has('g') && !url.hash.includes('m=')) return
+  url.searchParams.delete('g')
   url.searchParams.delete('game')
   url.searchParams.delete('by')
   url.hash = ''

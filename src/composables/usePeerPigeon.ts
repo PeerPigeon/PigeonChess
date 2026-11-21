@@ -444,6 +444,37 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     }
   }
 
+  /**
+   * Short links: a frozen record (written once, never changed or deleted) in a room every player can read,
+   * naming a kept game by its player's key and its id. The game itself is still read from that player's
+   * own room, signed by them, so a link record can only ever point at a game that player kept.
+   */
+  const LINKS_ROOM = 'pigeonchess:links'
+  const withLinks = async <T>(use: (room: any) => Promise<T>): Promise<T | null> => {
+    const storage = await readyStorage()
+    if (!node || !storage) return null
+    const room = await node.openStorage(LINKS_ROOM, accountKeys ? { signingKeys: accountKeys } : {})
+    try { return await use(room) } catch { return null } finally { room.close?.() }
+  }
+  const SHORT_ABC = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const shortId = () => Array.from(crypto.getRandomValues(new Uint8Array(10)), (b) => SHORT_ABC[b % SHORT_ABC.length]).join('')
+  /** A short id for one of this player's kept games (null: the storage servers can't be reached). */
+  const saveShortLink = async (signer: string, gameId: string): Promise<string | null> =>
+    withLinks(async (room) => {
+      for (let i = 0; i < 3; i++) {
+        const id = shortId()
+        try { await room.put('frozen', `l/${id}`, { by: signer, game: gameId }); return id } catch { /* taken: another id */ }
+      }
+      return null
+    })
+  /** What a short id names: the player's key and the game's id. */
+  const readShortLink = async (id: string): Promise<{ by: string; game: string } | null> =>
+    withLinks(async (room) => {
+      const rec = await room.get('frozen', `l/${id}`)
+      const v = rec?.value
+      return v && typeof v.by === 'string' && typeof v.game === 'string' ? { by: v.by, game: v.game } : null
+    })
+
   // A request to the relay this page is on (PigeonIdP accounts on a local relay).
   const relayRequest = async (body: Record<string, unknown>) => {
     if (!node?.mesh?.relayRequest) throw new Error('not on a relay')
@@ -455,6 +486,8 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     storageSigner,
     tournamentRoom,
     loadSharedGame,
+    saveShortLink,
+    readShortLink,
     relayRequest,
     mesh,
     isConnected,

@@ -660,7 +660,7 @@ import { pigeonSearch } from './utils/pigeonAi'
 import { usePeerPigeon, migrateSignalingUrls } from './composables/usePeerPigeon'
 /** What's new (public/notes/index.html), opened from the build in the footer. */
 const FEATURE_NOTES = '/notes/'
-import { forgetSharedGameInUrl, movesPlay, offerLink, sharedGameInUrl, shareUrl, unpackGame } from '@/utils/shareGame'
+import { forgetSharedGameInUrl, movesPlay, offerLink, sharedGameInUrl, shareUrl, shortLinkInUrl, shortShareUrl, unpackGame } from '@/utils/shareGame'
 import { usePigeonAI, startPigeonAIPeer, restartPigeonAIPeer, startLocalAI, stopLocalAI, pigeonAINetwork, pigeonAILobbyReply, type LocalAIPrefs, pigeonAIMove, pigeonAIChat, warmPigeonAIChat, SPEAK_UP, tookCue, type ChatGame } from './composables/usePigeonAI'
 import { useSeek } from './composables/useSeek'
 import { loadSeat, makeSeatKeys, open, saveSeat, seal, type Seat, type SeatKeys } from './composables/useSeat'
@@ -771,6 +771,8 @@ const {
   readyStorage,
   tournamentRoom,
   loadSharedGame,
+  saveShortLink,
+  readShortLink,
   signStorageAs,
   saveGame,
   loadGames
@@ -4265,8 +4267,22 @@ const linkToOwnGame = async (game: GameHistoryEntry) => {
   const signer = await Promise.race([storageSigner().catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), 3000))])
   // Kept already, normally; if not (an old game, or the servers missed it), kept now, so the link finds it.
   if (signer) void saveGame(game).catch(() => {})
+  // A short link (one per game, kept in this browser so it's the same every time), else the long one,
+  // which carries the game itself.
+  if (signer) {
+    const known = shortLinks()[game.gameId]
+    if (known) return shortShareUrl(known)
+    const id = await Promise.race([saveShortLink(signer, game.gameId).catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), 4000))])
+    if (id) {
+      try { localStorage.setItem(SHORT_KEY, JSON.stringify({ ...shortLinks(), [game.gameId]: id })) } catch { /* made again next time */ }
+      return shortShareUrl(id)
+    }
+  }
   return shareUrl(game, signer)
 }
+/** This browser's short link for each of its games. */
+const SHORT_KEY = 'pigeonchess:short-links'
+const shortLinks = (): Record<string, string> => { try { return JSON.parse(localStorage.getItem(SHORT_KEY) || '{}') } catch { return {} } }
 
 const shareReplayGame = async () => {
   if (!replayGame.value) return
@@ -4992,8 +5008,16 @@ onMounted(async () => {
   notify.askOnFirstTap()
 
   // A link to a played game: shown first (a game in progress here is kept, and comes back after).
-  const shared = sharedGameInUrl()
-  if (shared) void openSharedGame(shared)
+  // A short link (?g=…): what it names, then opened as a long one would be (from the player's kept games).
+  const short = shortLinkInUrl()
+  const shared = sharedGameInUrl() ?? (short ? { gameId: '', signer: '', packed: null, short } : null)
+  if (shared && 'short' in shared) {
+    void (async () => {
+      const named = await readShortLink(shared.short as string)
+      if (named) void openSharedGame({ gameId: named.game, signer: named.by, packed: null })
+      else { console.warn('The short link names no game:', shared.short); forgetSharedGameInUrl() }
+    })()
+  } else if (shared) void openSharedGame(shared)
   // A game this browser was in the middle of (a reload, or a tap on a notification). Against the
   // computer it needs no network; against a person, it waits for this page's peer ID, however long.
   else if (!isGameActive.value) restoreAIGame()
