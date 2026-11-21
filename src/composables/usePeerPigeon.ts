@@ -282,6 +282,8 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
       publish: async (key, value) => started.storage?.put('public', key, value),
     })
     starting = node.start().then(() => {
+      // This browser's own key (before any account): games played here signed out are kept under it.
+      noteBrowserSigner(started.storage?.signer?.())
       // Signed in before the mesh was up: sign as the account from the start.
       if (accountKeys) started.storage?.signAs?.(accountKeys)
       // Started means the relays have us; other players may not be there yet.
@@ -360,7 +362,15 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
   // What a player writes is signed by their account once they sign in, so it is theirs on any device
   // they sign in from; before that (and after signing out), by this browser's own key.
   let accountKeys: { pub: string; priv: string } | null = null
+  /** This browser's own storage key (what it signs with signed out): remembered, so its games are found while signed in. */
+  let browserSigner: string | null = (() => { try { return localStorage.getItem('pigeonchess:browser-signer') } catch { return null } })()
+  const noteBrowserSigner = (signer: string | null | undefined) => {
+    if (!signer || signer === browserSigner || accountKeys?.pub === signer) return
+    browserSigner = signer
+    try { localStorage.setItem('pigeonchess:browser-signer', signer) } catch { /* known again next start */ }
+  }
   const signStorageAs = (keys: any) => {
+    if (!accountKeys) noteBrowserSigner(node?.storage?.signer?.())
     accountKeys = keys?.pub && keys?.priv ? { pub: keys.pub, priv: keys.priv } : null
     node?.storage?.signAs?.(accountKeys)
   }
@@ -409,7 +419,18 @@ export function usePeerPigeon(options: PeerPigeonOptions = {}) {
     if (!games) return []
     const records = await games.room.list('frozen')
     // Only records this player signed (the servers already take nothing else in this room).
-    return records.filter((r: any) => r.key.startsWith('chess-game:') && r.signer === games.signer && r.value).map((r: any) => r.value)
+    const mine = records.filter((r: any) => r.key.startsWith('chess-game:') && r.signer === games.signer && r.value).map((r: any) => r.value)
+    // Signed in: the games this browser kept signed out too (before signing in), from its own room.
+    if (browserSigner && browserSigner !== games.signer && node) {
+      const room = await node.openStorage(`pigeonchess:games:${browserSigner}`, { owner: browserSigner }).catch(() => null)
+      if (room) {
+        try {
+          const here = await room.list('frozen')
+          mine.push(...here.filter((r: any) => r.key.startsWith('chess-game:') && r.signer === browserSigner && r.value).map((r: any) => r.value))
+        } catch { /* the account's games, at least */ } finally { room.close?.() }
+      }
+    }
+    return mine
   }
 
   // The tournaments: kept in this mesh's own storage, which every peer in the room syncs with its

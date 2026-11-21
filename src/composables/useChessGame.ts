@@ -69,7 +69,11 @@ export function useChessGame(options: ChessGameOptions = {}) {
       const games = await options.loadGames()
       const kept = new Set(games.map((g) => g.gameId))
       const moved = await moveOldGames(kept)
-      const all = byDate([...games, ...moved])
+      // Merged with what this browser already lists: a game here is never dropped because storage
+      // doesn't have it (not kept yet, or kept under another key).
+      const byId = new Map<string, GameHistoryEntry>()
+      for (const g of [...games, ...moved, ...gameHistory.value]) if (g?.gameId && !byId.has(g.gameId)) byId.set(g.gameId, g)
+      const all = byDate([...byId.values()])
       gameHistory.value = all
       saveToLocalStorage('chess-game-history', all.slice(0, 50))
       console.log('Game history loaded:', all.length, 'games')
