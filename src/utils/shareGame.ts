@@ -71,11 +71,11 @@ export function movesPlay(moves: string[]): boolean {
   return true
 }
 
-/** The link to a game kept by the player whose key is `signer`. */
-export async function shareUrl(game: GameHistoryEntry, signer: string): Promise<string> {
+/** The link to a game kept by the player whose key is `signer` (null: not known yet, so the link's own copy is all it has). */
+export async function shareUrl(game: GameHistoryEntry, signer: string | null): Promise<string> {
   const url = new URL(location.origin + location.pathname)
   url.searchParams.set('game', game.gameId)
-  url.searchParams.set('by', signer)
+  if (signer) url.searchParams.set('by', signer)
   url.hash = `m=${await packGame(game)}`
   return url.toString()
 }
@@ -83,9 +83,10 @@ export async function shareUrl(game: GameHistoryEntry, signer: string): Promise<
 /** The game a link on this page names: its id, the player's key, and the game it carries (if any). */
 export function sharedGameInUrl(): { gameId: string; signer: string; packed: string | null } | null {
   const q = new URLSearchParams(location.search)
-  const gameId = q.get('game'), signer = q.get('by')
-  if (!gameId || !signer) return null
+  const gameId = q.get('game'), signer = q.get('by') ?? ''
   const packed = new URLSearchParams(location.hash.slice(1)).get('m')
+  // Without its player's key, the link's own copy of the game is all there is.
+  if (!gameId || (!signer && !packed)) return null
   return { gameId, signer, packed }
 }
 

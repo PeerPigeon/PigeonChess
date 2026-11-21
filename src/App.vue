@@ -111,6 +111,10 @@
           <button class="btn" @click="shareReplayGame">{{ shareWord || 'Copy link' }}</button>
           <button class="btn" @click="exitReplayMode">Back to the lobby</button>
         </div>
+        <label v-if="shareText" class="share-text">
+          <span>Copy this link:</span>
+          <input type="text" readonly :value="shareText" @focus="(e) => (e.target as HTMLInputElement).select()" />
+        </label>
 
         <div class="seat seat-bottom">
           <img class="seat-colour" :src="`/pieces/${replayGame.myColor === 'white' ? 'w' : 'b'}k.svg`" alt="" />
@@ -398,6 +402,10 @@
               <button class="btn" @click="shareFinishedGame">{{ shareWord || 'Copy link' }}</button>
               <button class="btn btn-go" @click="returnToLobby">Back to the lobby</button>
             </div>
+            <label v-if="shareText" class="share-text">
+              <span>Copy this link:</span>
+              <input type="text" readonly :value="shareText" @focus="(e) => (e.target as HTMLInputElement).select()" />
+            </label>
           </div>
         </div>
 
@@ -4150,6 +4158,7 @@ const declineTakebackRequest = () => {
 
 const returnToLobby = () => {
   forgetFinished()
+  shareText.value = ''
   dropAIGame()
   seat = null
   saveSeat(null)
@@ -4221,6 +4230,7 @@ const exitReplayMode = () => {
   sharedView.value = false
   sharedNote.value = ''
   shareWord.value = ''
+  shareText.value = ''
   forgetSharedGameInUrl()
   isReplayMode.value = false
   replayGame.value = null
@@ -4237,18 +4247,23 @@ const sharedNote = ref('')
 const sharedCheck = ref<'checking' | 'verified' | 'unverified' | ''>('')
 const shareWord = ref('')
 
+/** A link the clipboard didn't take: shown, to copy by hand. */
+const shareText = ref('')
 const giveLink = async (url: string | Promise<string>) => {
+  shareText.value = ''
   const how = await offerLink(url, 'A game of chess on PigeonChess')
-  shareWord.value = how === 'copied' ? 'Link copied' : how === 'shared' ? 'Shared' : 'Could not copy the link'
+  shareWord.value = how === 'copied' ? 'Link copied' : how === 'shared' ? 'Shared' : 'Could not copy it: the link is below'
+  if (how === 'failed') shareText.value = await Promise.resolve(url).catch(() => '')
   setTimeout(() => { shareWord.value = '' }, 2500)
 }
 
 /** A link to one of this player's games: named by the key it is kept under, with the game packed in. */
 const linkToOwnGame = async (game: GameHistoryEntry) => {
-  const signer = await storageSigner()
-  if (!signer) throw new Error('not connected yet')
+  // The player's key, if it's ready within a few seconds: without it the link still carries the game
+  // (it just can't be checked against the player's kept games).
+  const signer = await Promise.race([storageSigner().catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), 3000))])
   // Kept already, normally; if not (an old game, or the servers missed it), kept now, so the link finds it.
-  void saveGame(game).catch(() => {})
+  if (signer) void saveGame(game).catch(() => {})
   return shareUrl(game, signer)
 }
 
@@ -4262,7 +4277,13 @@ const shareReplayGame = async () => {
 /** The game just finished here: its entry in the history (kept when it ended). */
 const shareFinishedGame = async () => {
   const id = currentGame.value?.id
-  const game = gameHistory.value.find((g) => g.gameId === id)
+  // The game goes into the history as it ends: given a moment if it isn't there yet.
+  let game = gameHistory.value.find((g) => g.gameId === id)
+  for (let i = 0; !game && i < 10; i++) {
+    shareWord.value = 'Getting the link…'
+    await new Promise((r) => setTimeout(r, 500))
+    game = gameHistory.value.find((g) => g.gameId === id)
+  }
   if (!game) {
     shareWord.value = currentGame.value?.moves?.length ? 'Not kept yet: try again in a moment' : 'No moves to share'
     setTimeout(() => { shareWord.value = '' }, 2500)
@@ -4283,6 +4304,12 @@ const openSharedGame = async (link: { gameId: string; signer: string; packed: st
     const same = replayGame.value?.gameId === game.gameId && replayGame.value.moves.join(' ') === game.moves.join(' ')
     if (!(isReplayMode.value && same)) startReplayMode(game)
     sharedView.value = true
+  }
+  if (fromLink && !link.signer) {
+    show(fromLink)
+    sharedCheck.value = 'unverified'
+    sharedNote.value = "The link doesn't name its player, so it can't be checked: the moves come from the link alone."
+    return
   }
   if (fromLink) { show(fromLink); sharedCheck.value = 'checking'; sharedNote.value = "Checking it against the player's kept games…" }
   const kept = await Promise.race([
@@ -6327,5 +6354,7 @@ a.btn {
   padding: 10px 18px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
   font: inherit; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); cursor: pointer;
 }
+.share-text { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.6rem; font-size: 0.85rem; }
+.share-text input { width: 100%; font-size: 0.85rem; }
 </style>
 
