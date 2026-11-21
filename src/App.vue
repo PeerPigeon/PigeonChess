@@ -4159,6 +4159,7 @@ const declineTakebackRequest = () => {
 const returnToLobby = () => {
   forgetFinished()
   shareText.value = ''
+  forgetSharedGameInUrl() // the finished game's link leaves the address bar with it
   dropAIGame()
   seat = null
   saveSeat(null)
@@ -4275,6 +4276,30 @@ const shareReplayGame = async () => {
 }
 
 /** The game just finished here: its entry in the history (kept when it ended). */
+/**
+ * The address bar shows the game on the board: a finished game here, or one opened from the history, has
+ * its link there (the same as Copy link), so a link copied from the address bar is to that game.
+ */
+const showGameInAddress = async (game: GameHistoryEntry) => {
+  try {
+    const link = await linkToOwnGame(game)
+    const still = (currentGame.value?.status === 'finished' && currentGame.value.id === game.gameId) || (isReplayMode.value && replayGame.value?.gameId === game.gameId && !sharedView.value)
+    if (still && link !== location.href) history.replaceState(history.state, '', link)
+  } catch { /* the address stays as it is */ }
+}
+watch(
+  () => [currentGame.value?.status, currentGame.value?.id, gameHistory.value.length] as const,
+  ([status, id]) => {
+    if (status !== 'finished' || !id) return
+    const game = gameHistory.value.find((g) => g.gameId === id)
+    if (game) void showGameInAddress(game)
+  },
+)
+watch(
+  () => [isReplayMode.value, replayGame.value?.gameId, sharedView.value] as const,
+  ([on, id, shared]) => { if (on && id && !shared && replayGame.value) void showGameInAddress(replayGame.value) },
+)
+
 const shareFinishedGame = async () => {
   const id = currentGame.value?.id
   // The game goes into the history as it ends: given a moment if it isn't there yet.

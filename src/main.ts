@@ -22,10 +22,17 @@ const reloadWhenIdle = () => {
   const inGame = document.documentElement.dataset.inGame === '1' || Boolean(document.querySelector('.table .seat.running'))
   if (inGame) return
   const version = newerBuild.split(',')[0]
+  // Once per build (the address loses its ?v= once loaded, so this tab remembers instead).
+  try { if (sessionStorage.getItem('pigeonchess:reloaded-for') === version) return; sessionStorage.setItem('pigeonchess:reloaded-for', version) } catch { /* no storage: the ?v= check below */ }
   const url = new URL(location.href)
   if (url.searchParams.get('v') === version) return
   url.searchParams.set('v', version)
   location.replace(url.toString())
+}
+// The ?v= has done its job once the page is loaded: out of the address, so it is never in a link.
+{
+  const url = new URL(location.href)
+  if (url.searchParams.has('v')) { url.searchParams.delete('v'); history.replaceState(history.state, '', url.toString()) }
 }
 const checkBuild = async () => {
   try {
