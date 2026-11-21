@@ -274,7 +274,7 @@
             <button type="button" role="radio" class="mode-option" :class="{ picked: aiEngine === 'pigeonai' }" :aria-checked="aiEngine === 'pigeonai'" @click="setAIEngine('pigeonai')">PigeonAI</button>
           </div>
           <template v-if="pigeonAIOffered && aiEngine === 'local'">
-          <LocalAIPanel :prefs="localAIPrefs" @update="setLocalAIPrefs" @load="loadLocalAI" @start="startAIGame" />
+          <LocalAIPanel :prefs="localAIPrefs" :device-only="settings.pigeonAIDeviceOnly === true" @update="setLocalAIPrefs" @load="loadLocalAI" @start="startAIGame" />
           </template>
           <template v-else-if="pigeonAIOffered && aiEngine === 'pigeonai'">
           <p class="engine-note">PigeonAI is a language model<template v-if="pigeonAI.modelName.value"> ({{ pigeonAI.modelName.value }})</template> run by the players here together: each device that lends a share holds part of it. It is asked for every move, and plays a legal one.</p>
@@ -1238,7 +1238,7 @@ const pigeonAI = usePigeonAI()
 const pigeonAIShareKey = () => { const n = pigeonAINetwork(settings.value.networkName || 'global', settings.value.pigeonAIRoom || 'global'); return `${n.network}/${n.room}` }
 const pigeonAIShare = computed(() => settings.value.pigeonAIShare?.[pigeonAIShareKey()])
 /** This device's PigeonAI choices (Settings → PigeonAI). */
-const pigeonAIPrefs = () => ({ room: settings.value.pigeonAIRoom || 'global', model: settings.value.pigeonAIModel ?? '', serveWhole: settings.value.pigeonAIServeWhole === true, share: settings.value.pigeonAIShare?.[pigeonAIShareKey()], shareRule: settings.value.pigeonAIShareRule })
+const pigeonAIPrefs = () => ({ room: settings.value.pigeonAIRoom || 'global', model: settings.value.pigeonAIModel ?? '', serveWhole: settings.value.pigeonAIServeWhole === true, share: settings.value.pigeonAIShare?.[pigeonAIShareKey()], shareRule: settings.value.pigeonAIShareRule, deviceOnly: settings.value.pigeonAIDeviceOnly === true })
 const showPigeonAIJoin = ref(false)
 /** The player's choice of how to take part: kept for this network and room, and PigeonAI starts (again) on it. */
 const choosePigeonAIShare = (how: 'lend' | 'pay') => {
@@ -1249,7 +1249,7 @@ const choosePigeonAIShare = (how: 'lend' | 'pay') => {
 /** Local AI's choices (where its model comes from, offered or not), kept. */
 const localAIPrefs = computed<LocalAIPrefs>(() => settings.value.pigeonAILocal ?? { source: 'file' })
 const setLocalAIPrefs = (p: LocalAIPrefs) => { settings.value.pigeonAILocal = { ...p } }
-const loadLocalAI = (file?: File) => startLocalAI(localAIPrefs.value, file)
+const loadLocalAI = (file?: File) => startLocalAI(localAIPrefs.value, file, settings.value.pigeonAIDeviceOnly === true)
 /** Who you are in the lobby's chat: your account's name, else a guest by this page's id. */
 // (A guest's: from this browser's key, which stays across reloads, unlike the page's peer id.)
 const chatGuestKey = ref('')

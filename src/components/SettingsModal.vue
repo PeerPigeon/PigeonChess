@@ -141,11 +141,15 @@
           </label>
           <p class="description">Set with the model above, for everyone on {{ settings.networkName }}.</p>
         </template>
+        <label class="check">
+          <input type="checkbox" :checked="settings.pigeonAIDeviceOnly === true" @change="(e) => { settings.pigeonAIDeviceOnly = (e.target as HTMLInputElement).checked }" />
+          <span>Use only what's on this device: no model downloads, and no lending a share (PigeonAI then doesn't run here; Local AI plays from a model already on this device). For a phone hotspot or a metered connection.</span>
+        </label>
         <div class="ai-share" role="radiogroup" aria-label="How you take part">
           <span class="ai-share-head">How you take part in {{ aiNet.network }} / {{ aiNet.room }}</span>
           <label class="check">
             <input type="radio" name="pigeonai-share" :checked="shareNow === 'lend'" @change="setShare('lend')" />
-            <span>Lend a share of this device: it holds part of the model on its GPU and earns PigeonSeed for the work it does for others (coming soon)</span>
+            <span>Lend a share of this device: it holds part of the model on its GPU and earns PigeonSeed for the work it does for others (coming soon). It downloads its part of the model and sends parts to other players.</span>
           </label>
           <label class="check">
             <input type="radio" name="pigeonai-share" :checked="shareNow === 'pay'" :disabled="!payAllowed" @change="setShare('pay')" />

@@ -105,6 +105,26 @@ function nameOf(a: PigeonAI): string {
 /** What an answer starts with so the model doesn't think aloud first: Qwen3's (Bonsai) empty thinking; LFM3's PigeonAI writes itself. */
 const quiet = (a: PigeonAI) => (a.hf?.raw?.model_type === 'qwen3' ? '<think>\n\n</think>\n\n' : '')
 
+/**
+ * How big a model's download is, in bytes (null: not known). A Hugging Face model named with its file
+ * ("owner/repo/file.gguf"): the file's size, from Hugging Face's list of the repo's files.
+ */
+export async function modelDownloadSize(model: string): Promise<number | null> {
+  const parts = model.split('/')
+  if (parts.length < 3 || parts[0] === 'local') return null
+  const repo = parts.slice(0, 2).join('/'), path = parts.slice(2).join('/')
+  try {
+    const r = await fetch(`https://huggingface.co/api/models/${repo}/tree/main?recursive=true`, { signal: AbortSignal.timeout(8000) })
+    if (!r.ok) return null
+    const files = (await r.json()) as { path: string; size?: number; lfs?: { size?: number } }[]
+    const f = files.find((x) => x.path === path)
+    return f ? f.lfs?.size ?? f.size ?? null : null
+  } catch { return null }
+}
+
+/** Local AI's model is a file from the player's drive (its reads are from the file). */
+const localFromFile = ref(false)
+
 const describe = (a: PigeonAI): string => {
   if (a.ready()) return mode.value === 'local' ? 'Ready: the model is on this device.' : 'Ready: the model is held by the peers here.'
   let done = 0, total = 0, servers = 0, cached = 0
@@ -113,8 +133,18 @@ const describe = (a: PigeonAI): string => {
   const mb = (n: number) => `${Math.round(n / 1e6)} MB`
   // From the mesh: the peers here and the storage servers (swarmStats splits them).
   const sw = a.swarmStats?.() ?? null
-  const mesh = sw ? `${mb(sw.fromPeers)} from peers, ${mb(sw.fromServers)} from PigeonFS` : `${mb(servers)} from PigeonFS`
-  if (total > 0) return `Loading this device's share of the model: ${Math.round((100 * done) / total)}% (${mesh}, ${mb(Math.max(0, done - servers - cached))} from Hugging Face${cached ? `, ${mb(cached)} already on this device` : ''}).`
+  const fromPeers = sw ? sw.fromPeers : 0, fromServers = sw ? sw.fromServers : servers
+  if (total > 0) {
+    // Where each part came from, as it really was: a file from the drive is "your file", not a download.
+    const parts = [
+      [cached, localFromFile.value && mode.value === 'local' ? 'from your file' : 'already on this device'],
+      [fromPeers, 'from peers'],
+      [fromServers, 'from PigeonFS'],
+      [Math.max(0, done - servers - cached), 'from Hugging Face'],
+    ].filter(([n]) => (n as number) > 0).map(([n, from]) => `${mb(n as number)} ${from}`)
+    const what = mode.value === 'local' ? 'the model' : "this device's share of the model"
+    return `Loading ${what}: ${Math.round((100 * done) / total)}%${parts.length ? ` (${parts.join(', ')})` : ''}.`
+  }
   // Not enough room among the devices here for the whole model: say so, and how much is missing.
   const room = a.space()
   const gb = (n: number) => (n / 1e9).toFixed(1)
@@ -130,7 +160,7 @@ let ticker: ReturnType<typeof setInterval> | null = null
  * network and room: 'lend' a share of this device, or 'pay' to play; none: not yet chosen, and PigeonAI
  * doesn't start. `shareRule`: on a network of their own, whether its players must lend a share.
  */
-export interface PigeonAIPrefs { model?: string; serveWhole?: boolean; room?: string; share?: 'lend' | 'pay'; shareRule?: 'required' | 'optional' | 'off' }
+export interface PigeonAIPrefs { model?: string; serveWhole?: boolean; room?: string; share?: 'lend' | 'pay'; shareRule?: 'required' | 'optional' | 'off'; deviceOnly?: boolean }
 
 /** Local AI's choices: where its model comes from, and whether it is offered to others. */
 export interface LocalAIPrefs {
@@ -192,6 +222,12 @@ export function startPigeonAIPeer(signaling: Signaling, chessNetwork: string, pr
   shareRule.value = own ? prefs.shareRule ?? 'optional' : 'required'
   // Nothing runs on this device until its player has chosen how to take part (the Computer panel asks).
   if (!prefs.share) { mode.value = null; status.value = ''; return }
+  // Only what's on this device: PigeonAI downloads its share of the model and sends parts to others.
+  if (prefs.deviceOnly) {
+    mode.value = null
+    status.value = "PigeonAI is off: it downloads part of the model and shares it, and Settings → PigeonAI says to use only what's on this device. Local AI still plays, from a model on this device."
+    return
+  }
   mode.value = 'mesh'
   // On a network of its own: the model picked here (and, set, it becomes the network's), kept whole and
   // served if asked. Elsewhere: the network's.
@@ -302,10 +338,11 @@ export async function localModelName(file: File): Promise<string> {
  * on the GPU). In a room of its own, unless it is offered: then in the room where peers find offered
  * models, still answering its own moves itself. Read from the file when there is one; kept in this browser.
  */
-export function startLocalAI(local: LocalAIPrefs, file?: File): void {
+export function startLocalAI(local: LocalAIPrefs, file?: File, deviceOnly = false): void {
   if (!PIGEONAI_HERE || !lastStart || !local.model) return
   const signaling = lastStart.signaling
   mode.value = 'local'
+  localFromFile.value = !!file
   status.value = 'Starting Local AI…'
   void stopRunning().then(() => {
     starting = (async () => {
@@ -324,6 +361,8 @@ export function startLocalAI(local: LocalAIPrefs, file?: File): void {
           keepOnServers: local.keepOnPigeonFS === true,
           // From the mesh: read from peers and PigeonFS when they have it; a file or Hugging Face: so too, then the source.
           shareWeights: true,
+          // Only what's on this device: nothing over the network (a hotspot, a metered connection).
+          ...(deviceOnly ? { downloads: false, serveChunks: false, keepOnServers: false } : {}),
           draftModel: null,
           onStatus: (text) => { status.value = text },
         })
@@ -332,7 +371,10 @@ export function startLocalAI(local: LocalAIPrefs, file?: File): void {
         earnedSeen = { passes: 0, bytes: 0 }
         watchProgress()
       } catch (error) {
-        status.value = `Local AI could not start: ${(error as Error).message}`
+        const why = (error as Error).message
+        status.value = /downloads are off/.test(why)
+          ? "This model isn't on this device, and Settings → PigeonAI says to use only what's on it: choose a GGUF from your drive, or a model loaded here before."
+          : `Local AI could not start: ${why}`
         starting = null
       }
     })()

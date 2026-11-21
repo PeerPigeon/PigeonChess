@@ -51,8 +51,22 @@
     <p v-if="loaded" class="engine-status" :class="{ ready: pigeonAI.ready.value }">
       <PigeonAIStatus :text="pigeonAI.status.value" :progress="pigeonAI.progress.value" :ready="pigeonAI.ready.value" :paused="pigeonAI.paused.value" />
     </p>
+    <!-- Before a download: its size, and a yes (once per model on this device). -->
+    <div v-if="asking" class="ask" role="alertdialog" aria-label="Download the model?">
+      <p>
+        Loading {{ asking.name }} downloads <b>{{ asking.size }}</b> (whatever of it isn't on this device yet), from
+        peers, PigeonFS or Hugging Face. On a phone hotspot or a metered connection, that comes out of your data.
+      </p>
+      <div class="ask-row">
+        <button class="btn" @click="asking = null">Cancel</button>
+        <button class="btn btn-go" @click="download">Download</button>
+      </div>
+    </div>
+    <p v-if="deviceOnly && prefs.source !== 'file'" class="hint">
+      Settings → PigeonAI says to use only what's on this device: this loads only if the model was loaded here before.
+    </p>
     <div class="row">
-      <button v-if="!loaded || !pigeonAI.ready.value" class="btn btn-wide" :disabled="!canLoad" @click="$emit('load', file ?? undefined)">
+      <button v-if="!loaded || !pigeonAI.ready.value" class="btn btn-wide" :disabled="!canLoad || !!asking" @click="load">
         {{ loaded ? 'Load again' : 'Load on this device' }}
       </button>
       <button v-else class="btn btn-go btn-wide" @click="$emit('start')">Start against Local AI</button>
@@ -63,9 +77,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import PigeonAIStatus from './PigeonAIStatus.vue'
-import { usePigeonAI, localModelName, type LocalAIPrefs } from '@/composables/usePigeonAI'
+import { usePigeonAI, localModelName, modelDownloadSize, type LocalAIPrefs } from '@/composables/usePigeonAI'
 
-const props = defineProps<{ prefs: LocalAIPrefs }>()
+const props = defineProps<{ prefs: LocalAIPrefs; deviceOnly?: boolean }>()
 const emit = defineEmits<{ update: [prefs: LocalAIPrefs]; load: [file?: File]; start: [] }>()
 const pigeonAI = usePigeonAI()
 
@@ -85,6 +99,26 @@ const loaded = computed(() => pigeonAI.mode.value === 'local')
 const canLoad = computed(() => !!props.prefs.model && (props.prefs.source !== 'file' || !!file.value))
 
 const update = (patch: Partial<LocalAIPrefs>) => emit('update', { ...props.prefs, ...patch })
+
+/** Models this device's player said yes to downloading (asked once per model). */
+const OK_KEY = 'pigeonai:download-ok'
+const okd = (): string[] => { try { return JSON.parse(localStorage.getItem(OK_KEY) || '[]') } catch { return [] } }
+const asking = ref<{ name: string; size: string } | null>(null)
+const load = async () => {
+  const model = props.prefs.model
+  // A file from the drive downloads nothing; nor does "only what's on this device"; nor a model said yes to.
+  if (props.prefs.source === 'file' || props.deviceOnly || !model || okd().includes(model)) { emit('load', file.value ?? undefined); return }
+  const name = meshModels.find((m) => m.ref === model)?.name ?? model.split('/').slice(0, 2).join('/')
+  asking.value = { name, size: 'checking the size…' }
+  const bytes = await modelDownloadSize(model)
+  if (asking.value) asking.value = { name, size: bytes ? `${(bytes / 1e9).toFixed(2)} GB` : 'the model (its size is unknown: usually 1 to 2 GB)' }
+}
+const download = () => {
+  const model = props.prefs.model
+  if (model) try { localStorage.setItem(OK_KEY, JSON.stringify([...new Set([...okd(), model])])) } catch { /* asked again next time */ }
+  asking.value = null
+  emit('load', file.value ?? undefined)
+}
 const setSource = (source: LocalAIPrefs['source']) => {
   if (source === props.prefs.source) return
   file.value = null
@@ -120,4 +154,8 @@ const pickFile = async (e: Event) => {
 .check { display: flex; gap: 0.5rem; align-items: flex-start; margin: 0.45rem 0; font-size: 0.9rem; line-height: 1.35; }
 .check.off { opacity: 0.55; }
 .row { display: flex; margin-top: 0.6rem; }
+.ask { border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 0.7rem 0.8rem; background: var(--surface); }
+.ask p { margin: 0 0 0.6rem; font-size: 0.9rem; line-height: 1.4; }
+.ask-row { display: flex; gap: 0.5rem; }
+.ask-row .btn { padding: 0.55rem 0.8rem; }
 </style>

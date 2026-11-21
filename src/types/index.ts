@@ -101,6 +101,8 @@ export interface Settings {
   pigeonAIShareRule?: 'required' | 'optional' | 'off'
   /** Local AI: where its model comes from, its name, and whether it is offered (and kept on PigeonFS). */
   pigeonAILocal?: { source: 'file' | 'hf' | 'mesh'; model?: string; name?: string; offer?: boolean; keepOnPigeonFS?: boolean }
+  /** Use only what's on this device: no model downloads and no lending (a phone hotspot, a metered connection). */
+  pigeonAIDeviceOnly?: boolean
 }
 
 export interface BoardTheme {

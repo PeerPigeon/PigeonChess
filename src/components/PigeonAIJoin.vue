@@ -12,7 +12,9 @@
         <span class="choice-head">Lend a share of this device</span>
         <span class="choice-body">
           While chess.peer.ooo is open, this device holds part of the model on its GPU and storage, within the
-          limits in Settings. You earn PigeonSeed for the work it does for other players.
+          limits in Settings. You earn PigeonSeed for the work it does for other players. It downloads its
+          part of the model (once; it's kept) and sends parts to other players: on a phone hotspot or a metered
+          connection, that uses your data.
         </span>
         <span class="soon">PigeonSeed: coming soon. The work is counted already.</span>
       </button>
