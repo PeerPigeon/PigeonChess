@@ -11,6 +11,8 @@ export const CHAT_KEYS = 'pc-c/'
 /** What is shown: the last SHOWN messages. Each writer keeps only its own last OWN in the room. */
 const SHOWN = 100
 const OWN = 20
+/** Messages expire after a week: nobody shows them, and their writer deletes them. */
+export const CHAT_EXPIRE_MS = 7 * 24 * 60 * 60 * 1000
 const RATE = 5
 const RATE_MS = 10_000
 const MAX_TEXT = 300
@@ -53,7 +55,8 @@ function fromRecord(r: any): ChatMessage | null {
 
 /** The messages to show: by time, the muted left out, and a writer's beyond RATE in RATE_MS. */
 function settle(all: ChatMessage[]): ChatMessage[] {
-  const sorted = all.filter((m) => !muted.value.has(m.signer)).sort((a, b) => a.at - b.at)
+  const since = Date.now() - CHAT_EXPIRE_MS
+  const sorted = all.filter((m) => m.at > since && !muted.value.has(m.signer)).sort((a, b) => a.at - b.at)
   const recent = new Map<string, number[]>()
   const kept: ChatMessage[] = []
   for (const m of sorted) {
@@ -83,6 +86,7 @@ export async function startLobbyChat(s: Storage | null): Promise<void> {
   const records = await s.list('user').catch(() => [])
   all = records.map(fromRecord).filter((m): m is ChatMessage => !!m)
   show()
+  prune(s)
   unsubscribe = s.subscribe?.((e) => {
     if (e.space !== 'user' || !e.key.startsWith(CHAT_KEYS)) return
     if (e.op === 'delete') { all = all.filter((m) => m.key !== e.key); show(); return }
@@ -120,11 +124,20 @@ export async function sendLobbyChat(text: string, name: string, bot?: string, re
   if (!bot) sentAt.push(now)
   const key = `${CHAT_KEYS}${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`
   await storage.put('user', key, { text: t, at: now, name, ...(bot ? { bot } : {}), ...(re ? { re } : {}) })
-  // Only this writer's last OWN messages stay in the room.
-  const me = storage.signer?.()
-  const mine = all.filter((m) => m.signer === me).sort((a, b) => a.at - b.at)
-  for (const m of mine.slice(0, Math.max(0, mine.length - OWN))) void Promise.resolve(storage.delete?.('user', m.key)).catch(() => {})
+  prune(storage)
   return null
+}
+
+/** This writer's messages that go: those past a week, and all but its last OWN. */
+function prune(s: Storage): void {
+  const me = s.signer?.()
+  if (!me) return
+  const since = Date.now() - CHAT_EXPIRE_MS
+  const mine = all.filter((m) => m.signer === me).sort((a, b) => a.at - b.at)
+  const extra = Math.max(0, mine.length - OWN)
+  mine.forEach((m, i) => {
+    if (i < extra || m.at <= since) void Promise.resolve(s.delete?.('user', m.key)).catch(() => {})
+  })
 }
 
 export function muteInChat(signer: string): void {

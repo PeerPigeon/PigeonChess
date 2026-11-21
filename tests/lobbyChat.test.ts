@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { startLobbyChat, sendLobbyChat, muteInChat, setChatOpen, useLobbyChat, CHAT_KEYS } from '../src/composables/useLobbyChat.ts'
+import { CHAT_EXPIRE_MS, startLobbyChat, sendLobbyChat, muteInChat, setChatOpen, useLobbyChat, CHAT_KEYS } from '../src/composables/useLobbyChat.ts'
 
 /** A room's storage as PeerPigeon's: records with their signer, and a change for each write here or arriving. */
 function room() {
@@ -19,16 +19,18 @@ function room() {
   return { recs, as, arrive: (signer: string, key: string, value: unknown) => { recs.set(key, { key, value, signer }); emit('upsert', key) } }
 }
 
-test('the lobby chat: what is in the room shows, in order; new messages arrive; a writer keeps its last 20; a muted writer goes', async () => {
+test('the lobby chat: what is in the room shows, in order; new messages arrive; a writer keeps its last 20; a muted writer goes; a week-old message goes', async () => {
   const r = room()
-  r.arrive('bob', `${CHAT_KEYS}a`, { text: 'second', at: 2000, name: 'Bob' })
-  r.arrive('ann', `${CHAT_KEYS}b`, { text: 'first', at: 1000, name: 'Ann' })
+  const t0 = Date.now() - 60_000
+  r.arrive('bob', `${CHAT_KEYS}a`, { text: 'second', at: t0 + 2000, name: 'Bob' })
+  r.arrive('ann', `${CHAT_KEYS}b`, { text: 'first', at: t0 + 1000, name: 'Ann' })
+  r.arrive('ann', `${CHAT_KEYS}old`, { text: 'last week', at: Date.now() - CHAT_EXPIRE_MS - 1, name: 'Ann' })
   r.arrive('ann', 'pc-t/t:x', { name: 'not chat' })
   const chat = useLobbyChat()
   await startLobbyChat(r.as('me') as never)
   assert.deepEqual(chat.messages.value.map((m) => m.text), ['first', 'second'])
   setChatOpen(false)
-  r.arrive('bob', `${CHAT_KEYS}c`, { text: 'anyone for 5+0?', at: 3000, name: 'Bob' })
+  r.arrive('bob', `${CHAT_KEYS}c`, { text: 'anyone for 5+0?', at: t0 + 3000, name: 'Bob' })
   await new Promise((r) => setTimeout(r, 5))
   assert.equal(chat.messages.value.at(-1)?.text, 'anyone for 5+0?')
   assert.equal(chat.unread.value, 1, 'counted while closed')
