@@ -3467,7 +3467,7 @@ watch(() => currentGame.value?.moves.length ?? 0, (n, before) => {
   const last = history.length === n ? history[n - 1] : undefined
   const took = last?.captured ? tookCue(last.captured) : null
   const cue = took ? took.cue : Math.random() < 0.25 ? SPEAK_UP : null
-  console.debug(`[pigeonai] after its move ${n}: ${last?.captured ? `took a ${last.captured}, speaks` : cue ? 'speaks (1 in 4)' : 'quiet'}`)
+  console.info(`[pigeonai] after its move ${n}: ${last?.captured ? `took a ${last.captured}, speaks` : cue ? 'speaks (1 in 4)' : 'quiet'}`)
   if (!cue) return
   // After a moment that varies, like a person: sooner after taking a piece.
   const wait = last?.captured ? 500 + Math.random() * 2500 : 1000 + Math.random() * 6000
@@ -3491,8 +3491,14 @@ const askPigeonAI = (text: string | null, cue = SPEAK_UP, start = '') => {
     if (!t) line = 0
   }
   void pigeonAIChat(said, chatGameNow(), lines, show, () => { if (!line) pigeonShowWriting.value = true }, start)
-    .then((reply) => show(text === null && reply === '…' ? '' : reply))
-    .catch((err: Error) => { if (text !== null) show(`(${err.message})`); else show('') })
+    .then((reply) => {
+      if (text === null && reply === '…') console.warn('[pigeonai] spoke up with nothing to say (an empty answer)')
+      show(text === null && reply === '…' ? '' : reply)
+    })
+    .catch((err: Error) => {
+      console.warn(`[pigeonai] ${text === null ? 'speaking up' : 'answering'} failed: ${err.message}`)
+      if (text !== null) show(`(${err.message})`); else show('')
+    })
     .finally(() => { pigeonTyping.value = false; pigeonShowWriting.value = false })
 }
 const sendChat = () => {
